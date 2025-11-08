@@ -1,0 +1,95 @@
+/* Quicksort with Random Array
+   Tests: random() built-in, recursion, array-like operations
+*/
+
+#pragma appname "Quicksort Test"
+#pragma console on
+#pragma optimizecode on
+#pragma "ListASM" "on"
+#pragma version
+
+print("=== Quicksort with Random Numbers ===\n");
+
+// Create array of random values
+// We'll use numbered variables since we don't have arrays yet
+print("\nGenerating 10 random numbers (0-99):\n");
+
+a0 = random(100);
+a1 = random(100);
+a2 = random(100);
+a3 = random(100);
+a4 = random(100);
+a5 = random(100);
+a6 = random(100);
+a7 = random(100);
+a8 = random(100);
+a9 = random(100);
+
+print("Before sort:\n");
+print(a0, " ", a1, " ", a2, " ", a3, " ", a4, "\n");
+print(a5, " ", a6, " ", a7, " ", a8, " ", a9, "\n");
+
+// Sort using bubble sort (simpler without arrays)
+// Compare and swap adjacent elements
+func swap(i) {
+    // Swap elements at position i and i+1
+    // Returns 1 if swapped, 0 if not
+    swapped = 0;
+
+    if (i == 0) {
+        if (a0 > a1) { temp = a0; a0 = a1; a1 = temp; swapped = 1; }
+    }
+    if (i == 1) {
+        if (a1 > a2) { temp = a1; a1 = a2; a2 = temp; swapped = 1; }
+    }
+    if (i == 2) {
+        if (a2 > a3) { temp = a2; a2 = a3; a3 = temp; swapped = 1; }
+    }
+    if (i == 3) {
+        if (a3 > a4) { temp = a3; a3 = a4; a4 = temp; swapped = 1; }
+    }
+    if (i == 4) {
+        if (a4 > a5) { temp = a4; a4 = a5; a5 = temp; swapped = 1; }
+    }
+    if (i == 5) {
+        if (a5 > a6) { temp = a5; a5 = a6; a6 = temp; swapped = 1; }
+    }
+    if (i == 6) {
+        if (a6 > a7) { temp = a6; a6 = a7; a7 = temp; swapped = 1; }
+    }
+    if (i == 7) {
+        if (a7 > a8) { temp = a7; a7 = a8; a8 = temp; swapped = 1; }
+    }
+    if (i == 8) {
+        if (a8 > a9) { temp = a8; a8 = a9; a9 = temp; swapped = 1; }
+    }
+
+    return swapped;
+}
+
+// Bubble sort main loop
+pass = 0;
+while (pass < 9) {
+    i = 0;
+    while (i < 9) {
+        swap(i);
+        i = i + 1;
+    }
+    pass = pass + 1;
+}
+
+print("\nAfter bubble sort:\n");
+print(a0, " ", a1, " ", a2, " ", a3, " ", a4, "\n");
+print(a5, " ", a6, " ", a7, " ", a8, " ", a9, "\n");
+
+// Test other built-in functions
+print("\nTesting built-in functions:\n");
+print("abs(-42) = ", abs(-42), "\n");
+print("abs(42) = ", abs(42), "\n");
+print("min(10, 20) = ", min(10, 20), "\n");
+print("max(10, 20) = ", max(10, 20), "\n");
+print("random(10) five times: ");
+print(random(10), " ", random(10), " ", random(10), " ");
+print(random(10), " ", random(10), "\n");
+
+print("\n=== Done ===\n");

@@ -16,6 +16,23 @@ Macro                   vm_DebugFunctionName()
    ;Debug #PB_Compiler_Procedure
 EndMacro
 
+; Macro for built-in functions: get parameter count
+Macro                   vm_GetParamCount()
+   _AR()\j
+EndMacro
+
+; Macro for built-in functions: pop N parameters from stack
+Macro                   vm_PopParams(n)
+   sp - n
+EndMacro
+
+; Macro for built-in functions: push integer result
+Macro                   vm_PushInt(value)
+   gVar(sp)\i = value
+   gVar(sp)\flags = #C2FLAG_INT
+   sp + 1
+   pc + 1
+EndMacro
 
 ;XIncludeFile            "C2-inc-v05.PBI"
 
@@ -69,7 +86,7 @@ Procedure               C2FetchPush()
    varSlot = _AR()\i
 
    ; Check if this is a stack-local parameter AND we're in a function
-   If (gVar(varSlot)\flags & #C2FLAG_PARAM) And ListSize(llStack()) > 0
+   If (gVar(varSlot)\flags & #C2FLAG_PARAM) And gFunctionDepth > 0
       ; Read from stack at callerSp + paramOffset
       callerSp = llStack()\sp
       gVar( sp ) = gVar( callerSp + gVar(varSlot)\paramOffset )
@@ -90,7 +107,7 @@ Procedure               C2FETCHS()
    varSlot = _AR()\i
 
    ; Check if this is a stack-local parameter AND we're in a function
-   If (gVar(varSlot)\flags & #C2FLAG_PARAM) And ListSize(llStack()) > 0
+   If (gVar(varSlot)\flags & #C2FLAG_PARAM) And gFunctionDepth > 0
       ; Read from stack at callerSp + paramOffset
       callerSp = llStack()\sp
       gVar( sp ) = gVar( callerSp + gVar(varSlot)\paramOffset )
@@ -99,7 +116,7 @@ Procedure               C2FETCHS()
       gVar( sp ) = gVar( varSlot )
    EndIf
 
-   gVar( sp )\flags = #C2FLAG_IDENT | #C2FLAG_STR
+   ; Flag already set at compile time by PostProcessor
 
    sp + 1
    pc + 1
@@ -115,7 +132,7 @@ Procedure               C2FETCHF()
    ;Debug "FETCHF BEFORE: sp=" + Str(sp) + " fetching gVar(" + Str(varSlot) + ")[" + gVar(varSlot)\name + "] f=" + StrD(gVar(varSlot)\f, 6)
 
    ; Check if this is a stack-local parameter AND we're in a function
-   If (gVar(varSlot)\flags & #C2FLAG_PARAM) And ListSize(llStack()) > 0
+   If (gVar(varSlot)\flags & #C2FLAG_PARAM) And gFunctionDepth > 0
       ; Read from stack at callerSp + paramOffset
       callerSp = llStack()\sp
       gVar( sp ) = gVar( callerSp + gVar(varSlot)\paramOffset )
@@ -124,7 +141,7 @@ Procedure               C2FETCHF()
       gVar( sp ) = gVar( varSlot )
    EndIf
 
-   gVar( sp )\flags = #C2FLAG_IDENT | #C2FLAG_FLOAT
+   ; Flag already set at compile time by PostProcessor
 
    ;Debug "FETCHF AFTER: pushed to gVar(" + Str(sp) + "), now incrementing sp"
 
@@ -191,7 +208,7 @@ Procedure               C2Store()
 
    ; NEW CODE - copy only data fields:
    gVar( _AR()\i )\i = gVar( sp )\i
-   gVar( _AR()\i )\flags = #C2FLAG_IDENT | #C2FLAG_INT
+   ; Flag already set at compile time by PostProcessor
    ;gVar( _AR()\i )\f = gVar( sp )\f
    ;gVar( _AR()\i )\ss = gVar( sp )\ss
    ;gVar( _AR()\i )\p = gVar( sp )\p
@@ -205,7 +222,7 @@ Procedure               C2STORES()
 
    ; Copy data fields for string store
    gVar( _AR()\i )\ss = gVar( sp )\ss
-   gVar( _AR()\i )\flags = #C2FLAG_IDENT | #C2FLAG_STR
+   ; Flag already set at compile time by PostProcessor
 
    pc + 1
 EndProcedure
@@ -216,7 +233,7 @@ Procedure               C2STOREF()
 
    ; Copy data fields for float store
    gVar( _AR()\i )\f = gVar( sp )\f
-   gVar( _AR()\i )\flags = #C2FLAG_IDENT | #C2FLAG_FLOAT
+   ; Flag already set at compile time by PostProcessor
 
    ;Debug "STOREF: Storing gVar(" + Str(sp) + ")\f=" + StrD(gVar(sp)\f, 6) + " to gVar(" + Str(_AR()\i) + ")[" + gVar(_AR()\i)\name + "]"
 
@@ -234,7 +251,7 @@ Procedure               C2MOV()
    ;gVar( _AR()\i )\f = gVar( _AR()\j )\f
    ;gVar( _AR()\i )\ss = gVar( _AR()\j )\ss
    ;gVar( _AR()\i )\p = gVar( _AR()\j )\p
-   gVar( _AR()\i )\flags = #C2FLAG_IDENT | #C2FLAG_INT
+   ; Flag already set at compile time by PostProcessor
 
    pc + 1
 EndProcedure
@@ -244,7 +261,7 @@ Procedure               C2MOVS()
 
    ; Copy data fields for string move
    gVar( _AR()\i )\ss = gVar( _AR()\j )\ss
-   gVar( _AR()\i )\flags = #C2FLAG_IDENT | #C2FLAG_STR
+   ; Flag already set at compile time by PostProcessor
 
    pc + 1
 EndProcedure
@@ -254,7 +271,7 @@ Procedure               C2MOVF()
 
    ; Copy data fields for float move
    gVar( _AR()\i )\f = gVar( _AR()\j )\f
-   gVar( _AR()\i )\flags = #C2FLAG_IDENT | #C2FLAG_FLOAT
+   ; Flag already set at compile time by PostProcessor
 
    pc + 1
 EndProcedure
@@ -305,7 +322,7 @@ Procedure               C2ADDSTR()
 
    ; Concatenate and store result
    gVar(sp - 1)\ss = leftStr + rightStr
-   gVar(sp - 1)\flags = #C2FLAG_STR  ; Mark result as string
+   ; Flag already set at compile time by PostProcessor
 
    pc + 1
 EndProcedure
@@ -404,39 +421,59 @@ EndProcedure
 Procedure               C2PRTS()
    vm_DebugFunctionName()
    sp - 1
-   cline = cline + gVar(sp)\ss
-   SetGadgetItemText( #edConsole, cy, cline )
+   CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+      gBatchOutput + gVar(sp)\ss
+      Print(gVar(sp)\ss)  ; Echo to console
+   CompilerElse
+      cline = cline + gVar(sp)\ss
+      SetGadgetItemText( #edConsole, cy, cline )
+   CompilerEndIf
    pc + 1
 EndProcedure
 
 Procedure               C2PRTI()
    vm_DebugFunctionName()
    sp - 1
-   cline = cline + Str( gVar( sp )\i )
-   SetGadgetItemText( #edConsole, cy, cline )
+   CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+      gBatchOutput + Str( gVar( sp )\i )
+      Print(Str( gVar( sp )\i ))  ; Echo to console
+   CompilerElse
+      cline = cline + Str( gVar( sp )\i )
+      SetGadgetItemText( #edConsole, cy, cline )
+   CompilerEndIf
    pc + 1
 EndProcedure
 
 Procedure               C2PRTF()
    vm_DebugFunctionName()
    sp - 1
-   cline = cline + StrD( gVar( sp )\f, gDecs )
-   SetGadgetItemText( #edConsole, cy, cline)
+   CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+      gBatchOutput + StrD( gVar( sp )\f, gDecs )
+      Print(StrD( gVar( sp )\f, gDecs ))  ; Echo to console
+   CompilerElse
+      cline = cline + StrD( gVar( sp )\f, gDecs )
+      SetGadgetItemText( #edConsole, cy, cline)
+   CompilerEndIf
    pc + 1
 EndProcedure
 
 Procedure               C2PRTC()
    vm_DebugFunctionName()
    sp - 1
-   
-   If gVar( sp )\i = 10
-      cy + 1
-      cline = ""
-      AddGadgetItem( #edConsole, -1, "" )
-   Else
-      cline = cline + Chr( gVar( sp )\i )
-      SetGadgetItemText( #edConsole, cy, cline )
-   EndIf
+
+   CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+      gBatchOutput + Chr( gVar( sp )\i )
+      If gVar( sp )\i = 10 : PrintN( "" ) : EndIf
+   CompilerElse
+      If gVar( sp )\i = 10
+         cy + 1
+         cline = ""
+         AddGadgetItem( #edConsole, -1, "" )
+      Else
+         cline = cline + Chr( gVar( sp )\i )
+         SetGadgetItemText( #edConsole, cy, cline )
+      EndIf
+   CompilerEndIf
    pc + 1
 EndProcedure
 
@@ -501,16 +538,17 @@ Procedure               C2CALL()
 
    nParams = _AR()\j  ; Get parameter count from instruction
 
+   ; User-defined function - create stack frame and jump to bytecode address
    AddElement( llStack() )
    llStack()\pc = pc + 1
    llStack()\sp = sp - nParams  ; Save sp BEFORE params were pushed (FIX: prevents stack leak)
    pc = _AR()\i
+   gFunctionDepth + 1  ; Increment function depth counter
 
    ;Debug "CALL pc=" + Str(pc) + " with " + Str(nParams) + " params, sp=" + Str(sp) + " saving callerSp=" + Str(llStack()\sp)
    ;Debug "s=" + gVar( sp - 3 )\ss + " d=" + Str( gVar( sp - 3 )\i ) + " f=" + StrD( gVar( sp - 3 )\f, 3 )
    ;Debug "s=" + gVar( sp - 2 )\ss + " d=" + Str( gVar( sp - 2 )\i ) + " f=" + StrD( gVar( sp - 2 )\f, 3 )
    ;Debug "s=" + gVar( sp - 1 )\ss + " d=" + Str( gVar( sp - 1 )\i ) + " f=" + StrD( gVar( sp - 1 )\f, 3 )
-
 EndProcedure
 
 Procedure               C2Return()
@@ -543,6 +581,7 @@ Procedure               C2Return()
    pc = llStack()\pc
    sp = callerSp
    DeleteElement( llStack() )
+   gFunctionDepth - 1  ; Decrement function depth counter
 
    ; Push return value onto caller's stack
    gVar(sp) = returnValue
@@ -572,6 +611,7 @@ Procedure               C2ReturnF()
    pc = llStack()\pc
    sp = callerSp
    DeleteElement( llStack() )
+   gFunctionDepth - 1  ; Decrement function depth counter
 
    ; Push float return value onto caller's stack
    gVar(sp) = returnValue
@@ -601,10 +641,108 @@ Procedure               C2ReturnS()
    pc = llStack()\pc
    sp = callerSp
    DeleteElement( llStack() )
+   gFunctionDepth - 1  ; Decrement function depth counter
 
    ; Push string return value onto caller's stack
    gVar(sp) = returnValue
    sp + 1
+EndProcedure
+
+;-
+;- Built-in Functions (VM Handlers)
+;-
+
+; random() - Returns random integer
+; random()         -> 0 to maxint
+; random(max)      -> 0 to max-1
+; random(min, max) -> min to max-1
+Procedure C2BUILTIN_RANDOM()
+   vm_DebugFunctionName()
+   Protected paramCount.i = vm_GetParamCount()
+   Protected minVal.i, maxVal.i, result.i
+
+   Select paramCount
+      Case 0
+         result = Random(2147483647)
+      Case 1
+         maxVal = gVar(sp - 1)\i
+         If maxVal <= 0 : maxVal = 1 : EndIf
+         result = Random(maxVal - 1)
+         vm_PopParams(1)
+      Case 2
+         maxVal = gVar(sp - 1)\i
+         minVal = gVar(sp - 2)\i
+         If maxVal <= minVal : maxVal = minVal + 1 : EndIf
+         result = Random(maxVal - minVal - 1) + minVal
+         vm_PopParams(2)
+      Default
+         result = 0
+         vm_PopParams(paramCount)
+   EndSelect
+
+   vm_PushInt(result)
+EndProcedure
+
+; abs(x) - Absolute value
+Procedure C2BUILTIN_ABS()
+   vm_DebugFunctionName()
+   Protected paramCount.i = vm_GetParamCount()
+   Protected result.i
+
+   If paramCount > 0
+      result = Abs(gVar(sp - 1)\i)
+      vm_PopParams(paramCount)
+   Else
+      result = 0
+   EndIf
+
+   vm_PushInt(result)
+EndProcedure
+
+; min(a, b) - Minimum of two values
+Procedure C2BUILTIN_MIN()
+   vm_DebugFunctionName()
+   Protected paramCount.i = vm_GetParamCount()
+   Protected a.i, b.i, result.i
+
+   If paramCount >= 2
+      b = gVar(sp - 1)\i
+      a = gVar(sp - 2)\i
+      If a < b
+         result = a
+      Else
+         result = b
+      EndIf
+      vm_PopParams(paramCount)
+   Else
+      result = 0
+      vm_PopParams(paramCount)
+   EndIf
+
+   vm_PushInt(result)
+EndProcedure
+
+; max(a, b) - Maximum of two values
+Procedure C2BUILTIN_MAX()
+   vm_DebugFunctionName()
+   Protected paramCount.i = vm_GetParamCount()
+   Protected a.i, b.i, result.i
+
+   If paramCount >= 2
+      b = gVar(sp - 1)\i
+      a = gVar(sp - 2)\i
+      If a > b
+         result = a
+      Else
+         result = b
+      EndIf
+      vm_PopParams(paramCount)
+   Else
+      result = 0
+      vm_PopParams(paramCount)
+   EndIf
+
+   vm_PushInt(result)
 EndProcedure
 
 Procedure               C2HALT()
@@ -615,9 +753,9 @@ EndProcedure
 
 ;- End VM functions
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 201
-; FirstLine = 164
-; Folding = ----------
+; CursorPosition = 463
+; FirstLine = 459
+; Folding = ------------
 ; EnableAsm
 ; EnableThread
 ; EnableXP

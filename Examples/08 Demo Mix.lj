@@ -1,3 +1,10 @@
+#pragma "console" "on"
+#pragma "appname" "Mandelbrot Demo"
+#pragma "consolesize"  "760x690"
+#pragma "optimizecode" "off"
+#pragma "ListASM" "on"
+#pragma "version"
+
 print( "First line\n" );
 
 a = (-1 * ((-1 * (5 * 15)) / 10));

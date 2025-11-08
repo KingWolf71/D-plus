@@ -1,0 +1,30 @@
+/* Test #pragma optimizecode off
+   This disables all optimization passes
+   Compare output with optimizations on
+*/
+
+#pragma appname "No Optimize Test"
+#pragma console on
+#pragma "optimizecode" off
+#pragma "version"
+#pragma "ListASM" "off"
+
+print("=== Testing With Optimizations DISABLED ===\n");
+
+print("\nConstant folding disabled:\n");
+result1 = 10 + 5;  // Will NOT be folded at compile time
+print("10 + 5 = ", result1, "\n");
+
+result2 = 20 * 3;  // Will NOT be folded
+print("20 * 3 = ", result2, "\n");
+
+print("\nIdentity optimizations disabled:\n");
+x = 42;
+y = x + 0;  // Will NOT eliminate + 0
+print("x + 0 = ", y, "\n");
+
+z = x * 1;  // Will NOT eliminate * 1
+print("x * 1 = ", z, "\n");
+
+print("\n=== Results should be correct but not optimized ===\n");
+print("Note: Use #pragma optimizecode on to enable optimizations\n");

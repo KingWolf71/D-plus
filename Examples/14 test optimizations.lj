@@ -1,0 +1,68 @@
+/* Test Enhanced Instruction Fusion Optimizations
+   - Pass 2: Redundant assignment elimination (x = x)
+   - Pass 3: Dead code elimination (PUSH + POP)
+   - Pass 4: Constant folding (compile-time arithmetic)
+   - Pass 5: Arithmetic identities (x+0, x*1, x*0, x/1, x-0)
+*/
+
+#pragma appname "Optimization Test"
+#pragma console on
+
+print("Testing Enhanced Optimizations\n");
+
+// Test 1: Constant folding - should compute at compile time
+print("\nTest 1: Constant folding\n");
+
+result1 = 10 + 5;          // Should fold to 15
+print("10 + 5 = ", result1, "\n");
+
+result1 = 20 * 3;          // Should fold to 60
+print("20 * 3 = ", result1, "\n");
+
+result1 = 100 - 25;        // Should fold to 75
+print("100 - 25 = ", result1, "\n");
+
+result1 = 48 / 4;          // Should fold to 12
+print("48 / 4 = ", result1, "\n");
+
+result1 = 17 % 5;          // Should fold to 2
+print("17 % 5 = ", result1, "\n");
+
+// Test 2: Arithmetic identities - should eliminate operations
+print("\nTest 2: Arithmetic identities\n");
+
+x = 42;
+
+result1 = x + 0;           // Should eliminate + 0
+print("x + 0 = ", result1, "\n");
+
+result1 = x - 0;           // Should eliminate - 0
+print("x - 0 = ", result1, "\n");
+
+result1 = x * 1;           // Should eliminate * 1
+print("x * 1 = ", result1, "\n");
+
+result1 = x / 1;           // Should eliminate / 1
+print("x / 1 = ", result1, "\n");
+
+result1 = x * 0;           // Should replace with just 0
+print("x * 0 = ", result1, "\n");
+
+// Test 3: Combined optimizations
+print("\nTest 3: Combined constant folding and identities\n");
+
+result1 = (10 + 5) * 1;    // Should fold 10+5 to 15, then eliminate *1
+print("(10 + 5) * 1 = ", result1, "\n");
+
+result1 = (20 - 10) + 0;   // Should fold 20-10 to 10, then eliminate +0
+print("(20 - 10) + 0 = ", result1, "\n");
+
+// Test 4: Real-world example
+print("\nTest 4: Real computation\n");
+
+a = 5;
+b = 10;
+c = (a + b) * 2 - 0;      // -0 should be eliminated
+print("(5 + 10) * 2 = ", c, "\n");
+
+print("\nOptimization tests complete!\n");

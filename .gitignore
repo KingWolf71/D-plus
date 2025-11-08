@@ -1,2 +1,4 @@
 # Ignore the Backups folder
 Backups/
+.claude/
+test_results.json

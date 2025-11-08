@@ -17,7 +17,6 @@
 ;- Constants
 ; ======================================================================================================
 
-#C2PROFILER       = 0
 #INV$             = ~"\""
 
 #C2MAXTOKENS      = 500   ; Legacy, use #C2TOKENCOUNT for actual count   
@@ -125,11 +124,20 @@ Enumeration
    #ljSTORES
    #ljSTOREF
 
+   ;- Built-in Function Opcodes
+   #ljBUILTIN_RANDOM      ; random() or random(max) or random(min, max)
+   #ljBUILTIN_ABS         ; abs(x) - absolute value
+   #ljBUILTIN_MIN         ; min(a, b) - minimum of two values
+   #ljBUILTIN_MAX         ; max(a, b) - maximum of two values
+
    #ljEOF
 EndEnumeration
 
 ; Calculate total token count at compile time
 #C2TOKENCOUNT = #ljEOF + 1
+
+;- Built-in Functions
+XIncludeFile "c2-builtins.pbi"
 
 ;- Error Codes
 Enumeration C2ErrorCodes
@@ -486,14 +494,24 @@ c2tokens:
    Data.s   "STOREF"
    Data.i   0, 0
 
+   ; Built-in functions
+   Data.s   "RANDOM"
+   Data.i   0, 0
+   Data.s   "ABS"
+   Data.i   0, 0
+   Data.s   "MIN"
+   Data.i   0, 0
+   Data.s   "MAX"
+   Data.i   0, 0
+
    Data.s   "EOF"
    Data.i   0, 0
    Data.s   "-"
 EndDataSection
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 145
-; FirstLine = 127
+; CursorPosition = 18
+; FirstLine = 7
 ; Folding = --
 ; Optimizer
 ; EnableAsm

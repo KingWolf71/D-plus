@@ -3,8 +3,12 @@
 */
 
 #pragma appname "Function Test"
-#pragma console on
-#pragma decimals 2
+#pragma "decimals" 3
+#pragma "console" "on"
+#pragma "consolesize"  "760x690"
+#pragma "optimizecode" "on"
+#pragma "ListASM" "on"
+#pragma "version"
 
 // Integer function
 func add(a, b) {

@@ -6,6 +6,9 @@
 #pragma "console" "on"
 #pragma "appname" "Mandelbrot Demo"
 #pragma "consolesize"  "760x690"
+#pragma "optimizecode" "off"
+#pragma "ListASM" "on"
+#pragma "version"
 	
 	
 	left_edge   = -420;

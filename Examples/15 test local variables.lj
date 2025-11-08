@@ -1,0 +1,82 @@
+/* Test Local Variable Scoping
+   - Variables inside functions are local
+   - Variables outside functions are global
+   - Functions can read globals
+*/
+
+#pragma appname "Local Variable Test"
+#pragma console on
+
+print("Testing Local Variable Scoping\n");
+
+// Global variables
+globalVar = 100;
+x = 10;
+
+print("\n=== Test 1: Local variables ===\n");
+print("Before function: globalVar=", globalVar, " x=", x, "\n");
+
+func test1() {
+    localVar = 42;      // Local to test1
+    x = 999;            // Local x (shadows global x)
+    print("Inside test1: localVar=", localVar, " x=", x, "\n");
+    print("Inside test1: globalVar=", globalVar, " (reading global)\n");
+    return localVar;
+}
+
+result = test1();
+print("After function: result=", result, "\n");
+print("Global x unchanged: x=", x, "\n");
+print("Global globalVar: globalVar=", globalVar, "\n");
+
+print("\n=== Test 2: Different functions, same local names ===\n");
+
+func test2() {
+    localVar = 111;     // Different localVar than test1
+    print("test2: localVar=", localVar, "\n");
+    return localVar;
+}
+
+func test3() {
+    localVar = 222;     // Yet another localVar
+    print("test3: localVar=", localVar, "\n");
+    return localVar;
+}
+
+r1 = test2();
+r2 = test3();
+print("test2 returned: ", r1, "\n");
+print("test3 returned: ", r2, "\n");
+
+print("\n=== Test 3: Parameters are local ===\n");
+
+func testParams(a, b) {
+    sum = a + b;        // sum is local
+    print("testParams: a=", a, " b=", b, " sum=", sum, "\n");
+    return sum;
+}
+
+a = 5;  // Global a
+b = 7;  // Global b
+r3 = testParams(100, 200);
+print("After testParams:\n");
+print("  Global a=", a, " (unchanged)\n");
+print("  Global b=", b, " (unchanged)\n");
+print("  Result=", r3, "\n");
+
+print("\n=== Test 4: Reading and writing globals ===\n");
+
+counter = 0;  // Global counter
+
+func increment() {
+    counter = counter + 1;  // First 'counter' is local (write), second is global (read)
+    print("Inside increment: counter=", counter, " (local copy)\n");
+    return counter;
+}
+
+print("Before: global counter=", counter, "\n");
+r4 = increment();
+print("After: global counter=", counter, " (unchanged)\n");
+print("Function returned: ", r4, "\n");
+
+print("\n=== All Tests Complete ===\n");

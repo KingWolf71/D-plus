@@ -20,7 +20,9 @@
 DisableDebugger
 
 DeclareModule C2Common
-   XIncludeFile         "c2-inc-v05.pbi"
+
+   XIncludeFile         "c2-inc-v06.pbi"
+   XIncludeFile         "c2-builtins.pbi"
 EndDeclareModule
 
 Module C2Common
@@ -30,10 +32,9 @@ EndModule
 DeclareModule C2Lang
    EnableExplicit
    #WithEOL = 1   
+   #C2PROFILER = 0
    UseModule C2Common
-   
-   XIncludeFile         "c2-inc-v05.pbi"
- 
+
    Global               gExit
    Global               gszlastError.s
  
@@ -41,6 +42,7 @@ DeclareModule C2Lang
       NodeType.i
       TypeHint.i
       value.s
+      paramCount.i     ; For function calls - actual parameter count
       *left.stTree
       *right.stTree
    EndStructure
@@ -51,7 +53,7 @@ DeclareModule C2Lang
    Declare              LoadLJ( file.s )
 EndDeclareModule
 
-XIncludeFile            "c2-vm-V04.pb"
+XIncludeFile            "c2-vm-V05.pb"
 
 Module C2Lang
    EnableExplicit
@@ -134,7 +136,8 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
    Global NewList       llObjects.stType()
    Global NewMap        mapMacros.stMacro()
    Global NewMap        mapModules.stModInfo()
-   
+   Global NewMap        mapBuiltins.stBuiltinDef()
+
    Global               gLineNumber
    Global               gStack
    Global               gCol
@@ -150,6 +153,8 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
    Global               gCodeGenFunction
    Global               gCodeGenParamIndex
    Global               gCodeGenRecursionDepth
+   Global               gCurrentFunctionName.s  ; Current function being compiled (for local variable scoping)
+   Global               gLastExpandParamsCount  ; Last actual parameter count from expand_params() for built-ins
    Global               gIsNumberFlag
    Global               gEmitIntCmd.i
    Global               gEmitIntLastOp
@@ -295,10 +300,66 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          gPos + 1
       EndIf
    EndMacro
+
+   ;-
+   ;- Built-in Functions Registration
+   ;-
+
+   CompilerIf #True  ; Enable built-in functions
+   ; Helper: Check if a function name is a built-in
+   Procedure.i IsBuiltinFunction(name.s)
+      ProcedureReturn FindMapElement(mapBuiltins(), LCase(name))
+   EndProcedure
+
+   ; Helper: Get built-in opcode by name
+   Procedure.i GetBuiltinOpcode(name.s)
+      If FindMapElement(mapBuiltins(), LCase(name))
+         ProcedureReturn mapBuiltins()\opcode
+      EndIf
+      ProcedureReturn 0
+   EndProcedure
+
+   ; Register all built-in functions with the compiler
+   Procedure RegisterBuiltins()
+      ; Register random()
+      AddMapElement(mapBuiltins(), "random")
+      mapBuiltins()\name = "random"
+      mapBuiltins()\opcode = #ljBUILTIN_RANDOM
+      mapBuiltins()\minParams = 0
+      mapBuiltins()\maxParams = 2
+      mapBuiltins()\returnType = #C2FLAG_INT
+
+      ; Register abs()
+      AddMapElement(mapBuiltins(), "abs")
+      mapBuiltins()\name = "abs"
+      mapBuiltins()\opcode = #ljBUILTIN_ABS
+      mapBuiltins()\minParams = 1
+      mapBuiltins()\maxParams = 1
+      mapBuiltins()\returnType = #C2FLAG_INT
+
+      ; Register min()
+      AddMapElement(mapBuiltins(), "min")
+      mapBuiltins()\name = "min"
+      mapBuiltins()\opcode = #ljBUILTIN_MIN
+      mapBuiltins()\minParams = 2
+      mapBuiltins()\maxParams = 2
+      mapBuiltins()\returnType = #C2FLAG_INT
+
+      ; Register max()
+      AddMapElement(mapBuiltins(), "max")
+      mapBuiltins()\name = "max"
+      mapBuiltins()\opcode = #ljBUILTIN_MAX
+      mapBuiltins()\minParams = 2
+      mapBuiltins()\maxParams = 2
+      mapBuiltins()\returnType = #C2FLAG_INT
+   EndProcedure
+   CompilerEndIf
+
    ;-
    Procedure            Init()
       Protected         temp.s
       Protected         i, n, m
+      Protected         verFile.i, verString.s
 
       For i = 0 To #C2MAXCONSTANTS
          gVar(i)\name   = ""
@@ -385,6 +446,19 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       ClearMap( mapPragmas() )
       ClearMap( mapMacros() )
       ClearMap( mapModules() )
+
+      ; Add #LJ2_VERSION from _lj2.ver file
+      verFile = ReadFile(#PB_Any, "_lj2.ver")
+      If verFile
+         verString = ReadString(verFile)
+         CloseFile(verFile)
+      Else
+         verString = "0"  ; Default if file not found
+      EndIf
+      AddMapElement(mapMacros(), "#LJ2_VERSION")
+      mapMacros()\name = "#LJ2_VERSION"
+      mapMacros()\body = verString
+
       ReDim arCode(1)
       ; Clear the code array by putting HALT at position 0
       arCode(0)\code = #ljHALT
@@ -396,6 +470,8 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       gPos                    = 1
       gStack                  = 0
       gExit                   = 0
+      gszlastError            = ""
+      gLastError              = 0
       gHoles                  = 0
       gnLastVariable          = 0
       gStrings                = 0
@@ -405,6 +481,8 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       gCodeGenFunction        = 0
       gCodeGenParamIndex      = -1
       gCodeGenRecursionDepth  = 0
+      gCurrentFunctionName    = ""  ; Empty = global scope
+      gLastExpandParamsCount  = 0
       gIsNumberFlag           = 0
       gEmitIntCmd             = #LJUnknown
       gEmitIntLastOp          = 0
@@ -417,7 +495,10 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       install( "func", #ljfunction )
       install( "return", #ljreturn )
       install( "call", #ljCall )
-      
+
+      ; Register built-in functions (random, abs, min, max, etc.)
+      RegisterBuiltins()
+
       mapPragmas("console") = "on"
       mapPragmas("appname") = "Untitled"
       mapPragmas("consolesize") = "600x420"
@@ -570,6 +651,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          p = pre_TrimWhiteSpace( p )
          param = Trim( p, #INV$ )
          AddMapElement( mapPragmas(), name )
+         If param = "" : param = "-" : EndIf
          mapPragmas() = param
          mret         = #False
          ;Debug name + " --> [" + param + "]," + Str(Len( param))
@@ -1203,9 +1285,9 @@ EndProcedure
                      Else
                         par_AddToken( #ljCall, #ljCall, "", Str( mapModules()\function ) )
                      EndIf
-
-                     ;par_AddToken( #ljCall, #ljCall, "", Str( mapModules()\function ) )
                   Else
+                     ; NOTE: Don't check built-ins here - allows variables to shadow built-in names
+                     ; Built-ins will be checked in parser when identifier is followed by '('
                      ForEach llSymbols()
                         i + 1
 
@@ -1344,7 +1426,7 @@ EndProcedure
             
          Case #ljIDENT
             *p = Makeleaf( #ljIDENT, TOKEN()\value )
-            *p\TypeHint = TOKEN()\typeHint 
+            *p\TypeHint = TOKEN()\typeHint
             NextToken()
 
          Case #ljINT
@@ -1368,6 +1450,7 @@ EndProcedure
             *node = Makeleaf( #ljCall, TOKEN()\value )
             NextToken()
             *e = expand_params( #ljPush, moduleId )
+            *node\paramCount = gLastExpandParamsCount  ; Store actual param count in node
             *p = MakeNode( #ljSEQ, *e, *node )
 
 
@@ -1523,6 +1606,9 @@ EndProcedure
          Next
       EndIf
 
+      ; Store actual parameter count for validation/built-ins
+      gLastExpandParamsCount = nParams
+
       ProcedureReturn *p
    EndProcedure
    
@@ -1543,8 +1629,6 @@ EndProcedure
          NextToken()
          SetError( "Stack overflow", #C2ERR_STACK_OVERFLOW )
       EndIf
-      
-      ;Debug "stmt>" + RSet(Str(TOKEN()\row),4," ") + RSet(Str(TOKEN()\col),4," ") + "   " + TOKEN()\name + " --> " + gszATR( llTokenList()\TokenType )\s
       
       Select TOKEN()\TokenType
          Case #ljIF
@@ -1624,21 +1708,9 @@ EndProcedure
             NextToken()
             Expect( "Assign", #ljASSIGN )
 
-            ; NEW CODE - function calls leave return value on stack:
-            If TOKEN()\TokenExtra = #ljCall
-               ; Generate call code (pushes params, calls function)
-               ; The function will leave return value on stack
-               moduleId = Val(TOKEN()\value)
-               *r = Makeleaf( #ljCall, TOKEN()\value )
-               NextToken()
-               *e = expand_params( #ljPush, moduleId )
-               ; Sequence: push params, call, store result
-               *s = MakeNode( #ljSEQ, *e, *r )
-               *p = MakeNode( #ljASSIGN, *v, *s )
-            Else
-               *e = expr( 0 )
-               *p = MakeNode( #ljASSIGN, *v, *e )
-            EndIf
+            ; Parse right-hand side using expr() - handles all cases including nested calls
+            *e = expr( 0 )
+            *p = MakeNode( #ljASSIGN, *v, *e )
 
             Expect( "Assign", #ljSemi )
          Case #ljWHILE
@@ -1675,7 +1747,10 @@ EndProcedure
             *v = Makeleaf( #ljCall, TOKEN()\value )
             NextToken()
             *e = expand_params( #ljPush, moduleId )
-            *p = MakeNode( #ljSEQ, *e, *v )
+            *v\paramCount = gLastExpandParamsCount  ; Store actual param count in node
+            ; Statement-level calls need to pop unused return value
+            *s = Makeleaf( #ljPOP, "?discard?" )
+            *p = MakeNode( #ljSEQ, *e, MakeNode( #ljSEQ, *v, *s ) )
             
          Case #ljReturn
             NextToken()
@@ -1795,10 +1870,44 @@ EndProcedure
       Protected         inferredType.w
       Protected         savedIndex
       Protected         tokenFound.i = #False
+      Protected         searchName.s
+      Protected         mangledName.s
 
       j = -1
 
-      ; Check if variable already exists
+      ; Apply name mangling for local variables inside functions
+      ; Synthetic variables (starting with $) and constants are never mangled
+      If gCurrentFunctionName <> "" And Left(text, 1) <> "$" And syntheticType = 0
+         ; Inside a function - first try to find as local variable (mangled)
+         mangledName = gCurrentFunctionName + "_" + text
+         searchName = mangledName
+
+         ; Check if mangled (local) version exists
+         For i = 0 To gnLastVariable - 1
+            If gVar(i)\name = searchName
+               ProcedureReturn i  ; Found local variable
+            EndIf
+         Next
+
+         ; Not found as local - check if global exists
+         ; If global exists, use it (unless we're creating a parameter)
+         ; If global doesn't exist, create as local
+
+         If gCodeGenParamIndex < 0
+            ; Not processing parameters - check if global exists
+            For i = 0 To gnLastVariable - 1
+               If gVar(i)\name = text
+                  ; Found as global - use it (for both read AND write)
+                  ProcedureReturn i
+               EndIf
+            Next
+         EndIf
+
+         ; Global not found (or processing parameters) - create as local
+         text = mangledName
+      EndIf
+
+      ; Check if variable already exists (with final name after mangling)
       For i = 0 To gnLastVariable - 1
          If gVar(i)\name = text
             ProcedureReturn i
@@ -1928,12 +2037,30 @@ EndProcedure
 
          Case #ljIDENT
             ; Check variable type - search existing variables
+            ; Apply name mangling for local variables (same logic as FetchVarOffset)
+            Protected searchName.s = *x\value
+            If gCurrentFunctionName <> "" And Left(*x\value, 1) <> "$"
+               ; Try mangled name first (local variable)
+               searchName = gCurrentFunctionName + "_" + *x\value
+            EndIf
+
             For n = 0 To gnLastVariable - 1
-               If gVar(n)\name = *x\value
+               If gVar(n)\name = searchName
                   ; Found the variable - return its type flags
                   ProcedureReturn gVar(n)\flags & #C2FLAG_TYPE
                EndIf
             Next
+
+            ; If mangled name not found and we tried mangling, try global name
+            If searchName <> *x\value
+               For n = 0 To gnLastVariable - 1
+                  If gVar(n)\name = *x\value
+                     ; Found the global variable - return its type flags
+                     ProcedureReturn gVar(n)\flags & #C2FLAG_TYPE
+                  EndIf
+               Next
+            EndIf
+
             ; Variable not found yet - default to INT
             ProcedureReturn #C2FLAG_INT
 
@@ -2234,9 +2361,12 @@ EndProcedure
                CodeGenerator( *x\left )
                CodeGenerator( *x\right )
 
-               ; If left was ljFunction, we just finished processing parameters
+               ; If left was ljFunction, we've finished processing the function
                If *x\left And *x\left\NodeType = #ljFunction
                   gCodeGenParamIndex = -1  ; Reset parameter tracking
+                  ; Note: gCurrentFunctionName intentionally left set
+                  ; It will be overwritten when next function is processed
+                  ; Global code should be defined before functions to avoid scoping issues
                EndIf
             EndIf
             
@@ -2247,6 +2377,8 @@ EndProcedure
                   ; Initialize parameter tracking
                   ; Parameters processed in reverse, so start from (nParams - 1) and decrement
                   gCodeGenParamIndex = mapModules()\nParams - 1
+                  ; Set current function name for local variable scoping
+                  gCurrentFunctionName = MapKey(mapModules())
                   Break
                EndIf
             Next
@@ -2312,19 +2444,18 @@ EndProcedure
             
          Case #ljCall
             funcId = Val( *x\value )
-            paramCount = 0
+            paramCount = *x\paramCount  ; Get actual param count from tree node
 
-            ; Look up parameter count from function info
-            ForEach mapModules()
-               If mapModules()\function = funcId
-                  paramCount = mapModules()\nParams
-                  Break
-               EndIf
-            Next
-
-            EmitInt( *x\NodeType, funcId )
-            ; Store parameter count in j field for stack cleanup
-            llObjects()\j = paramCount
+            ; Check if this is a built-in function (opcode >= #ljBUILTIN_RANDOM)
+            If funcId >= #ljBUILTIN_RANDOM
+               ; Built-in function - emit opcode directly
+               EmitInt( funcId )
+               llObjects()\j = paramCount
+            Else
+               ; User-defined function - emit CALL with function ID
+               EmitInt( #ljCall, funcId )
+               llObjects()\j = paramCount
+            EndIf
             
          Case #ljHalt
             EmitInt( *x\NodeType, 0 )
@@ -2384,7 +2515,16 @@ EndProcedure
    
    Procedure            PostProcessor()
       Protected n.i
-   
+      Protected fetchVar.i
+      Protected opCode.i
+      Protected const1.i, const2.i, const2Idx.i
+      Protected result.i
+      Protected canFold.i
+      Protected mulConst.i
+      Protected newConstIdx.i
+      Protected strIdx.i, str2Idx.i, newStrIdx.i
+      Protected str1.s, str2.s, combinedStr.s
+
       ; Fix up opcodes based on actual variable types
       ; This handles cases where types weren't known at parse time
       ForEach llObjects()
@@ -2486,6 +2626,279 @@ EndProcedure
          EndSelect
       Next
 
+      ;- ==================================================================
+      ;- Enhanced Instruction Fusion Optimizations (backward compatible)
+      ;- ==================================================================
+
+      ; Pass 2: Redundant assignment elimination (x = x becomes NOP)
+      ForEach llObjects()
+         Select llObjects()\code
+            Case #ljStore, #ljSTORES, #ljSTOREF
+               ; Check if previous instruction fetches/pushes the same variable
+               If PreviousElement(llObjects())
+                  If (llObjects()\code = #ljFetch Or llObjects()\code = #ljFETCHS Or
+                      llObjects()\code = #ljFETCHF Or llObjects()\code = #ljPush Or
+                      llObjects()\code = #ljPUSHS Or llObjects()\code = #ljPUSHF)
+                     ; Check if it's the same variable
+                     fetchVar = llObjects()\i
+                     NextElement(llObjects())  ; Back to STORE
+                     If llObjects()\i = fetchVar
+                        ; Redundant assignment: x = x
+                        llObjects()\code = #ljNOOP
+                        PreviousElement(llObjects())
+                        llObjects()\code = #ljNOOP
+                        NextElement(llObjects())
+                     Else
+                        ; Different variables, restore position
+                     EndIf
+                  Else
+                     NextElement(llObjects())
+                  EndIf
+               EndIf
+         EndSelect
+      Next
+
+      ; Pass 3: Dead code elimination (PUSH/FETCH followed immediately by POP)
+      ForEach llObjects()
+         Select llObjects()\code
+            Case #ljPOP, #ljPOPS, #ljPOPF
+               ; Check if previous instruction is PUSH/FETCH
+               If PreviousElement(llObjects())
+                  If (llObjects()\code = #ljFetch Or llObjects()\code = #ljFETCHS Or
+                      llObjects()\code = #ljFETCHF Or llObjects()\code = #ljPush Or
+                      llObjects()\code = #ljPUSHS Or llObjects()\code = #ljPUSHF)
+                     ; Dead code: value pushed then immediately popped
+                     llObjects()\code = #ljNOOP
+                     NextElement(llObjects())  ; Back to POP
+                     llObjects()\code = #ljNOOP
+                  Else
+                     NextElement(llObjects())
+                  EndIf
+               EndIf
+         EndSelect
+      Next
+
+      ; Pass 4: Constant folding for integer arithmetic
+      ForEach llObjects()
+         Select llObjects()\code
+            Case #ljADD, #ljSUBTRACT, #ljMULTIPLY, #ljDIVIDE, #ljMOD
+               opCode = llObjects()\code
+               ; Look back for two consecutive constant pushes
+               If PreviousElement(llObjects())
+                  If llObjects()\code = #ljPush And (gVar(llObjects()\i)\flags & #C2FLAG_CONST)
+                     const2 = gVar(llObjects()\i)\i
+                     const2Idx = llObjects()\i
+                     If PreviousElement(llObjects())
+                        If llObjects()\code = #ljPush And (gVar(llObjects()\i)\flags & #C2FLAG_CONST)
+                           const1 = gVar(llObjects()\i)\i
+                           canFold = #True
+
+                           ; Compute the constant result
+                           Select opCode
+                              Case #ljADD
+                                 result = const1 + const2
+                              Case #ljSUBTRACT
+                                 result = const1 - const2
+                              Case #ljMULTIPLY
+                                 result = const1 * const2
+                              Case #ljDIVIDE
+                                 If const2 <> 0
+                                    result = const1 / const2
+                                 Else
+                                    canFold = #False  ; Don't fold division by zero
+                                 EndIf
+                              Case #ljMOD
+                                 If const2 <> 0
+                                    result = const1 % const2
+                                 Else
+                                    canFold = #False
+                                 EndIf
+                           EndSelect
+
+                           If canFold
+                              ; Create a new constant for the folded result
+                              newConstIdx = gnLastVariable
+                              gVar(newConstIdx)\name = "$fold" + Str(newConstIdx)
+                              gVar(newConstIdx)\i = result
+                              gVar(newConstIdx)\flags = #C2FLAG_CONST | #C2FLAG_INT
+                              gnLastVariable + 1
+
+                              ; Replace first PUSH with new constant, eliminate second PUSH and operation
+                              llObjects()\i = newConstIdx
+                              NextElement(llObjects())  ; Second PUSH
+                              llObjects()\code = #ljNOOP
+                              NextElement(llObjects())  ; Operation
+                              llObjects()\code = #ljNOOP
+                           Else
+                              NextElement(llObjects())
+                              NextElement(llObjects())
+                           EndIf
+                        Else
+                           NextElement(llObjects())
+                           NextElement(llObjects())
+                        EndIf
+                     Else
+                        NextElement(llObjects())
+                     EndIf
+                  Else
+                     NextElement(llObjects())
+                  EndIf
+               EndIf
+         EndSelect
+      Next
+
+      ; Pass 5: Arithmetic identity optimizations
+      ForEach llObjects()
+         Select llObjects()\code
+            Case #ljADD
+               ; x + 0 = x, eliminate ADD and the constant 0 push
+               If PreviousElement(llObjects())
+                  If llObjects()\code = #ljPush And (gVar(llObjects()\i)\flags & #C2FLAG_CONST)
+                     If gVar(llObjects()\i)\i = 0
+                        llObjects()\code = #ljNOOP  ; Eliminate PUSH 0
+                        NextElement(llObjects())     ; Back to ADD
+                        llObjects()\code = #ljNOOP  ; Eliminate ADD
+                     Else
+                        NextElement(llObjects())
+                     EndIf
+                  Else
+                     NextElement(llObjects())
+                  EndIf
+               EndIf
+
+            Case #ljSUBTRACT
+               ; x - 0 = x
+               If PreviousElement(llObjects())
+                  If llObjects()\code = #ljPush And (gVar(llObjects()\i)\flags & #C2FLAG_CONST)
+                     If gVar(llObjects()\i)\i = 0
+                        llObjects()\code = #ljNOOP
+                        NextElement(llObjects())
+                        llObjects()\code = #ljNOOP
+                     Else
+                        NextElement(llObjects())
+                     EndIf
+                  Else
+                     NextElement(llObjects())
+                  EndIf
+               EndIf
+
+            Case #ljMULTIPLY
+               ; x * 1 = x, x * 0 = 0
+               If PreviousElement(llObjects())
+                  If llObjects()\code = #ljPush And (gVar(llObjects()\i)\flags & #C2FLAG_CONST)
+                     mulConst = gVar(llObjects()\i)\i
+                     If mulConst = 1
+                        ; x * 1 = x, eliminate multiply and the constant
+                        llObjects()\code = #ljNOOP
+                        NextElement(llObjects())
+                        llObjects()\code = #ljNOOP
+                     ElseIf mulConst = 0
+                        ; x * 0 = 0, keep the PUSH 0 but eliminate value below and multiply
+                        ; This requires looking back 2 instructions
+                        If PreviousElement(llObjects())
+                           llObjects()\code = #ljNOOP  ; Eliminate the x value
+                           NextElement(llObjects())     ; Back to PUSH 0
+                           NextElement(llObjects())     ; To MULTIPLY
+                           llObjects()\code = #ljNOOP  ; Eliminate MULTIPLY
+                        Else
+                           NextElement(llObjects())
+                           NextElement(llObjects())
+                        EndIf
+                     Else
+                        NextElement(llObjects())
+                     EndIf
+                  Else
+                     NextElement(llObjects())
+                  EndIf
+               EndIf
+
+            Case #ljDIVIDE
+               ; x / 1 = x
+               If PreviousElement(llObjects())
+                  If llObjects()\code = #ljPush And (gVar(llObjects()\i)\flags & #C2FLAG_CONST)
+                     If gVar(llObjects()\i)\i = 1
+                        llObjects()\code = #ljNOOP
+                        NextElement(llObjects())
+                        llObjects()\code = #ljNOOP
+                     Else
+                        NextElement(llObjects())
+                     EndIf
+                  Else
+                     NextElement(llObjects())
+                  EndIf
+               EndIf
+         EndSelect
+      Next
+
+      ;- Pass 7: String identity optimization (str + "" → str)
+      ForEach llObjects()
+         If llObjects()\code = #ljSTRADD
+            ; Check if previous instruction is PUSHS with empty string
+            If PreviousElement(llObjects())
+               If llObjects()\code = #ljPUSHS Or llObjects()\code = #ljPush
+                  strIdx = llObjects()\i
+                  If (gVar(strIdx)\flags & #C2FLAG_STR) And gVar(strIdx)\ss = ""
+                     ; Empty string found - eliminate it and STRADD
+                     llObjects()\code = #ljNOOP
+                     NextElement(llObjects())  ; Back to STRADD
+                     llObjects()\code = #ljNOOP
+                  Else
+                     NextElement(llObjects())
+                  EndIf
+               Else
+                  NextElement(llObjects())
+               EndIf
+            EndIf
+         EndIf
+      Next
+
+      ;- Pass 8: String constant folding ("a" + "b" → "ab")
+      ForEach llObjects()
+         If llObjects()\code = #ljSTRADD
+            ; Look back for two consecutive string constant pushes
+            If PreviousElement(llObjects())
+               If (llObjects()\code = #ljPUSHS Or llObjects()\code = #ljPush) And (gVar(llObjects()\i)\flags & #C2FLAG_CONST)
+                  str2Idx = llObjects()\i
+                  str2 = gVar(str2Idx)\ss
+                  If PreviousElement(llObjects())
+                     If (llObjects()\code = #ljPUSHS Or llObjects()\code = #ljPush) And (gVar(llObjects()\i)\flags & #C2FLAG_CONST)
+                        str1 = gVar(llObjects()\i)\ss
+                        combinedStr = str1 + str2
+
+                        ; Create new constant for combined string
+                        newStrIdx = gnLastVariable
+                        gVar(newStrIdx)\name = "$strfold" + Str(newStrIdx)
+                        gVar(newStrIdx)\ss = combinedStr
+                        gVar(newStrIdx)\flags = #C2FLAG_CONST | #C2FLAG_STR
+                        gnLastVariable + 1
+
+                        ; Replace first PUSH with combined string, eliminate second PUSH and STRADD
+                        llObjects()\i = newStrIdx
+                        NextElement(llObjects())  ; Second PUSH
+                        llObjects()\code = #ljNOOP
+                        NextElement(llObjects())  ; STRADD
+                        llObjects()\code = #ljNOOP
+                     Else
+                        NextElement(llObjects())
+                        NextElement(llObjects())
+                     EndIf
+                  Else
+                     NextElement(llObjects())
+                  EndIf
+               Else
+                  NextElement(llObjects())
+               EndIf
+            EndIf
+         EndIf
+      Next
+
+      ;- Pass 9: Remove all NOOP instructions from the code stream
+      ForEach llObjects()
+         If llObjects()\code = #ljNOOP
+            DeleteElement(llObjects())
+         EndIf
+      Next
+
    EndProcedure
 
    Procedure            ListCode( gadget = 0 )
@@ -2571,11 +2984,32 @@ EndProcedure
          CodeGenerator( *p )
 
          FixJMP()
-         PostProcessor()
+
+         ; Run optimizer passes (check pragma optimizecode - default ON)
+         If FindMapElement(mapPragmas(), "optimizecode")
+            ; Pragma found - check value
+            If LCase(mapPragmas()) <> "off" And mapPragmas() <> "0"
+               PostProcessor()
+            EndIf
+         Else
+            ; No pragma - default is ON
+            PostProcessor()
+         EndIf
+
          vm_ListToArray( llObjects, arCode )
+
+         ; List assembly if requested (check pragma listasm - default OFF)
+         If FindMapElement(mapPragmas(), "listasm")
+            If LCase(mapPragmas()) = "on" Or mapPragmas() = "1"
+               ListCode()
+            EndIf
+         EndIf
+
+         ; Successful compilation - reset gExit to 0
+         gExit = 0
       Else
          Debug "gExit=" + Str(gExit)
-      EndIf   
+      EndIf
 
       ProcedureReturn gExit
    EndProcedure
@@ -2630,15 +3064,14 @@ CompilerEndIf
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 2551
-; FirstLine = 2518
-; Folding = -----f----
-; Markers = 1070
+; CursorPosition = 16
+; Folding = -----f-----
+; Markers = 1071
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; CPU = 1
-; EnableCompileCount = 277
+; EnableCompileCount = 347
 ; EnableBuildCount = 0
 ; EnableExeConstant
 ; IncludeVersionInfo

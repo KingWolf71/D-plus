@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(.pbi$ \")"
+      "Bash(tac:*)",
+      "Bash(powershell -Command \"Get-Content ''d:\\OneDrive\\WIP\\Sources\\Intense.2020\\lj2\\c2-modules-V10.pb'' | Select-Object -Last 50\")",
+      "Bash(powershell -Command:*)"
     ],
     "deny": [],
     "ask": []

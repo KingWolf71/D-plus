@@ -2,8 +2,12 @@
    Tests: parameters, return values, recursion, nesting, types
 */
 
-#pragma appname "LJ2 Function Test Suite"
+#pragma appname "LJ2 Fibonacci Test "
 #pragma console on
+#pragma "optimizecode" "on"
+#pragma "ListASM" "on"
+#pragma version
+
 
 func fibonacci(n) {
     if (n <= 1) {
@@ -26,7 +30,7 @@ func maxOfThree(a, b, c) {
     return c;
 }
 
-max = maxOfThree(15, 27, 12);
-print("maxOfThree(15, 27, 12) = ", max, " (should be 27)\n");
+maxVar = maxOfThree(15, 27, 12);
+print("maxOfThree(15, 27, 12) = ", maxVar, " (should be 27)\n");
 
 print("\n=== All Tests Complete! ===\n");
