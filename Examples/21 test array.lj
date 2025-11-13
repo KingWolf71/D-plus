@@ -1,0 +1,45 @@
+// Test array declaration and usage
+
+#pragma appname "LJ2 Array Test"
+#pragma console on
+#pragma optimizecode on
+#pragma ListASM on
+#pragma version
+#pragma floattolerance 0.00001
+#pragma FastPrint off
+#pragma RunThreaded on
+
+array numbers.i[5];
+
+numbers[0] = 10;
+numbers[1] = 20;
+numbers[2] = 30;
+numbers[3] = 40;
+numbers[4] = 50;
+
+i = 0;
+while i < 5 {
+   print(numbers[i]);
+   i = i + 1;
+}
+
+// Test with expressions
+numbers[2] = numbers[0] + numbers[1];
+print(numbers[2]);  // Should print 30
+
+function testLocalArray() {
+    array local_nums.i[3];
+
+    local_nums[0] = 100;
+    local_nums[1] = 200;
+    local_nums[2] = 300;
+
+    print(local_nums[0]);
+    print(local_nums[1]);
+    print(local_nums[2]);
+	
+	print("Sum=", (local_nums[0] + local_nums[1] + local_nums[2] - numbers[4])  /  numbers[0] );
+}
+
+testLocalArray();
+print("Done");

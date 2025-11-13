@@ -1,0 +1,96 @@
+/* Bug Fix Test 2
+*/
+
+#pragma appname "Bug Fix"
+#pragma "decimals" 3
+#pragma "console" "on"
+#pragma "consolesize"  "760x690"
+#pragma "optimizecode" "on"
+#pragma "ListASM" on
+#pragma "version"
+#pragma FastPrint on
+#pragma RunThreaded on
+
+// Global arrays
+array global_ints.i[4];
+global_ints[0] = 10;
+global_ints[1] = 20;
+global_ints[2] = 30;
+global_ints[3] = 40;
+
+array global_floats.f[3];
+global_floats[0] = 1.1;
+global_floats[1] = 2.2;
+global_floats[2] = 3.3;
+
+array global_strings.s[3];
+global_strings[0] = "Red";
+global_strings[1] = "Green";
+global_strings[2] = "Blue";
+
+function processArrays() {
+    // Local arrays
+    array local_ints.i[4];
+    array local_floats.f[3];
+    array local_strings.s[3];
+
+    // Copy from global to local
+    print("  Copying from global to local arrays...");
+    local_ints[0] = global_ints[0];
+    local_ints[1] = global_ints[1];
+    local_ints[2] = global_ints[2];
+    local_ints[3] = global_ints[3];
+
+    local_floats[0] = global_floats[0];
+    local_floats[1] = global_floats[1];
+    local_floats[2] = global_floats[2];
+
+    local_strings[0] = global_strings[0];
+    local_strings[1] = global_strings[1];
+    local_strings[2] = global_strings[2];
+
+    // Verify local arrays have correct values
+    print("  Verifying local arrays:");
+    print("    local_ints[1] = ", local_ints[1]);
+    assertEqual(20, local_ints[1]);
+    print("    local_floats[2] = ", local_floats[2]);
+    assertFloatEqual(3.3, local_floats[2]);
+    print("    local_strings[0] = ", local_strings[0]);
+    assertStringEqual("Red", local_strings[0]);
+
+    // Modify local arrays
+    print("  Modifying local arrays...");
+    local_ints[0] = local_ints[0] * 2;
+    local_ints[1] = local_ints[1] * 2;
+    local_floats[0] = local_floats[0] + 10.0;
+    local_strings[1] = "Yellow";
+
+    // Copy modified values back to global
+    print("  Copying modified values back to global...");
+    global_ints[0] = local_ints[0];
+    global_ints[1] = local_ints[1];
+    global_floats[0] = local_floats[0];
+    global_strings[1] = local_strings[1];
+
+    // Mixed operations: combine global and local
+    result = global_ints[2] + local_ints[2];
+    print("  Mixed operation: global_ints[2] + local_ints[2] = ", result);
+    assertEqual(60, result);
+
+    fresult = global_floats[1] * local_floats[1];
+    print("  Mixed operation: global_floats[1] * local_floats[1] = ", fresult);
+    assertFloatEqual(4.84, fresult);
+}
+
+processArrays();
+
+// Verify global arrays were modified by function
+print("  Verifying global arrays after function:");
+print("    global_ints[0] = ", global_ints[0]);
+assertEqual(20, global_ints[0]);
+print("    global_ints[1] = ", global_ints[1]);
+assertEqual(40, global_ints[1]);
+print("    global_floats[0] = ", global_floats[0]);
+assertFloatEqual(11.1, global_floats[0]);
+print("    global_strings[1] = ", global_strings[1]);
+assertStringEqual("Yellow", global_strings[1]);

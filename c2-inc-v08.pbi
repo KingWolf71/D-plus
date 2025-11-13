@@ -30,6 +30,7 @@
 #C2FLAG_STR       = 16
 #C2FLAG_CHG       = 32
 #C2FLAG_PARAM     = 64
+#C2FLAG_ARRAY     = 128
 
 
 Enumeration
@@ -38,8 +39,9 @@ Enumeration
    #ljINT
    #ljFLOAT
    #ljSTRING
+   #ljArray
    #ljIF
-   #ljElse   
+   #ljElse
    #ljWHILE
    #ljJZ
    #ljJMP
@@ -101,6 +103,8 @@ Enumeration
    #ljRightBrace
    #ljLeftParent
    #ljRightParent
+   #ljLeftBracket
+   #ljRightBracket
    #ljSemi
    #ljComma   
    #ljfunction
@@ -149,6 +153,17 @@ Enumeration
    #ljBUILTIN_ASSERT_FLOAT      ; assertFloatEqual(expected, actual, tolerance) - assert floats are equal within tolerance
    #ljBUILTIN_ASSERT_STRING     ; assertStringEqual(expected, actual) - assert strings are equal
 
+   ;- Array Opcodes
+   #ljARRAYINDEX          ; Compute array element index (base + index * elementSize)
+   #ljARRAYFETCH          ; Fetch array element to stack (generic)
+   #ljARRAYFETCH_INT      ; Fetch integer array element
+   #ljARRAYFETCH_FLOAT    ; Fetch float array element
+   #ljARRAYFETCH_STR      ; Fetch string array element
+   #ljARRAYSTORE          ; Store to array element (generic)
+   #ljARRAYSTORE_INT      ; Store integer to array element
+   #ljARRAYSTORE_FLOAT    ; Store float to array element
+   #ljARRAYSTORE_STR      ; Store string to array element
+
    #ljEOF
 EndEnumeration
 
@@ -186,8 +201,18 @@ Structure stType
    i.l
    j.l
    n.l
+   ndx.l
    flags.b     ; Instruction flags (bit 0: in ternary expression)
 EndStructure
+
+Structure stCodeIns
+   code.l
+   i.l
+   j.l
+   n.l
+   ndx.l
+EndStructure
+
 
 ; Instruction flags
 #INST_FLAG_TERNARY = 1
@@ -198,6 +223,9 @@ Structure stVarMeta  ; Compile-time metadata and constant values
    flags.w
    paramOffset.i        ; For PARAM variables: offset from callerSp (0=first param, 1=second, etc)
    typeSpecificIndex.i  ; For local variables: index within type-specific local array (0-based)
+   ; Array metadata (compile-time only)
+   arraySize.i          ; Number of elements (0 if not array)
+   elementSize.i        ; Slots per element (1 for primitives, N for structs)
    ; Constant values (set at compile time, copied to gVar at VM init)
    valueInt.i           ; Integer constant value
    valueFloat.d         ; Float constant value
@@ -222,10 +250,8 @@ EndStructure
 
 Global Dim           gszATR.stATR(#C2TOKENCOUNT)
 Global Dim           gVarMeta.stVarMeta(#C2MAXCONSTANTS)  ; Compile-time info only
-;Global Dim           gVarInt.i(#C2MAXCONSTANTS)           ; Runtime integer values
-;Global Dim           gVarFloat.d(#C2MAXCONSTANTS)         ; Runtime float values
-;Global Dim           gVarString.s(#C2MAXCONSTANTS)        ; Runtime string values
-Global Dim           arCode.stType(1)
+Global Dim           gFuncLocalArraySlots.i(8191, 15)  ; [PCaddress, localArrayIndex] -> varSlot (remapped after compilation)
+Global Dim           arCode.stCodeIns(1)
 Global NewMap        mapPragmas.s()
 
 Global               gnLastVariable.i
@@ -290,6 +316,15 @@ Macro          ASMLine(obj,show)
       CompilerElse
          line + "  (" +Str(obj\i) + ") " + Str(ListIndex(obj)+obj\i) + " [nParams=" + Str(obj\j) + " nLocals=" + Str(obj\n) + "]"
       CompilerEndIf
+   ElseIf obj\code = #ljARRAYFETCH Or obj\code = #ljARRAYFETCH_INT Or obj\code = #ljARRAYFETCH_FLOAT Or obj\code = #ljARRAYFETCH_STR Or obj\code = #ljARRAYSTORE Or obj\code = #ljARRAYSTORE_INT Or obj\code = #ljARRAYSTORE_FLOAT Or obj\code = #ljARRAYSTORE_STR
+      ; Array operations: show array var and index info (size now in structure)
+      line + "[arr=" + Str(obj\i)
+      If obj\ndx >= 0
+         line + " idx=slot" + Str(obj\ndx)
+      Else
+         line + " idx=stack"
+      EndIf
+      line + " j=" + Str(obj\j) + "]"
    ElseIf obj\code = #ljMOV
       _ASMLineHelper1( show, obj\j )
       line + "[" + gVarMeta( obj\j )\name + temp + "] --> [" + gVarMeta( obj\i )\name + "]"
@@ -347,9 +382,13 @@ Macro                   vm_ListToArray( ll, ar )
    i = ListSize( ll() )
    ReDim ar( i )
    i = 0
-   
+
    ForEach ll()
-      ar( i ) = ll()
+      ar( i )\code = ll()\code
+      ar( i )\i = ll()\i
+      ar( i )\j = ll()\j
+      ar( i )\n = ll()\n
+      ar( i )\ndx = ll()\ndx
       i + 1
    Next
 EndMacro
@@ -373,7 +412,9 @@ c2tokens:
    Data.i   0, 0
    Data.s   "STR"
    Data.i   0, 0
-   
+   Data.s   "ARRAY"
+   Data.i   0, 0
+
    Data.s   "IF"
    Data.i   0, 0
    Data.s   "ELSE"   
@@ -494,6 +535,10 @@ c2tokens:
    Data.i   0, 0
    Data.s   "RightParent"
    Data.i   0, 0
+   Data.s   "LeftBracket"
+   Data.i   0, 0
+   Data.s   "RightBracket"
+   Data.i   0, 0
    Data.s   "SemiColon"
    Data.i   0, 0
    Data.s   "Comma"
@@ -583,14 +628,34 @@ c2tokens:
    Data.s   "ASSERT_STR"
    Data.i   0, 0
 
+   ; Array operations
+   Data.s   "ARRIDX"
+   Data.i   0, 0
+   Data.s   "ARRFETCH"
+   Data.i   #ljARRAYFETCH_INT, #ljARRAYFETCH_STR
+   Data.s   "ARRFETCH_INT"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_FLT"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_STR"
+   Data.i   0, 0
+   Data.s   "ARRSTORE"
+   Data.i   #ljARRAYSTORE_INT, #ljARRAYSTORE_STR
+   Data.s   "ARRSTORE_INT"
+   Data.i   0, 0
+   Data.s   "ARRSTORE_FLT"
+   Data.i   0, 0
+   Data.s   "ARRSTORE_STR"
+   Data.i   0, 0
+
    Data.s   "EOF"
    Data.i   0, 0
    Data.s   "-"
 EndDataSection
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 222
-; FirstLine = 207
+; CursorPosition = 361
+; FirstLine = 349
 ; Folding = --
 ; Optimizer
 ; EnableAsm

@@ -28,6 +28,7 @@ Procedure            PostProcessor()
       Protected resultf.d
       Protected newConstFIdx.i
       Protected varIdx.i
+      Protected funcEndIdx.i, lastOpcode.i, needsReturn.i, returnOpcode.i
 
       ; Fix up opcodes based on actual variable types
       ; This handles cases where types weren't known at parse time
@@ -146,6 +147,119 @@ Procedure            PostProcessor()
       EndIf
 
       If optimizationsEnabled
+      ;- Pass 1a: Array index optimization (PUSH var/const + ARRAYFETCH/STORE → move index to ndx field)
+      ForEach llObjects()
+         Select llObjects()\code
+            Case #ljARRAYFETCH, #ljARRAYSTORE
+               ; ndx < 0 means index is on stack (codegen always emits ndx=-1)
+               If llObjects()\ndx < 0
+                  ; Check if previous instruction is PUSH (of any variable or constant)
+                  If PreviousElement(llObjects())
+                     If (llObjects()\code = #ljPush Or llObjects()\code = #ljPUSHF Or llObjects()\code = #ljPUSHS)
+                        ; Get the variable/constant index
+                        Protected indexVarSlot.i = llObjects()\i
+                        NextElement(llObjects())  ; Back to ARRAYFETCH/ARRAYSTORE
+
+                        ; Store variable slot in ndx field (ndx >= 0 signals optimization)
+                        llObjects()\ndx = indexVarSlot
+
+                        ; Mark PUSH as NOOP
+                        PreviousElement(llObjects())
+                        llObjects()\code = #ljNOOP
+                        NextElement(llObjects())
+                     Else
+                        NextElement(llObjects())
+                     EndIf
+                  EndIf
+               EndIf
+         EndSelect
+      Next
+
+      ;- Pass 1b: Type array operations based on array metadata
+      ForEach llObjects()
+         Select llObjects()\code
+            Case #ljARRAYFETCH, #ljARRAYSTORE
+               ; Get varSlot from n field (codegen stores it there for typing)
+               Protected varSlot.i = llObjects()\n
+               Protected isFetch.i = Bool(llObjects()\code = #ljARRAYFETCH)
+
+               ; Type the operation based on array's type flags
+               If gVarMeta(varSlot)\flags & #C2FLAG_STR
+                  If isFetch
+                     llObjects()\code = #ljARRAYFETCH_STR
+                  Else
+                     llObjects()\code = #ljARRAYSTORE_STR
+                  EndIf
+               ElseIf gVarMeta(varSlot)\flags & #C2FLAG_FLOAT
+                  If isFetch
+                     llObjects()\code = #ljARRAYFETCH_FLOAT
+                  Else
+                     llObjects()\code = #ljARRAYSTORE_FLOAT
+                  EndIf
+               Else
+                  If isFetch
+                     llObjects()\code = #ljARRAYFETCH_INT
+                  Else
+                     llObjects()\code = #ljARRAYSTORE_INT
+                  EndIf
+               EndIf
+         EndSelect
+      Next
+
+      ;- Pass 1c: Add implicit returns to functions without explicit returns
+      ; Scan for function boundaries and ensure each has a RET before next function/HALT
+      ForEach llObjects()
+         If llObjects()\code = #ljFunction
+            ; Found a function start, scan forward to find where it ends
+            needsReturn = #True
+            Protected savedPos = @llObjects()
+            Protected foundEnd.i = #False
+
+            While NextElement(llObjects())
+               ; Check if we hit another function or HALT
+               If llObjects()\code = #ljFunction Or llObjects()\code = #ljHALT
+                  ; End of current function - check if previous instruction was RET
+                  If needsReturn
+                     ; Insert RET before this instruction
+                     PreviousElement(llObjects())
+                     InsertElement(llObjects())
+                     llObjects()\code = #ljreturn
+                     llObjects()\i = 0
+                     llObjects()\j = 0
+                     llObjects()\n = 0
+                     llObjects()\ndx = -1
+                     NextElement(llObjects())  ; Move back to function/HALT
+                  EndIf
+                  foundEnd = #True
+                  Break
+               EndIf
+
+               ; Check if current instruction is a return
+               If llObjects()\code = #ljreturn Or llObjects()\code = #ljreturnF Or llObjects()\code = #ljreturnS
+                  needsReturn = #False
+               ElseIf llObjects()\code <> #ljNOOP
+                  ; Non-NOOP instruction means we need to check again
+                  needsReturn = #True
+               EndIf
+            Wend
+
+            ; If we reached end of list without finding another function/HALT, add RET at end
+            If Not foundEnd And needsReturn
+               ; Position at last element, then add RET after it
+               LastElement(llObjects())
+               AddElement(llObjects())
+               llObjects()\code = #ljreturn
+               llObjects()\i = 0
+               llObjects()\j = 0
+               llObjects()\n = 0
+               llObjects()\ndx = -1
+            EndIf
+
+            ; Restore position to continue scanning
+            ChangeCurrentElement(llObjects(), savedPos)
+         EndIf
+      Next
+
       ; Pass 2: Redundant assignment elimination (x = x becomes NOP)
       ForEach llObjects()
          Select llObjects()\code
@@ -571,6 +685,10 @@ Procedure            PostProcessor()
          EndSelect
       Next
 
+      ;- Pass 9.5: Add implicit returns to functions that don't have explicit returns
+      ; DISABLED: CodeGenerator now handles all returns correctly with proper typing
+      ; This pass was adding duplicate returns due to incorrect function boundary detection
+
       ;- Pass 10: Remove all NOOP instructions from the code stream
       ForEach llObjects()
          If llObjects()\code = #ljNOOP
@@ -582,7 +700,8 @@ Procedure            PostProcessor()
    EndProcedure
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 13
+; CursorPosition = 657
+; FirstLine = 645
 ; Folding = -
 ; EnableAsm
 ; EnableThread

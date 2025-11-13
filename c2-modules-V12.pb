@@ -21,7 +21,7 @@ DisableDebugger
 DeclareModule C2Common
 
    #DEBUG = 1
-   XIncludeFile         "c2-inc-v07.pbi"
+   XIncludeFile         "c2-inc-v08.pbi"
 EndDeclareModule
 
 Module C2Common
@@ -53,7 +53,7 @@ DeclareModule C2Lang
    Declare              LoadLJ( file.s )
 EndDeclareModule
 
-XIncludeFile            "c2-vm-V06.pb"
+XIncludeFile            "c2-vm-V07.pb"
 
 Module C2Lang
    EnableExplicit
@@ -96,6 +96,7 @@ Module C2Lang
       params.s
       nParams.i
       nLocals.i       ; Number of local variables (non-parameters) in function
+      nLocalArrays.i  ; Number of local array variables in function
       Index.l
       row.l
       nCall.u
@@ -377,7 +378,12 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          gVarMeta(i)\flags  = 0
          gVarMeta(i)\paramOffset = -1  ; -1 means unassigned
       Next
-      
+
+      ; Reserve slot 0 as the discard slot for unused return values
+      gVarMeta(0)\name = "?discard?"
+      gVarMeta(0)\flags = #C2FLAG_IDENT | #C2FLAG_INT
+      gVarMeta(0)\paramOffset = -1  ; Global variable
+
       ;Read tokens
       gnTotalTokens = 0
       Restore c2tokens
@@ -481,7 +487,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       gszlastError            = ""
       gLastError              = 0
       gHoles                  = 0
-      gnLastVariable          = 0
+      gnLastVariable          = 1  ; Slot 0 is reserved for ?discard?
       gStrings                = 0
       gFloats                 = 0
       gIntegers               = 0
@@ -497,12 +503,14 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       gEmitIntLastOp          = 0
       gInTernary              = #False
 
+      Install( "array", #ljArray )
       Install( "else", #ljElse )
       install( "if",    #ljIF )
       install( "print", #ljPRint )
       install( "putc",  #ljPRTC )
       install( "while", #ljWHILE )
       install( "func", #ljfunction )
+      install( "function", #ljfunction )  ; Alias for func
       install( "return", #ljreturn )
       install( "call", #ljCall )
 
@@ -593,15 +601,23 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
    Procedure            ParseFunctions( line.s, row.i )
       Protected.s       temp, nc, name, p, params, baseName
       Protected         i, j, funcReturnType.w
+      Protected         skipChars.i
 
       ;Debug "Checking functions for line: " + line
       i     = 1 : j = 1
       p     = pre_TrimWhiteSpace( line )
 
-      If FindString( p, "func", #PB_String_NoCase ) = 1
+      skipChars = 0
+      If FindString( p, "function", #PB_String_NoCase ) = 1
+         skipChars = 8
+      ElseIf FindString( p, "func", #PB_String_NoCase ) = 1
+         skipChars = 4
+      EndIf
+
+      If skipChars > 0
          ;It's probably a function
-         i + 4
-         pre_FindNextWord( 5, 0, "." )
+         i + skipChars
+         pre_FindNextWord( skipChars + 1, 0, "." )
          name  = Left( p, j - 1 )
 
          ; Extract return type from function name suffix (.f or .s)
@@ -1021,9 +1037,9 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          i + 1
          line = StringField( szNewBody, i, #LF$ )
          If line = "" : Break : EndIf
-         gszFileText + line + #LF$ 
-         
-         If FindString( line, "func", #PB_String_NoCase )
+         gszFileText + line + #LF$
+
+         If FindString( line, "func", #PB_String_NoCase ) Or FindString( line, "function", #PB_String_NoCase )
             ParseFunctions( line, i )
          EndIf
       ForEver
@@ -1204,6 +1220,10 @@ EndProcedure
                par_AddTokenSimple( #ljLeftParent )
             Case ")"
                par_AddTokenSimple( #ljRightParent )
+            Case "["
+               par_AddTokenSimple( #ljLeftBracket )
+            Case "]"
+               par_AddTokenSimple( #ljRightBracket )
             Case "+"
                par_AddToken( #ljOP, #ljADD, "", "" )
             Case "-"
@@ -1344,7 +1364,7 @@ EndProcedure
                Else
                   temp = LCase( text )
 
-                  ; Check for type suffix (.f or .s)
+                  ; Check for type suffix (.i, .f, .d, or .s)
                   Protected typeHint.w = 0
                   Protected varName.s = text
 
@@ -1356,6 +1376,10 @@ EndProcedure
                      typeHint = #ljSTRING
                      varName = Left(text, Len(text) - 2)
                      temp = LCase(varName)
+                  ElseIf Right(temp, 2) = ".i"
+                     typeHint = #ljINT
+                     varName = Left(text, Len(text) - 2)
+                     temp = LCase(varName)
                   EndIf
 
                   ; Check keywords FIRST (before functions) - keywords have priority
@@ -1363,7 +1387,6 @@ EndProcedure
                      i + 1
 
                      If LCase(llSymbols()\name) = temp
-                        ;Debug "SYMBOL: " + temp
                         par_AddToken( llSymbols()\TokenType, llSymbols()\TokenType, "", varName )
                         TOKEN()\typeHint = typeHint
                         i = -1
@@ -1547,14 +1570,32 @@ EndProcedure
                EndIf
             Else
                ; Not a built-in - check if it looks like a function call (identifier followed by '(')
+               ; OR array indexing (identifier followed by '[')
                Protected savedListIndex2.i = ListIndex(llTokenList())
                Protected identName.s = TOKEN()\value
+               Protected identTypeHint.w = TOKEN()\typeHint
                NextToken()
 
                If TOKEN()\TokenExtra = #ljLeftParent
                   ; Identifier followed by '(' but not a built-in or defined function - this is an error
                   SetError( "Undefined function '" + identName + "'", #C2ERR_UNDEFINED_FUNCTION )
                   ProcedureReturn 0
+               ElseIf TOKEN()\TokenType = #ljLeftBracket
+                  ; Array indexing: identifier[index]
+                  NextToken()  ; Skip '['
+                  Protected *indexExpr.stTree = expr(0)  ; Parse index expression
+
+                  If TOKEN()\TokenType <> #ljRightBracket
+                     SetError( "Expected ']' after array index", #C2ERR_EXPECTED_PRIMARY )
+                     ProcedureReturn 0
+                  EndIf
+                  NextToken()  ; Skip ']'
+
+                  ; Create array index node: left=array var, right=index expression
+                  ; We'll use a special node type for array indexing
+                  Protected *arrayVar.stTree = Makeleaf( #ljIDENT, identName )
+                  *arrayVar\TypeHint = identTypeHint
+                  *p = MakeNode( #ljLeftBracket, *arrayVar, *indexExpr )  ; Use LeftBracket as array index operator
                Else
                   ; Regular identifier, restore position
                   SelectElement(llTokenList(), savedListIndex2)
@@ -1798,15 +1839,19 @@ EndProcedure
       Protected         printType.i
       Protected         varIdx.i
       Protected         moduleId.i
+      Protected         stmtFunctionId.i
 
       ; CRITICAL: Initialize all pointers to null (they contain garbage otherwise!)
       *p = 0 : *v = 0 : *e = 0 : *r = 0 : *s = 0 : *s2 = 0
 
+      ; Capture function context at start of stmt() before any NextToken() calls
+      stmtFunctionId = TOKEN()\function
+
       ; Set gCurrentFunctionName based on TOKEN()\function for local variable lookups
-      If TOKEN()\function >= #C2FUNCSTART
+      If stmtFunctionId >= #C2FUNCSTART
          ; Inside a function - find the function name from mapModules
          ForEach mapModules()
-            If mapModules()\function = TOKEN()\function
+            If mapModules()\function = stmtFunctionId
                gCurrentFunctionName = MapKey(mapModules())
                Break
             EndIf
@@ -1824,9 +1869,110 @@ EndProcedure
       EndIf
 
       Select TOKEN()\TokenType
+         Case #ljArray
+            ; Array declaration: array varname.type[size];
+            NextToken()
+
+            If TOKEN()\TokenType <> #ljIDENT
+               SetError("Expected identifier after 'array'", #C2ERR_EXPECTED_STATEMENT)
+               ProcedureReturn 0
+            EndIf
+
+            Protected arrayName.s = TOKEN()\value
+            Protected arrayTypeHint.w = TOKEN()\typeHint
+            Protected arraySize.i
+            Protected varSlot.i
+
+            NextToken()
+
+            ; Expect [
+            If TOKEN()\TokenType <> #ljLeftBracket
+               SetError("Expected '[' after array name", #C2ERR_EXPECTED_STATEMENT)
+               ProcedureReturn 0
+            EndIf
+            NextToken()
+
+            ; Parse size (must be integer constant)
+            If TOKEN()\TokenType <> #ljINT
+               SetError("Array size must be integer constant", #C2ERR_EXPECTED_STATEMENT)
+               ProcedureReturn 0
+            EndIf
+            arraySize = Val(TOKEN()\value)
+            NextToken()
+
+            ; Expect ]
+            If TOKEN()\TokenType <> #ljRightBracket
+               SetError("Expected ']' after array size", #C2ERR_EXPECTED_STATEMENT)
+               ProcedureReturn 0
+            EndIf
+            NextToken()
+
+            ; Expect ;
+            If TOKEN()\TokenType <> #ljSemi
+               SetError("Expected ';' after array declaration", #C2ERR_EXPECTED_STATEMENT)
+               ProcedureReturn 0
+            EndIf
+            NextToken()
+
+            ; Register the array variable
+            varSlot = FetchVarOffset(arrayName, 0, 0)
+            gVarMeta(varSlot)\arraySize = arraySize
+            gVarMeta(varSlot)\elementSize = 1  ; 1 for primitives
+
+            ; Clear any existing type bits and set array flag + element type
+            ; FetchVarOffset may have set INT as default, so clear type bits first
+            gVarMeta(varSlot)\flags = (gVarMeta(varSlot)\flags & ~#C2FLAG_TYPE) | #C2FLAG_ARRAY
+
+            CompilerIf #DEBUG
+               Debug "Array declaration: " + arrayName + "[" + Str(arraySize) + "] -> varSlot=" + Str(varSlot) + ", stored arraySize=" + Str(gVarMeta(varSlot)\arraySize)
+            CompilerEndIf
+
+            ; Set element type based on type hint
+            If arrayTypeHint = #ljFLOAT
+               gVarMeta(varSlot)\flags = gVarMeta(varSlot)\flags | #C2FLAG_FLOAT
+            ElseIf arrayTypeHint = #ljSTRING
+               gVarMeta(varSlot)\flags = gVarMeta(varSlot)\flags | #C2FLAG_STR
+            Else
+               gVarMeta(varSlot)\flags = gVarMeta(varSlot)\flags | #C2FLAG_INT
+            EndIf
+
+            ; Check if this is a local or global array based on name mangling
+            Protected isLocalArray.i = #False
+            If gCurrentFunctionName <> "" And stmtFunctionId >= #C2FUNCSTART
+               ; Check if FetchVarOffset created a mangled name (local variable)
+               If LCase(Left(gVarMeta(varSlot)\name, Len(gCurrentFunctionName) + 1)) = LCase(gCurrentFunctionName + "_")
+                  isLocalArray = #True
+               EndIf
+            EndIf
+
+            ; If inside function and array is local, assign local array index and set paramOffset
+            If isLocalArray
+               ForEach mapModules()
+                  If mapModules()\function = stmtFunctionId
+                     gVarMeta(varSlot)\typeSpecificIndex = mapModules()\nLocalArrays
+                     gVarMeta(varSlot)\paramOffset = 0  ; Mark as local (any non-negative value works)
+                     ; Store mapping: [functionId, localArrayIndex] -> varSlot
+                     gFuncLocalArraySlots(stmtFunctionId, mapModules()\nLocalArrays) = varSlot
+                     mapModules()\nLocalArrays + 1
+                     Break
+                  EndIf
+               Next
+            Else
+               ; Global array - set paramOffset to -1
+               gVarMeta(varSlot)\paramOffset = -1
+            EndIf
+
+            ; Return empty node (array declaration doesn't generate code itself)
+            *p = 0
+
          Case #ljIF
             NextToken()
-            *e    = paren_expr()
+            ; Allow optional parentheses around condition
+            If TOKEN()\TokenExtra = #ljLeftParent
+               *e = paren_expr()
+            Else
+               *e = expr(0)
+            EndIf
             *s    = stmt()
             *s2   = 0 
             
@@ -1939,6 +2085,23 @@ EndProcedure
                EndIf
 
                NextToken()
+
+               ; Check if this is array indexing
+               If TOKEN()\TokenType = #ljLeftBracket
+                  ; Array assignment: arr[index] = value
+                  NextToken()  ; Skip '['
+                  Protected *indexExpr.stTree = expr(0)  ; Parse index expression
+
+                  If TOKEN()\TokenType <> #ljRightBracket
+                     SetError( "Expected ']' after array index", #C2ERR_EXPECTED_STATEMENT )
+                     ProcedureReturn 0
+                  EndIf
+                  NextToken()  ; Skip ']'
+
+                  ; Create array index node: left=array var, right=index
+                  *v = MakeNode( #ljLeftBracket, *v, *indexExpr )
+               EndIf
+
                Expect( "Assign", #ljASSIGN )
 
                ; Parse right-hand side using expr() - handles all cases including nested calls
@@ -1980,7 +2143,12 @@ EndProcedure
             EndIf
          Case #ljWHILE
             NextToken()
-            *e = paren_expr()
+            ; Allow optional parentheses around condition
+            If TOKEN()\TokenExtra = #ljLeftParent
+               *e = paren_expr()
+            Else
+               *e = expr(0)
+            EndIf
             *s = stmt()
             *p = MakeNode( #ljWHILE, *e, *s )
             
@@ -2013,8 +2181,8 @@ EndProcedure
             NextToken()
             *e = expand_params( #ljPush, moduleId )
             *v\paramCount = gLastExpandParamsCount  ; Store actual param count in node
-            ; Statement-level calls need to pop unused return value
-            *s = Makeleaf( #ljPOP, "?discard?" )
+            ; Statement-level calls need to pop unused return value into reserved slot 0
+            *s = Makeleaf( #ljPOP, "0" )  ; Use slot 0 directly
             *p = MakeNode( #ljSEQ, *e, MakeNode( #ljSEQ, *v, *s ) )
             
          Case #ljreturn
@@ -2684,6 +2852,19 @@ EndProcedure
             
             ProcedureReturn #C2FLAG_INT
 
+         Case #ljLeftBracket
+            ; Array element access - return the array's element type
+            If *x\left And *x\left\NodeType = #ljIDENT
+               ; Use FetchVarOffset to find the array variable (handles name mangling)
+               n = FetchVarOffset(*x\left\value, 0, 0)
+               If n >= 0
+                  ; Found the array - return its element type
+                  ProcedureReturn gVarMeta(n)\flags & #C2FLAG_TYPE
+               EndIf
+            EndIf
+            ; Array not found - default to INT
+            ProcedureReturn #C2FLAG_INT
+
          Default
             ; Comparisons and other operations return INT
             ProcedureReturn #C2FLAG_INT
@@ -2747,6 +2928,8 @@ EndProcedure
       Protected         returnType.w
       Protected         funcId.i
       Protected         paramCount.i
+      Protected         isReturnSeq.i
+      Protected         *returnExpr.stTree
 
       ; Reset state on top-level call
       If gCodeGenRecursionDepth = 0
@@ -2770,62 +2953,68 @@ EndProcedure
             gCodeGenRecursionDepth - 1
             ProcedureReturn
          Case #ljPOP
-            n = FetchVarOffset(*x\value)
-
-            ; Check if this is a function parameter
-            If gCodeGenParamIndex >= 0
-               ; This is a function parameter - mark it and don't emit POP
-               gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_PARAM
-               gVarMeta( n )\paramOffset = gCodeGenParamIndex
-
-               ; Set type flags
-               If *x\typeHint = #ljFLOAT
-                  gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_FLOAT
-               ElseIf *x\typeHint = #ljSTRING
-                  gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_STR
-               Else
-                  gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_INT
-               EndIf
-
-               ; Decrement parameter index (parameters processed in reverse, last to first)
-               gCodeGenParamIndex - 1
-
-               ; Note: We DON'T emit POP - parameters stay on stack
-            ElseIf gCurrentFunctionName <> ""
-               ; Local variable inside a function - assign offset and emit POP
-               gVarMeta( n )\paramOffset = gCodeGenLocalIndex
-               gCodeGenLocalIndex + 1  ; Increment for next local
-
-               ; Update nLocals in mapModules immediately
-               ForEach mapModules()
-                  If mapModules()\function = gCodeGenFunction
-                     mapModules()\nLocals = gCodeGenLocalIndex - mapModules()\nParams
-                     Break
-                  EndIf
-               Next
-
-               ; Set type flags
-               If *x\typeHint = #ljFLOAT
-                  EmitInt( #ljPOPF, n )
-                  gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_FLOAT
-               ElseIf *x\typeHint = #ljSTRING
-                  EmitInt( #ljPOPS, n )
-                  gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_STR
-               Else
-                  EmitInt( #ljPOP, n )
-                  gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_INT
-               EndIf
+            ; Check if this is a direct slot reference (for ?discard? slot 0)
+            If *x\value = "0"
+               n = 0  ; Use reserved slot 0 directly
+               EmitInt( #ljPOP, 0 )  ; Always emit as global INT
             Else
-               ; Global variable - emit POP as usual
-               If *x\typeHint = #ljFLOAT
-                  EmitInt( #ljPOPF, n )
-                  gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_FLOAT
-               ElseIf *x\typeHint = #ljSTRING
-                  EmitInt( #ljPOPS, n )
-                  gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_STR
+               n = FetchVarOffset(*x\value)
+
+               ; Check if this is a function parameter
+               If gCodeGenParamIndex >= 0
+                  ; This is a function parameter - mark it and don't emit POP
+                  gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_PARAM
+                  gVarMeta( n )\paramOffset = gCodeGenParamIndex
+
+                  ; Set type flags
+                  If *x\typeHint = #ljFLOAT
+                     gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_FLOAT
+                  ElseIf *x\typeHint = #ljSTRING
+                     gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_STR
+                  Else
+                     gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_INT
+                  EndIf
+
+                  ; Decrement parameter index (parameters processed in reverse, last to first)
+                  gCodeGenParamIndex - 1
+
+                  ; Note: We DON'T emit POP - parameters stay on stack
+               ElseIf gCurrentFunctionName <> ""
+                  ; Local variable inside a function - assign offset and emit POP
+                  gVarMeta( n )\paramOffset = gCodeGenLocalIndex
+                  gCodeGenLocalIndex + 1  ; Increment for next local
+
+                  ; Update nLocals in mapModules immediately
+                  ForEach mapModules()
+                     If mapModules()\function = gCodeGenFunction
+                        mapModules()\nLocals = gCodeGenLocalIndex - mapModules()\nParams
+                        Break
+                     EndIf
+                  Next
+
+                  ; Set type flags
+                  If *x\typeHint = #ljFLOAT
+                     EmitInt( #ljPOPF, n )
+                     gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_FLOAT
+                  ElseIf *x\typeHint = #ljSTRING
+                     EmitInt( #ljPOPS, n )
+                     gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_STR
+                  Else
+                     EmitInt( #ljPOP, n )
+                     gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_INT
+                  EndIf
                Else
-                  EmitInt( #ljPOP, n )
-                  gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_INT
+                  ; Global variable - emit POP as usual
+                  If *x\typeHint = #ljFLOAT
+                     EmitInt( #ljPOPF, n )
+                     gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_FLOAT
+                  ElseIf *x\typeHint = #ljSTRING
+                     EmitInt( #ljPOPS, n )
+                     gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_STR
+                  Else
+                     EmitInt( #ljPOP, n )
+                     gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_INT
+                  EndIf
                EndIf
             EndIf
          
@@ -2844,47 +3033,121 @@ EndProcedure
          Case #ljINT, #ljFLOAT, #ljSTRING
             n = FetchVarOffset( *x\value, 0, *x\NodeType )
             EmitInt( #ljPush, n )
-            
-         Case #ljASSIGN
-            n = FetchVarOffset( *x\left\value, *x\right )
 
-            ; Apply explicit type hint if provided
-            If *x\left\TypeHint = #ljFLOAT And Not (gVarMeta(n)\flags & #C2FLAG_FLOAT)
-               gVarMeta(n)\flags = (gVarMeta(n)\flags & ~#C2FLAG_TYPE) | #C2FLAG_FLOAT
-            ElseIf *x\left\TypeHint = #ljSTRING And Not (gVarMeta(n)\flags & #C2FLAG_STR)
-               gVarMeta(n)\flags = (gVarMeta(n)\flags & ~#C2FLAG_TYPE) | #C2FLAG_STR
-            ElseIf Not *x\left\TypeHint
-               ; No explicit hint - ensure type inference happened correctly
-               rightType = GetExprResultType(*x\right)
-               
-               If rightType & #C2FLAG_FLOAT And Not (gVarMeta(n)\flags & #C2FLAG_FLOAT)
-                  gVarMeta(n)\flags = (gVarMeta(n)\flags & ~#C2FLAG_TYPE) | #C2FLAG_FLOAT
-               ElseIf rightType & #C2FLAG_STR And Not (gVarMeta(n)\flags & #C2FLAG_STR)
-                  gVarMeta(n)\flags = (gVarMeta(n)\flags & ~#C2FLAG_TYPE) | #C2FLAG_STR
+         Case #ljLeftBracket
+            ; Array indexing: arr[index]
+            ; *x\left = array variable (ljIDENT)
+            ; *x\right = index expression
+            ; Emit index expression, then generic ARRAYFETCH
+            ; Postprocessor will optimize and type this
+
+            If *x\left And *x\left\NodeType = #ljIDENT
+               n = FetchVarOffset(*x\left\value)
+
+               ; Always emit index expression (postprocessor will optimize)
+               CodeGenerator( *x\right )
+
+               ; Determine if array is local or global at compile time
+               Protected isLocal.i, arrayIndex.i
+               isLocal = 0
+               arrayIndex = n  ; Default to global varSlot
+
+               If gVarMeta(n)\paramOffset >= 0
+                  ; Local array - use typeSpecificIndex
+                  isLocal = 1
+                  arrayIndex = gVarMeta(n)\typeSpecificIndex
                EndIf
+
+               ; Emit generic ARRAYFETCH (postprocessor will type it)
+               EmitInt( #ljARRAYFETCH, arrayIndex )
+               ; Encode local/global in j field: 0=global, 1=local
+               llObjects()\j = isLocal
+               ; ndx = -1 signals postprocessor to optimize
+               llObjects()\ndx = -1
+               ; Store varSlot in n field for postprocessor typing
+               llObjects()\n = n
             EndIf
 
-            CodeGenerator( *x\right )
+         Case #ljASSIGN
+            ; Check if left side is array indexing
+            If *x\left And *x\left\NodeType = #ljLeftBracket
+               ; Array assignment: arr[index] = value
+               ; *x\left\left = array variable
+               ; *x\left\right = index expression
+               ; *x\right = value expression
+               ; Emit value, then index, then generic ARRAYSTORE
+               ; Postprocessor will optimize and type this
 
-            ; Emit appropriate STORE variant based on variable type
-            If gVarMeta(n)\flags & #C2FLAG_STR
-               EmitInt( #ljSTORES, n )
-            ElseIf gVarMeta(n)\flags & #C2FLAG_FLOAT
-               EmitInt( #ljSTOREF, n )
+               n = FetchVarOffset(*x\left\left\value)
+
+               ; Emit value expression first (pushes value to stack)
+               CodeGenerator( *x\right )
+
+               ; Always emit index expression (postprocessor will optimize)
+               CodeGenerator( *x\left\right )
+
+               ; Determine if array is local or global at compile time
+               Protected isLocalStore.i, arrayIndexStore.i
+               isLocalStore = 0
+               arrayIndexStore = n  ; Default to global varSlot
+
+               If gVarMeta(n)\paramOffset >= 0
+                  ; Local array - use typeSpecificIndex
+                  isLocalStore = 1
+                  arrayIndexStore = gVarMeta(n)\typeSpecificIndex
+               EndIf
+
+               ; Emit generic ARRAYSTORE (postprocessor will type it)
+               ; Stack: [value] [index] -> ARRAYSTORE pops both
+               EmitInt( #ljARRAYSTORE, arrayIndexStore )
+               ; Encode local/global in j field: 0=global, 1=local
+               llObjects()\j = isLocalStore
+               ; ndx = -1 signals postprocessor to optimize
+               llObjects()\ndx = -1
+               ; Store varSlot in n field for postprocessor typing
+               llObjects()\n = n
             Else
-               EmitInt( #ljSTORE, n )
-            EndIf
+               ; Regular variable assignment
+               n = FetchVarOffset( *x\left\value, *x\right )
 
-            ; Type propagation: If assigning a typed value to an untyped var, update the var
-            If llObjects()\code <> #ljMOV And llObjects()\code <> #ljMOVS And llObjects()\code <> #ljMOVF And
-               llObjects()\code <> #ljLMOV And llObjects()\code <> #ljLMOVS And llObjects()\code <> #ljLMOVF
-               ; Keep the variable's declared type (don't change it)
-               ; Type checking could be added here later
+               ; Apply explicit type hint if provided
+               If *x\left\TypeHint = #ljFLOAT And Not (gVarMeta(n)\flags & #C2FLAG_FLOAT)
+                  gVarMeta(n)\flags = (gVarMeta(n)\flags & ~#C2FLAG_TYPE) | #C2FLAG_FLOAT
+               ElseIf *x\left\TypeHint = #ljSTRING And Not (gVarMeta(n)\flags & #C2FLAG_STR)
+                  gVarMeta(n)\flags = (gVarMeta(n)\flags & ~#C2FLAG_TYPE) | #C2FLAG_STR
+               ElseIf Not *x\left\TypeHint
+                  ; No explicit hint - ensure type inference happened correctly
+                  rightType = GetExprResultType(*x\right)
+
+                  If rightType & #C2FLAG_FLOAT And Not (gVarMeta(n)\flags & #C2FLAG_FLOAT)
+                     gVarMeta(n)\flags = (gVarMeta(n)\flags & ~#C2FLAG_TYPE) | #C2FLAG_FLOAT
+                  ElseIf rightType & #C2FLAG_STR And Not (gVarMeta(n)\flags & #C2FLAG_STR)
+                     gVarMeta(n)\flags = (gVarMeta(n)\flags & ~#C2FLAG_TYPE) | #C2FLAG_STR
+                  EndIf
+               EndIf
+
+               CodeGenerator( *x\right )
+
+               ; Emit appropriate STORE variant based on variable type
+               If gVarMeta(n)\flags & #C2FLAG_STR
+                  EmitInt( #ljSTORES, n )
+               ElseIf gVarMeta(n)\flags & #C2FLAG_FLOAT
+                  EmitInt( #ljSTOREF, n )
+               Else
+                  EmitInt( #ljSTORE, n )
+               EndIf
+
+               ; Type propagation: If assigning a typed value to an untyped var, update the var
+               If llObjects()\code <> #ljMOV And llObjects()\code <> #ljMOVS And llObjects()\code <> #ljMOVF And
+                  llObjects()\code <> #ljLMOV And llObjects()\code <> #ljLMOVS And llObjects()\code <> #ljLMOVF
+                  ; Keep the variable's declared type (don't change it)
+                  ; Type checking could be added here later
+               EndIf
             EndIf
 
          Case #ljreturn
             ; Note: The actual return type is determined at the SEQ level
-            ; This case handles fallback for direct return processing
+            ; This case should not normally be reached since SEQ handler processes returns
             EmitInt( #ljreturn )
 
          Case #ljIF
@@ -2950,17 +3213,40 @@ EndProcedure
             fix( p2 )
             
          Case #ljSEQ
-            ; Check if this is a return statement (SEQ with return as right node)
-            If *x\right And *x\right\NodeType = #ljreturn
-               ; Evaluate the expression being returned
-               CodeGenerator( *x\left )
+            ; Check if this SEQ eventually leads to a return statement
+            ; Patterns: SEQ(?, SEQ(expr, #ljreturn)) or SEQ(?, SEQ(?, SEQ(expr, #ljreturn)))
+            isReturnSeq = #False
+            *returnExpr = 0
 
-               ; Use the function's DECLARED return type from mapModules, not the inferred expression type
-               ; This ensures functions with .s or .f suffixes always return the correct type
-               returnType = #C2FLAG_INT  ; Default
+            If *x\right And *x\right\NodeType = #ljSEQ
+               ; Check for two-level pattern: SEQ(?, SEQ(expr, #ljreturn))
+               If *x\right\right And *x\right\right\NodeType = #ljreturn
+                  isReturnSeq = #True
+                  *returnExpr = *x\right\left
+               ; Check for three-level pattern: SEQ(?, SEQ(?, SEQ(expr, #ljreturn)))
+               ElseIf *x\right\right And *x\right\right\NodeType = #ljSEQ
+                  If *x\right\right\right And *x\right\right\right\NodeType = #ljreturn
+                     isReturnSeq = #True
+                     *returnExpr = *x\right\right\left
+                  EndIf
+               EndIf
+            EndIf
 
+            If isReturnSeq
+               ; This is a return statement - handle specially
+               ; Process left (previous statements) if any
+               If *x\left
+                  CodeGenerator( *x\left )
+               EndIf
+
+               ; Process return expression
+               If *returnExpr
+                  CodeGenerator( *returnExpr )
+               EndIf
+
+               ; Emit appropriate return opcode based on function type
+               returnType = #C2FLAG_INT
                If gCodeGenFunction > 0
-                  ; Find the current function's declared return type
                   ForEach mapModules()
                      If mapModules()\function = gCodeGenFunction
                         returnType = mapModules()\returnType
@@ -2969,27 +3255,32 @@ EndProcedure
                   Next
                EndIf
 
-               ; Emit the appropriate return opcode based on DECLARED function return type
                If returnType & #C2FLAG_STR
                   EmitInt( #ljreturnS )
                ElseIf returnType & #C2FLAG_FLOAT
                   EmitInt( #ljreturnF )
                Else
-                  EmitInt( #ljreturn )  ; Default to integer return
+                  EmitInt( #ljreturn )
                EndIf
             Else
                ; Normal SEQ processing
-               CodeGenerator( *x\left )
-               CodeGenerator( *x\right )
-
-               ; NOTE: Don't reset gCodeGenFunction here!
-               ; The AST has nested SEQ nodes, and resetting here happens too early.
-               ; Function body may continue in outer SEQ nodes.
-               ; Like gCurrentFunctionName, gCodeGenFunction will be overwritten when next function starts.
-               ; The nLocals count is updated incrementally in FetchVarOffset as variables are created.
+               If *x\left
+                  CodeGenerator( *x\left )
+               EndIf
+               If *x\right
+                  CodeGenerator( *x\right )
+               EndIf
             EndIf
+
+            ; NOTE: Don't reset gCodeGenFunction here!
+            ; The AST has nested SEQ nodes, and resetting here happens too early.
+            ; Function body may continue in outer SEQ nodes.
+            ; Like gCurrentFunctionName, gCodeGenFunction will be overwritten when next function starts.
+            ; The nLocals count is updated incrementally in FetchVarOffset as variables are created.
             
          Case #ljFunction
+            ; Emit function marker for postprocessor (implicit return insertion)
+            EmitInt( #ljfunction )
             ForEach mapModules()
                If mapModules()\function = Val( *x\value )
                   ; Store BOTH index and pointer to list element for post-optimization fixup
@@ -3110,20 +3401,22 @@ EndProcedure
             Else
                ; User-defined function - emit CALL with function ID
                ; Store nParams in j and nLocals in n (no packing)
-               Protected nLocals.l
+               Protected nLocals.l, nLocalArrays.l
                EmitInt( #ljCall, funcId )
 
-               ; Find nLocals for this function
+               ; Find nLocals and nLocalArrays for this function
                ForEach mapModules()
                   If mapModules()\function = funcId
                      nLocals = mapModules()\nLocals
+                     nLocalArrays = mapModules()\nLocalArrays
                      Break
                   EndIf
                Next
 
-               ; Store separately: j = nParams, n = nLocals
+               ; Store separately: j = nParams, n = nLocals, ndx = nLocalArrays
                llObjects()\j = paramCount
                llObjects()\n = nLocals
+               llObjects()\ndx = nLocalArrays
             EndIf
             
          Case #ljHalt
@@ -3208,18 +3501,13 @@ EndProcedure
       ForEach mapModules()
          If mapModules()\NewPos
             ; Use stored pointer to find current position of function entry
+            ; Don't skip NOOPs - they're part of the optimized code (e.g., PUSH→NOOP in array ops)
+            ; Jump corrections use list positions (List(x) - List(x-n)) which handles NOOPs correctly
             If ChangeCurrentElement(llObjects(), mapModules()\NewPos)
-               ; Scan forward from this element to skip any NOOPs added by optimizer
-               While ListIndex(llObjects()) < ListSize(llObjects())
-                  If llObjects()\code <> #ljNOOP
-                     ; Found first non-NOOP instruction - this is the function entry
-                     mapModules()\Index = ListIndex(llObjects()) + 1
-                     Break
-                  EndIf
-                  If Not NextElement(llObjects())
-                     Break
-                  EndIf
-               Wend
+               mapModules()\Index = ListIndex(llObjects()) + 1
+               CompilerIf #DEBUG
+                  Debug "Function fixup: funcId=" + Str(mapModules()\function) + " -> Index=" + Str(mapModules()\Index)
+               CompilerEndIf
             EndIf
          EndIf
       Next
@@ -3227,12 +3515,30 @@ EndProcedure
       ; Now patch all CALL instructions with correct function addresses AND nLocals count
       ForEach llObjects()
          If llObjects()\code = #ljCall
+            CompilerIf #DEBUG
+               Debug "Patching CALL: old funcId=" + Str(llObjects()\i)
+            CompilerEndIf
             ForEach mapModules()
                If mapModules()\function = llObjects()\i
-                  llObjects()\i = mapModules()\Index
+                  llObjects()\i = mapModules()\Index  ; Replace parsing ID with PC address
                   llObjects()\n = mapModules()\nLocals  ; Update nLocals from final count
+                  CompilerIf #DEBUG
+                     Debug "  -> new Index=" + Str(mapModules()\Index) + ", nLocals=" + Str(mapModules()\nLocals)
+                  CompilerEndIf
                   Break
                EndIf
+            Next
+         EndIf
+      Next
+
+      ; Remap local array slots from (parsingID, idx) to (PCAddress, idx)
+      ; This must be done after functions get their final PC addresses (Index)
+      ForEach mapModules()
+         If mapModules()\nLocalArrays > 0
+            Protected remapIdx.i
+            For remapIdx = 0 To mapModules()\nLocalArrays - 1
+               ; Copy from (parsingID, idx) to (PCAddress, idx)
+               gFuncLocalArraySlots(mapModules()\Index, remapIdx) = gFuncLocalArraySlots(mapModules()\function, remapIdx)               
             Next
          EndIf
       Next
@@ -3340,7 +3646,7 @@ EndProcedure
 
          ; List assembly if requested (check pragma listasm - default OFF)
          If FindMapElement(mapPragmas(), "listasm")
-            If LCase(mapPragmas()) = "on" Or mapPragmas() = "1"
+            If LCase(mapPragmas()) = "on" Or mapPragmas() = "1" Or mapPragmas() = "true"
                ListCode()
             EndIf
          EndIf
@@ -3363,7 +3669,9 @@ CompilerIf #PB_Compiler_IsMainFile
    Define.s       filename
    
    ;filename = ".\Examples\00 comprehensive test.lj"
-   filename = ".\Examples\bug fix.lj"
+   filename = ".\Examples\bug fix2.lj"
+   ;filename = ".\Examples\22 array comprehensive.lj"
+   ;filename = ".\Examples\23 test local string Array.lj"
    ;filename = ".\Examples\temp.lj"
    
    ;filename = OpenFileRequester( "Please choose source", ".\Examples\", "LJ Files|*.lj", 0 )
@@ -3391,15 +3699,15 @@ CompilerEndIf
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 3374
-; FirstLine = 3288
-; Folding = -----f-----
+; CursorPosition = 3660
+; FirstLine = 3422
+; Folding = ---f-f------
 ; Markers = 1068
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; CPU = 1
-; EnableCompileCount = 680
+; EnableCompileCount = 789
 ; EnableBuildCount = 0
 ; EnableExeConstant
 ; IncludeVersionInfo

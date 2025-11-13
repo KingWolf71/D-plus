@@ -7,7 +7,7 @@
 #pragma "console" "on"
 #pragma "consolesize"  "760x690"
 #pragma "optimizecode" "on"
-#pragma "ListASM" off
+#pragma "ListASM" on
 #pragma "version"
 #pragma FastPrint on
 #pragma RunThreaded on
@@ -144,6 +144,74 @@ func multiplyFloats.f(x.f, y.f) {
 nestedConv = addInts(multiplyFloats(2.5, 2.0), 10);
 print("Test: nestedConv = 15");
 assertEqual(15, nestedConv);
+
+function getArraySum() {
+    array nums.i[3];
+    nums[0] = 5;
+    nums[1] = 10;
+    nums[2] = 15;
+
+    total = nums[0] + nums[1] + nums[2];
+    print("  Array sum in function = ", total);
+    return total;
+}
+
+returnedSum = getArraySum();
+print("  Returned sum = ", returnedSum);
+assertEqual(30, returnedSum);
+
+function getArrayElement() {
+    array data.i[4];
+    data[0] = 100;
+    data[1] = 200;
+    data[2] = 300;
+    data[3] = 400;
+
+    return data[2];
+}
+
+element = getArrayElement();
+print("  Returned element = ", element);
+assertEqual(300, element);
+
+function computeWithArrays() {
+    array a.i[2];
+    array b.i[2];
+
+    a[0] = 10;
+    a[1] = 20;
+    b[0] = 5;
+    b[1] = 3;
+
+    result = (a[0] + a[1]) * (b[0] - b[1]);
+    print("  Computed result = ", result);
+    return result;
+}
+
+computed = computeWithArrays();
+print("  Final computed value = ", computed);
+assertEqual(60, computed);
+print("  PASS: Functions returning array values");
+print("");
+
+function getFloatAverage.f() {
+    array values.f[4];
+    values[0] = 1.0;
+    values[1] = 2.0;
+    values[2] = 3.0;
+    values[3] = 4.0;
+
+    sum = values[0] + values[1] + values[2] + values[3];
+    avg = sum / 4.0;
+    print("  Float average = ", avg);
+    return avg;
+}
+
+avg.f = getFloatAverage();
+print("  Returned average = ", avg);
+assertFloatEqual(2.5, avg);
+print("  PASS: Float array returns");
+print("");
 
 print("");
 print("=== Done ===");

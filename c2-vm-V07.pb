@@ -44,10 +44,25 @@ Module C2VM
       time.i
    EndStructure
 
+   Structure stVTSimple
+      ss.s
+      i.i
+      f.d
+      *ptr              
+   EndStructure
+   
+   Structure stVTArray
+      size.l
+      desc.s
+      Array ar.stVTSimple(0)
+   EndStructure
+   
    Structure stVT
       ss.s
       i.i
       f.d
+      *ptr              
+      dta.stVTArray
    EndStructure
 
    Structure stStack
@@ -56,6 +71,7 @@ Module C2VM
       Array LocalInt.i(0)      ; Dynamic array for function's local integer variables (params + locals)
       Array LocalFloat.d(0)    ; Dynamic array for function's local float variables (params + locals)
       Array LocalString.s(0)   ; Dynamic array for function's local string variables (params + locals)
+      Array LocalArrays.stVT(0) ; Dynamic array for function's local array variables (each has its own ar())
    EndStructure
 
    ;- Globals
@@ -115,7 +131,7 @@ Module C2VM
       pc + 1
    EndMacro
   
-   XIncludeFile      "c2-vm-commands-v04.pb"
+   XIncludeFile      "c2-vm-commands-v05.pb"
 
    ;- Console GUI
    Procedure         MainWindow(name.s)
@@ -234,8 +250,20 @@ Module C2VM
       *ptrJumpTable( #ljBUILTIN_ASSERT_FLOAT )  = @C2BUILTIN_ASSERT_FLOAT()
       *ptrJumpTable( #ljBUILTIN_ASSERT_STRING ) = @C2BUILTIN_ASSERT_STRING()
 
+      ; Array operations
+      *ptrJumpTable( #ljARRAYINDEX )      = @C2ARRAYINDEX()
+      *ptrJumpTable( #ljARRAYFETCH )      = @C2ARRAYFETCH()
+      *ptrJumpTable( #ljARRAYFETCH_INT )  = @C2ARRAYFETCH_INT()
+      *ptrJumpTable( #ljARRAYFETCH_FLOAT ) = @C2ARRAYFETCH_FLOAT()
+      *ptrJumpTable( #ljARRAYFETCH_STR )  = @C2ARRAYFETCH_STR()
+      *ptrJumpTable( #ljARRAYSTORE )      = @C2ARRAYSTORE()
+      *ptrJumpTable( #ljARRAYSTORE_INT )  = @C2ARRAYSTORE_INT()
+      *ptrJumpTable( #ljARRAYSTORE_FLOAT ) = @C2ARRAYSTORE_FLOAT()
+      *ptrJumpTable( #ljARRAYSTORE_STR )  = @C2ARRAYSTORE_STR()
+
       *ptrJumpTable( #ljNOOP )            = @C2NOOP()
       *ptrJumpTable( #ljNOOPIF )          = @C2NOOP()
+      *ptrJumpTable( #ljfunction )        = @C2NOOP()  ; Function marker - no-op at runtime
       *ptrJumpTable( #ljHALT )            = @C2HALT()
 
    EndProcedure
@@ -250,6 +278,12 @@ Module C2VM
          gVar(i)\i = gVarMeta(i)\valueInt
          gVar(i)\f = gVarMeta(i)\valueFloat
          gVar(i)\ss = gVarMeta(i)\valueString
+
+         ; Allocate array storage if this is an array variable
+         If gVarMeta(i)\flags & #C2FLAG_ARRAY And gVarMeta(i)\arraySize > 0
+            ReDim gVar(i)\dta\ar(gVarMeta(i)\arraySize - 1)  ; 0-based indexing
+            gVar(i)\dta\size = gVarMeta(i)\arraySize  ; Store size in structure
+         EndIf
       Next
    EndProcedure
 
@@ -483,8 +517,8 @@ Module C2VM
 EndModule
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 466
-; FirstLine = 433
+; CursorPosition = 58
+; FirstLine = 37
 ; Folding = ----
 ; Markers = 14
 ; EnableAsm

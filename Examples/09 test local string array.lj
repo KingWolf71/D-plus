@@ -1,0 +1,22 @@
+// Minimal test for local string array bug
+#pragma appname "Test Local String Array"
+#pragma console on
+#pragma optimizecode on
+#pragma version
+#pragma ListASM on
+
+print("Testing local string array...");
+
+function testLocalStrings() {
+    array local_strings.s[3];
+    local_strings[0] = "One";
+    local_strings[1] = "Two";
+    local_strings[2] = "Three";
+
+    print("  local_strings[0] = ", local_strings[0]);
+    print("  local_strings[1] = ", local_strings[1]);
+    print("  local_strings[2] = ", local_strings[2]);
+}
+
+testLocalStrings();
+print("Test completed!");
