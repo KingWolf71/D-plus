@@ -10,3 +10,6 @@
 10. Postprocessor is crucial and final step to make sure type "guessing" is not needed in the VirtualMachine
 11. don't try to compile yourself
 12. use powershell commands
+13. gVarMeta CANNOT be used in VM code as VM needs to work independently of compiler
+14. var1 + var2 is the same as var1 = var1 + var2 and va1 - var2 is the same as var1 = var1 - var2
+15. LJ Language is meant to be built for speed of execution

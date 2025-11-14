@@ -86,13 +86,14 @@ Module C2VM
    Global            gDecs                = 3
    Global            gFloatTolerance.d    = 0.00001
    Global            gFunctionDepth       = 0       ; Fast function depth counter (avoids ListSize)
+   Global            gStackDepth          = -1      ; Current stack frame index (-1 = no frames)
 
    ; gBatchOutput declared in DeclareModule, initialized here
    gBatchOutput = ""
 
    Global Dim        *ptrJumpTable(1)
    Global Dim        gVar.stVT(#C2MAXCONSTANTS)
-   Global NewList    llStack.stStack()
+   Global Dim        gStack.stStack(gMaxStackDepth - 1)
    
    ;- Macros
    Macro             vm_ConsoleOrGUI( mytext )
@@ -253,13 +254,47 @@ Module C2VM
       ; Array operations
       *ptrJumpTable( #ljARRAYINDEX )      = @C2ARRAYINDEX()
       *ptrJumpTable( #ljARRAYFETCH )      = @C2ARRAYFETCH()
-      *ptrJumpTable( #ljARRAYFETCH_INT )  = @C2ARRAYFETCH_INT()
-      *ptrJumpTable( #ljARRAYFETCH_FLOAT ) = @C2ARRAYFETCH_FLOAT()
-      *ptrJumpTable( #ljARRAYFETCH_STR )  = @C2ARRAYFETCH_STR()
       *ptrJumpTable( #ljARRAYSTORE )      = @C2ARRAYSTORE()
-      *ptrJumpTable( #ljARRAYSTORE_INT )  = @C2ARRAYSTORE_INT()
-      *ptrJumpTable( #ljARRAYSTORE_FLOAT ) = @C2ARRAYSTORE_FLOAT()
-      *ptrJumpTable( #ljARRAYSTORE_STR )  = @C2ARRAYSTORE_STR()
+
+      ; Specialized array fetch operations (no runtime branching)
+      *ptrJumpTable( #ljARRAYFETCH_INT_GLOBAL_OPT )     = @C2ARRAYFETCH_INT_GLOBAL_OPT()
+      *ptrJumpTable( #ljARRAYFETCH_INT_GLOBAL_STACK )   = @C2ARRAYFETCH_INT_GLOBAL_STACK()
+      *ptrJumpTable( #ljARRAYFETCH_INT_LOCAL_OPT )      = @C2ARRAYFETCH_INT_LOCAL_OPT()
+      *ptrJumpTable( #ljARRAYFETCH_INT_LOCAL_STACK )    = @C2ARRAYFETCH_INT_LOCAL_STACK()
+      *ptrJumpTable( #ljARRAYFETCH_FLOAT_GLOBAL_OPT )   = @C2ARRAYFETCH_FLOAT_GLOBAL_OPT()
+      *ptrJumpTable( #ljARRAYFETCH_FLOAT_GLOBAL_STACK ) = @C2ARRAYFETCH_FLOAT_GLOBAL_STACK()
+      *ptrJumpTable( #ljARRAYFETCH_FLOAT_LOCAL_OPT )    = @C2ARRAYFETCH_FLOAT_LOCAL_OPT()
+      *ptrJumpTable( #ljARRAYFETCH_FLOAT_LOCAL_STACK )  = @C2ARRAYFETCH_FLOAT_LOCAL_STACK()
+      *ptrJumpTable( #ljARRAYFETCH_STR_GLOBAL_OPT )     = @C2ARRAYFETCH_STR_GLOBAL_OPT()
+      *ptrJumpTable( #ljARRAYFETCH_STR_GLOBAL_STACK )   = @C2ARRAYFETCH_STR_GLOBAL_STACK()
+      *ptrJumpTable( #ljARRAYFETCH_STR_LOCAL_OPT )      = @C2ARRAYFETCH_STR_LOCAL_OPT()
+      *ptrJumpTable( #ljARRAYFETCH_STR_LOCAL_STACK )    = @C2ARRAYFETCH_STR_LOCAL_STACK()
+
+      ; Specialized array store operations (no runtime branching)
+      *ptrJumpTable( #ljARRAYSTORE_INT_GLOBAL_OPT_OPT )       = @C2ARRAYSTORE_INT_GLOBAL_OPT_OPT()
+      *ptrJumpTable( #ljARRAYSTORE_INT_GLOBAL_OPT_STACK )     = @C2ARRAYSTORE_INT_GLOBAL_OPT_STACK()
+      *ptrJumpTable( #ljARRAYSTORE_INT_GLOBAL_STACK_OPT )     = @C2ARRAYSTORE_INT_GLOBAL_STACK_OPT()
+      *ptrJumpTable( #ljARRAYSTORE_INT_GLOBAL_STACK_STACK )   = @C2ARRAYSTORE_INT_GLOBAL_STACK_STACK()
+      *ptrJumpTable( #ljARRAYSTORE_INT_LOCAL_OPT_OPT )        = @C2ARRAYSTORE_INT_LOCAL_OPT_OPT()
+      *ptrJumpTable( #ljARRAYSTORE_INT_LOCAL_OPT_STACK )      = @C2ARRAYSTORE_INT_LOCAL_OPT_STACK()
+      *ptrJumpTable( #ljARRAYSTORE_INT_LOCAL_STACK_OPT )      = @C2ARRAYSTORE_INT_LOCAL_STACK_OPT()
+      *ptrJumpTable( #ljARRAYSTORE_INT_LOCAL_STACK_STACK )    = @C2ARRAYSTORE_INT_LOCAL_STACK_STACK()
+      *ptrJumpTable( #ljARRAYSTORE_FLOAT_GLOBAL_OPT_OPT )     = @C2ARRAYSTORE_FLOAT_GLOBAL_OPT_OPT()
+      *ptrJumpTable( #ljARRAYSTORE_FLOAT_GLOBAL_OPT_STACK )   = @C2ARRAYSTORE_FLOAT_GLOBAL_OPT_STACK()
+      *ptrJumpTable( #ljARRAYSTORE_FLOAT_GLOBAL_STACK_OPT )   = @C2ARRAYSTORE_FLOAT_GLOBAL_STACK_OPT()
+      *ptrJumpTable( #ljARRAYSTORE_FLOAT_GLOBAL_STACK_STACK ) = @C2ARRAYSTORE_FLOAT_GLOBAL_STACK_STACK()
+      *ptrJumpTable( #ljARRAYSTORE_FLOAT_LOCAL_OPT_OPT )      = @C2ARRAYSTORE_FLOAT_LOCAL_OPT_OPT()
+      *ptrJumpTable( #ljARRAYSTORE_FLOAT_LOCAL_OPT_STACK )    = @C2ARRAYSTORE_FLOAT_LOCAL_OPT_STACK()
+      *ptrJumpTable( #ljARRAYSTORE_FLOAT_LOCAL_STACK_OPT )    = @C2ARRAYSTORE_FLOAT_LOCAL_STACK_OPT()
+      *ptrJumpTable( #ljARRAYSTORE_FLOAT_LOCAL_STACK_STACK )  = @C2ARRAYSTORE_FLOAT_LOCAL_STACK_STACK()
+      *ptrJumpTable( #ljARRAYSTORE_STR_GLOBAL_OPT_OPT )       = @C2ARRAYSTORE_STR_GLOBAL_OPT_OPT()
+      *ptrJumpTable( #ljARRAYSTORE_STR_GLOBAL_OPT_STACK )     = @C2ARRAYSTORE_STR_GLOBAL_OPT_STACK()
+      *ptrJumpTable( #ljARRAYSTORE_STR_GLOBAL_STACK_OPT )     = @C2ARRAYSTORE_STR_GLOBAL_STACK_OPT()
+      *ptrJumpTable( #ljARRAYSTORE_STR_GLOBAL_STACK_STACK )   = @C2ARRAYSTORE_STR_GLOBAL_STACK_STACK()
+      *ptrJumpTable( #ljARRAYSTORE_STR_LOCAL_OPT_OPT )        = @C2ARRAYSTORE_STR_LOCAL_OPT_OPT()
+      *ptrJumpTable( #ljARRAYSTORE_STR_LOCAL_OPT_STACK )      = @C2ARRAYSTORE_STR_LOCAL_OPT_STACK()
+      *ptrJumpTable( #ljARRAYSTORE_STR_LOCAL_STACK_OPT )      = @C2ARRAYSTORE_STR_LOCAL_STACK_OPT()
+      *ptrJumpTable( #ljARRAYSTORE_STR_LOCAL_STACK_STACK )    = @C2ARRAYSTORE_STR_LOCAL_STACK_STACK()
 
       *ptrJumpTable( #ljNOOP )            = @C2NOOP()
       *ptrJumpTable( #ljNOOPIF )          = @C2NOOP()
@@ -292,14 +327,14 @@ Module C2VM
 
       ; Clear runtime values but preserve compilation metadata
       ; IMPORTANT: Don't clear flags or paramOffset - they're set during compilation!
-      For i = 0 To #C2MAXCONSTANTS
+      For i = 0 To ArraySize( gVar() )
          gVar( i )\f = 0
          gVar( i )\ss = ""
          gVar( i )\i = 0
       Next
 
       ; Clear the call stack
-      ClearList(llStack())
+      gStackDepth = -1
       gFunctionDepth = 0
 
       ; Stop any running code by resetting pc and putting HALT at start
@@ -352,6 +387,11 @@ Module C2VM
             arProfiler(opcode)\time + (ElapsedMilliseconds() - t1)
          CompilerEndIf
 
+         ; Debug: Track pc values in critical depth range (disabled - too verbose)
+         ;If gStackDepth >= 98 And (pc >= 280 And pc <= 320)
+         ;   Debug "VM LOOP: After opcode " + Str(opcode) + " (" + gszATR(opcode)\s + "), pc=" + Str(pc) + " gStackDepth=" + Str(gStackDepth)
+         ;EndIf
+
          ; Cache next opcode at end of loop (VM optimization)
          opcode = CPC()
       Wend
@@ -389,22 +429,10 @@ Module C2VM
          vm_ConsoleOrGUI( "==================================================" )
       CompilerEndIf
    EndProcedure
-   
-   ; Execute the code list
-   Procedure            RunVM()
-      Protected      i, j, e
-      Protected      err
-      Protected      x, y
-      Protected.s    temp, name, filename
-      Protected      win, Event
-      Protected      thRun
-      Protected      verFile.i, verString.s
-
-      Debug "******** RunVM() called ********"
-      vmInitVM()
-      cs = ArraySize( ArCode() )      
-   
-      ;Execute #pragmas first
+   Procedure            vmPragmaSet()
+      Protected.s       temp, name
+      Protected         n
+      
       temp  = mapPragmas("runthreaded")
       If temp = "off" Or temp = "0" Or temp = "false"
          gRunThreaded = #False
@@ -423,27 +451,68 @@ Module C2VM
       If temp <> ""
          gDecs = Val( temp )
       EndIf
+      
+      ;Function stack depth
+      temp  = mapPragmas("stackdepth")
+      If temp <> ""
+         gMaxStackDepth       = Val( temp )
+         gFunctionDepth    = gMaxStackDepth - 1
+         ReDim gVar( gMaxStackDepth + 1 )
+      EndIf
+      
+      ;variable stack
+      temp  = mapPragmas("stackspace")
+      If temp <> ""
+         gMaxStackSpace = Val( temp )
+         ReDim gStack( gMaxStackSpace + 1 )
+      EndIf
 
       If mapPragmas("floattolerance")
          temp = mapPragmas("floattolerance")
          gFloatTolerance = ValD(temp)
       EndIf
 
-      name  = mapPragmas("appname")
-      temp  = mapPragmas("console")
-      temp  = LCase(temp)
+      gszAppName  = mapPragmas("appname")
+      temp        = mapPragmas("console")
+      temp        = LCase(temp)
+   
+      If temp = "on" Or temp = "1" Or temp = "true"
+         gConsole = #True
+      Else
+         gConsole = #False
+      EndIf
+
+      temp     = mapPragmas("consolesize")
+      
+      If temp > ""
+         gWidth   = Val( StringField(temp, 1, "x") )
+         gHeight  = Val( StringField(temp, 2, "x") )
+      EndIf
+   
+   EndProcedure
+   
+   ; Execute the code list
+   Procedure            RunVM()
+      Protected         i, j, e
+      Protected         err
+      Protected         x, y
+      Protected.s       temp, filename
+      Protected         win, Event
+      Protected         thRun
+      Protected         verFile.i, verString.s
+
+      Debug "******** RunVM() called ********"
+      vmInitVM()
+      cs = ArraySize( ArCode() )      
+      vmPragmaSet()
 
       CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console    
          ; Batch mode - just execute directly
          vmExecute()
       CompilerElse
-         ; GUI mode
-         If temp = "on" Or temp = "1" Or temp = "true"
-            win = MainWindow( name )
-            temp = mapPragmas("consolesize")
-            x = Val( StringField(temp, 1, "x") )
-            y = Val( StringField(temp, 2, "x") )
-            ResizeWindow( #MainWindow, #PB_Ignore, #PB_Ignore, x, y )
+         If gConsole = #True
+            win = MainWindow( gszAppName )
+            ResizeWindow( #MainWindow, #PB_Ignore, #PB_Ignore, gWidth, gHeight )
          EndIf
 
          cs = ArraySize( ArCode() )
@@ -503,7 +572,7 @@ Module C2VM
             Until gExitApplication
 
             ; Wait for vmExecute thread to finish before destroying window
-            If IsThread(thRun)
+            If gRunThreaded = #True And IsThread(thRun)
                Debug "Waiting for VM thread to complete..."
                WaitThread(thRun)
                Debug "VM thread completed"
@@ -517,8 +586,8 @@ Module C2VM
 EndModule
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 58
-; FirstLine = 37
+; CursorPosition = 333
+; FirstLine = 305
 ; Folding = ----
 ; Markers = 14
 ; EnableAsm

@@ -18,11 +18,12 @@
 ; ======================================================================================================
 
 #INV$             = ~"\""
+#DEBUG = 0
 
 #C2MAXTOKENS      = 500   ; Legacy, use #C2TOKENCOUNT for actual count   
 #C2MAXCONSTANTS   = 8192
 
-#C2FLAG_TYPE      = 30
+#C2FLAG_TYPE      = 28   ; Mask for type bits only (INT | FLOAT | STR = 4|8|16 = 28)
 #C2FLAG_CONST     = 1
 #C2FLAG_IDENT     = 2
 #C2FLAG_INT       = 4
@@ -164,6 +165,52 @@ Enumeration
    #ljARRAYSTORE_FLOAT    ; Store float to array element
    #ljARRAYSTORE_STR      ; Store string to array element
 
+   ;- Specialized Array Fetch Opcodes (eliminate runtime branching)
+   ; INT variants
+   #ljARRAYFETCH_INT_GLOBAL_OPT       ; Global array, optimized index
+   #ljARRAYFETCH_INT_GLOBAL_STACK     ; Global array, stack index
+   #ljARRAYFETCH_INT_LOCAL_OPT        ; Local array, optimized index
+   #ljARRAYFETCH_INT_LOCAL_STACK      ; Local array, stack index
+   ; FLOAT variants
+   #ljARRAYFETCH_FLOAT_GLOBAL_OPT     ; Global array, optimized index
+   #ljARRAYFETCH_FLOAT_GLOBAL_STACK   ; Global array, stack index
+   #ljARRAYFETCH_FLOAT_LOCAL_OPT      ; Local array, optimized index
+   #ljARRAYFETCH_FLOAT_LOCAL_STACK    ; Local array, stack index
+   ; STRING variants
+   #ljARRAYFETCH_STR_GLOBAL_OPT       ; Global array, optimized index
+   #ljARRAYFETCH_STR_GLOBAL_STACK     ; Global array, stack index
+   #ljARRAYFETCH_STR_LOCAL_OPT        ; Local array, optimized index
+   #ljARRAYFETCH_STR_LOCAL_STACK      ; Local array, stack index
+
+   ;- Specialized Array Store Opcodes (eliminate runtime branching)
+   ; INT variants (global/local × index source × value source)
+   #ljARRAYSTORE_INT_GLOBAL_OPT_OPT       ; Global, opt index, opt value
+   #ljARRAYSTORE_INT_GLOBAL_OPT_STACK     ; Global, opt index, stack value
+   #ljARRAYSTORE_INT_GLOBAL_STACK_OPT     ; Global, stack index, opt value
+   #ljARRAYSTORE_INT_GLOBAL_STACK_STACK   ; Global, stack index, stack value
+   #ljARRAYSTORE_INT_LOCAL_OPT_OPT        ; Local, opt index, opt value
+   #ljARRAYSTORE_INT_LOCAL_OPT_STACK      ; Local, opt index, stack value
+   #ljARRAYSTORE_INT_LOCAL_STACK_OPT      ; Local, stack index, opt value
+   #ljARRAYSTORE_INT_LOCAL_STACK_STACK    ; Local, stack index, stack value
+   ; FLOAT variants
+   #ljARRAYSTORE_FLOAT_GLOBAL_OPT_OPT     ; Global, opt index, opt value
+   #ljARRAYSTORE_FLOAT_GLOBAL_OPT_STACK   ; Global, opt index, stack value
+   #ljARRAYSTORE_FLOAT_GLOBAL_STACK_OPT   ; Global, stack index, opt value
+   #ljARRAYSTORE_FLOAT_GLOBAL_STACK_STACK ; Global, stack index, stack value
+   #ljARRAYSTORE_FLOAT_LOCAL_OPT_OPT      ; Local, opt index, opt value
+   #ljARRAYSTORE_FLOAT_LOCAL_OPT_STACK    ; Local, opt index, stack value
+   #ljARRAYSTORE_FLOAT_LOCAL_STACK_OPT    ; Local, stack index, opt value
+   #ljARRAYSTORE_FLOAT_LOCAL_STACK_STACK  ; Local, stack index, stack value
+   ; STRING variants
+   #ljARRAYSTORE_STR_GLOBAL_OPT_OPT       ; Global, opt index, opt value
+   #ljARRAYSTORE_STR_GLOBAL_OPT_STACK     ; Global, opt index, stack value
+   #ljARRAYSTORE_STR_GLOBAL_STACK_OPT     ; Global, stack index, opt value
+   #ljARRAYSTORE_STR_GLOBAL_STACK_STACK   ; Global, stack index, stack value
+   #ljARRAYSTORE_STR_LOCAL_OPT_OPT        ; Local, opt index, opt value
+   #ljARRAYSTORE_STR_LOCAL_OPT_STACK      ; Local, opt index, stack value
+   #ljARRAYSTORE_STR_LOCAL_STACK_OPT      ; Local, stack index, opt value
+   #ljARRAYSTORE_STR_LOCAL_STACK_STACK    ; Local, stack index, stack value
+
    #ljEOF
 EndEnumeration
 
@@ -211,6 +258,7 @@ Structure stCodeIns
    j.l
    n.l
    ndx.l
+   flags.b     ; Instruction flags (matches stType for bytecode copy)
 EndStructure
 
 
@@ -250,12 +298,19 @@ EndStructure
 
 Global Dim           gszATR.stATR(#C2TOKENCOUNT)
 Global Dim           gVarMeta.stVarMeta(#C2MAXCONSTANTS)  ; Compile-time info only
-Global Dim           gFuncLocalArraySlots.i(8191, 15)  ; [PCaddress, localArrayIndex] -> varSlot (remapped after compilation)
+Global Dim           gFuncLocalArraySlots.i(512, 15)  ; [functionID, localArrayIndex] -> varSlot (initial size, Dim'd to exact size during FixJMP)
 Global Dim           arCode.stCodeIns(1)
 Global NewMap        mapPragmas.s()
 
 Global               gnLastVariable.i
 Global               gnTotalTokens.i
+Global               gFunctionDepth       = 2048       ; Fast function depth counter (avoids ListSize)
+Global               gMaxStackSpace       = 2048
+Global               gMaxStackDepth       = 1024
+Global               gConsole.b           = #True
+Global               gszAppname.s
+Global               gWidth.i             = 640,
+                     gHeight.i            = 340
 
 ;- Macros
 Macro          _ASMLineHelper1(view, uvar)
@@ -294,12 +349,12 @@ EndMacro
 
 Macro          ASMLine(obj,show)
    CompilerIf show
-      line = RSet( Str( pc ), 7 ) + "  "
+      line = RSet( Str( pc ), 9 ) + "  "
    CompilerElse
-      line = RSet( Str( ListIndex(obj) ), 7 ) + "  "
+      line = RSet( Str( ListIndex(obj) ), 9 ) + "  "
    CompilerEndIf
    
-   line + LSet( gszATR( obj\code )\s, 10 ) + "  "
+   line + LSet( gszATR( obj\code )\s, 20 ) + "  "
    temp = "" : flag = 0
    CompilerIf show
       line + "[" + RSet(Str(sp),5," ") + "] " 
@@ -316,13 +371,34 @@ Macro          ASMLine(obj,show)
       CompilerElse
          line + "  (" +Str(obj\i) + ") " + Str(ListIndex(obj)+obj\i) + " [nParams=" + Str(obj\j) + " nLocals=" + Str(obj\n) + "]"
       CompilerEndIf
+   ; Specialized array operations (no runtime branching) - opcode name encodes all info
+   ElseIf obj\code = #ljARRAYFETCH_INT_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_INT_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_INT_LOCAL_OPT Or obj\code = #ljARRAYFETCH_INT_LOCAL_STACK Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_OPT Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_STACK Or obj\code = #ljARRAYFETCH_STR_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_STR_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_STR_LOCAL_OPT Or obj\code = #ljARRAYFETCH_STR_LOCAL_STACK Or obj\code = #ljARRAYSTORE_INT_GLOBAL_OPT_OPT Or obj\code = #ljARRAYSTORE_INT_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_INT_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_INT_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_OPT_OPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_OPT_OPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_OPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_OPT_OPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_OPT_OPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_STACK_STACK
+      ; Specialized array operations - opcode name contains all optimization info
+      line + "[arr=" + Str(obj\i)
+      ; Show actual slot numbers for optimized paths
+      If obj\ndx >= 0
+         line + " idx=" + Str(obj\ndx)
+      EndIf
+      ; For STORE operations with optimized value, show value slot
+      If obj\n >= 0
+         line + " val=" + Str(obj\n)
+      EndIf
+      line + "]"
    ElseIf obj\code = #ljARRAYFETCH Or obj\code = #ljARRAYFETCH_INT Or obj\code = #ljARRAYFETCH_FLOAT Or obj\code = #ljARRAYFETCH_STR Or obj\code = #ljARRAYSTORE Or obj\code = #ljARRAYSTORE_INT Or obj\code = #ljARRAYSTORE_FLOAT Or obj\code = #ljARRAYSTORE_STR
-      ; Array operations: show array var and index info (size now in structure)
+      ; Array operations: show array var, index, and value (for STORE) info
       line + "[arr=" + Str(obj\i)
       If obj\ndx >= 0
          line + " idx=slot" + Str(obj\ndx)
       Else
          line + " idx=stack"
+      EndIf
+      ; For ARRAYSTORE operations, also show value source (n field)
+      If obj\code = #ljARRAYSTORE Or obj\code = #ljARRAYSTORE_INT Or obj\code = #ljARRAYSTORE_FLOAT Or obj\code = #ljARRAYSTORE_STR
+         If obj\n >= 0
+            line + " val=slot" + Str(obj\n)
+         Else
+            line + " val=stack"
+         EndIf
       EndIf
       line + " j=" + Str(obj\j) + "]"
    ElseIf obj\code = #ljMOV
@@ -332,6 +408,19 @@ Macro          ASMLine(obj,show)
    ElseIf obj\code = #ljSTORE
       _ASMLineHelper1( show, sp - 1 )
       line + "[sp" + temp + "] --> [" + gVarMeta( obj\i )\name + "]"
+      flag + 1
+   ; Local variable STORE operations - show paramOffset
+   ElseIf obj\code = #ljLSTORE Or obj\code = #ljLSTORES Or obj\code = #ljLSTOREF
+      _ASMLineHelper1( show, sp - 1 )
+      line + "[sp" + temp + "] --> [LOCAL[" + Str(obj\i) + "]]"
+      flag + 1
+   ; Local variable FETCH operations - show paramOffset
+   ElseIf obj\code = #ljLFETCH Or obj\code = #ljLFETCHS Or obj\code = #ljLFETCHF
+      line + "[LOCAL[" + Str(obj\i) + "]] --> [sp]"
+      flag + 1
+   ; Local variable MOV operations - show both indices
+   ElseIf obj\code = #ljLMOV Or obj\code = #ljLMOVS Or obj\code = #ljLMOVF
+      line + "[slot" + Str(obj\j) + "] --> [LOCAL[" + Str(obj\i) + "]]"
       flag + 1
    ElseIf obj\code = #ljPUSH Or obj\code = #ljFetch Or obj\code = #ljPUSHS Or obj\code = #ljPUSHF
       flag + 1
@@ -389,6 +478,7 @@ Macro                   vm_ListToArray( ll, ar )
       ar( i )\j = ll()\j
       ar( i )\n = ll()\n
       ar( i )\ndx = ll()\ndx
+      ar( i )\flags = ll()\flags
       i + 1
    Next
 EndMacro
@@ -648,14 +738,90 @@ c2tokens:
    Data.s   "ARRSTORE_STR"
    Data.i   0, 0
 
+   ; Specialized array fetch opcodes (no runtime branching)
+   Data.s   "ARRFETCH_INT_G_OPT"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_INT_G_STK"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_INT_L_OPT"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_INT_L_STK"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_FLT_G_OPT"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_FLT_G_STK"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_FLT_L_OPT"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_FLT_L_STK"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_STR_G_OPT"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_STR_G_STK"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_STR_L_OPT"
+   Data.i   0, 0
+   Data.s   "ARRFETCH_STR_L_STK"
+   Data.i   0, 0
+
+   ; Specialized array store opcodes (no runtime branching)
+   Data.s   "ARSTORE_INT_G_O_O"
+   Data.i   0, 0
+   Data.s   "ARSTORE_INT_G_O_S"
+   Data.i   0, 0
+   Data.s   "ARSTORE_INT_G_S_O"
+   Data.i   0, 0
+   Data.s   "ARSTORE_INT_G_S_S"
+   Data.i   0, 0
+   Data.s   "ARSTORE_INT_L_O_O"
+   Data.i   0, 0
+   Data.s   "ARSTORE_INT_L_O_S"
+   Data.i   0, 0
+   Data.s   "ARSTORE_INT_L_S_O"
+   Data.i   0, 0
+   Data.s   "ARSTORE_INT_L_S_S"
+   Data.i   0, 0
+   Data.s   "ARSTORE_FLT_G_O_O"
+   Data.i   0, 0
+   Data.s   "ARSTORE_FLT_G_O_S"
+   Data.i   0, 0
+   Data.s   "ARSTORE_FLT_G_S_O"
+   Data.i   0, 0
+   Data.s   "ARSTORE_FLT_G_S_S"
+   Data.i   0, 0
+   Data.s   "ARSTORE_FLT_L_O_O"
+   Data.i   0, 0
+   Data.s   "ARSTORE_FLT_L_O_S"
+   Data.i   0, 0
+   Data.s   "ARSTORE_FLT_L_S_O"
+   Data.i   0, 0
+   Data.s   "ARSTORE_FLT_L_S_S"
+   Data.i   0, 0
+   Data.s   "ARSTORE_STR_G_O_O"
+   Data.i   0, 0
+   Data.s   "ARSTORE_STR_G_O_S"
+   Data.i   0, 0
+   Data.s   "ARSTORE_STR_G_S_O"
+   Data.i   0, 0
+   Data.s   "ARSTORE_STR_G_S_S"
+   Data.i   0, 0
+   Data.s   "ARSTORE_STR_L_O_O"
+   Data.i   0, 0
+   Data.s   "ARSTORE_STR_L_O_S"
+   Data.i   0, 0
+   Data.s   "ARSTORE_STR_L_S_O"
+   Data.i   0, 0
+   Data.s   "ARSTORE_STR_L_S_S"
+   Data.i   0, 0
+
    Data.s   "EOF"
    Data.i   0, 0
    Data.s   "-"
 EndDataSection
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 361
-; FirstLine = 349
+; CursorPosition = 299
+; FirstLine = 295
 ; Folding = --
 ; Optimizer
 ; EnableAsm

@@ -1,0 +1,143 @@
+// === LJ2 Array Sort Stress Test ===
+// Tests sorting 5000 float elements using quicksort
+// Prints every 100th element to verify sorted order
+
+#pragma console on
+#pragma appname 	"Quicksort test"
+#pragma consolesize	"420x320"
+#pragma decimals		 4
+#pragma version
+#pragma ListASM on
+#pragma floattolerance 0.00001
+#pragma FastPrint off
+#pragma RunThreaded on
+#pragma stackspace 2048
+#pragma stackdepth 24576
+
+#define		ELEMENTS 50000
+
+print("=================================");
+print("Array Sort Stress Test");
+print(ELEMENTS, " float elements - Quicksort");
+print("=================================");
+print("");
+
+// Declare array of ELEMENTS floats
+
+
+array data.f[ELEMENTS];
+
+// Fill array with random values 
+print("Filling array with ",  ELEMENTS," random values...");
+i = 0;
+rnd.f = 0.0;
+
+while (i < ELEMENTS) {
+	rnd = (random(1000, 40000000) + 0.1 )/ random(500,257733);
+    data[i] = rnd;
+    i = i + 1;
+}
+
+print("Array filled.");
+print("");
+
+// Print first few elements before sort
+print("Before sort - first 10 elements:");
+print("  data[0] = ", data[0]);
+print("  data[1] = ", data[1]);
+print("  data[2] = ", data[2]);
+print("  data[9] = ", data[9]);
+print("");
+
+// Quicksort implementation
+function quicksort(arr_slot, left, right) {
+    if (left < right) {
+        // Partition
+        pivot_idx = partition(arr_slot, left, right);
+
+        // Recursively sort left and right partitions
+        quicksort(arr_slot, left, pivot_idx - 1);
+        quicksort(arr_slot, pivot_idx + 1, right);
+    }
+}
+
+function partition(arr_slot, left, right) {
+    // Use rightmost element as pivot
+    pivot.f = data[right];
+    i = left - 1;
+
+    j = left;
+    while (j < right) {
+        if (data[j] <= pivot) {
+            i = i + 1;
+            // Swap data[i] and data[j]
+            temp.f = data[i];
+            data[i] = data[j];
+            data[j] = temp;
+        }
+        j = j + 1;
+    }
+
+    // Place pivot in correct position
+    i = i + 1;
+    temp.f = data[i];
+    data[i] = data[right];
+    data[right] = temp;
+
+    return i;
+}
+
+// Sort the array
+print("Sorting array using quicksort...");
+quicksort(0, 0, (ELEMENTS - 1) );
+print("Sort complete!");
+print("");
+
+// Print after sort - first few elements
+print("After sort - first 10 elements:");
+print("  data[0] = ", data[0]);
+print("  data[1] = ", data[1]);
+print("  data[2] = ", data[2]);
+print("  data[9] = ", data[9]);
+print("");
+
+// Print every 100th element to verify sort
+print("Every 100th element (should be ascending):");
+print("=================================");
+i = 0;
+while (i < ELEMENTS) {
+    print("  data[", i, "] = ", data[i]);
+    i = i + 100;
+}
+print("=================================");
+print("");
+
+// Verify sorted order
+print("Verifying array is sorted...");
+i = 0;
+errors = 0;
+while (i < (ELEMENTS - 1)) {
+    if (data[i] > data[i + 1]) {
+        print("ERROR: data[", i, "] = ", data[i], " > data[", i + 1, "] = ", data[i + 1]);
+        errors = errors + 1;
+    }
+    i = i + 1;
+}
+
+if (errors == 0) {
+    print("PASS: All ", ELEMENTS - 1, " adjacent pairs are in correct order!");
+} else {
+    print("FAIL: Found ", errors, " pairs out of order");
+}
+print("");
+
+// Performance summary
+print("=================================");
+print("Stress Test Complete!");
+print("Array size: ", ELEMENTS, " elements");
+print("Total comparisons: ~O(n log n)");
+print("Specialized opcodes used:");
+print("  - ARRFETCH_FLT_G_OPT");
+print("  - ARRSTORE_FLT_G_OPT_OPT");
+print("  - ARRSTORE_FLT_G_OPT_STACK");
+print("=================================");

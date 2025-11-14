@@ -12,6 +12,9 @@
 ;
 ; VM Module
 ;- Library functions
+
+#DEBUG = 0
+
 Macro                   vm_DebugFunctionName()
    ;Debug #PB_Compiler_Procedure
 EndMacro
@@ -48,6 +51,25 @@ Macro                   vm_AssertPrint( tmsg )
       cline = ""
    CompilerEndIf
 EndMacro
+Macro                   vm_ScrollToBottom( pbGadgetID )
+   CompilerSelect #PB_Compiler_OS
+		CompilerCase #PB_OS_Windows
+			Select GadgetType(pbGadgetID)
+				Case #PB_GadgetType_ListView
+					SendMessage_(GadgetID(pbGadgetID), #LB_SETTOPINDEX, CountGadgetItems(pbGadgetID) - 1, #Null)
+				Case #PB_GadgetType_ListIcon
+					SendMessage_(GadgetID(pbGadgetID), #LVM_ENSUREVISIBLE, CountGadgetItems(pbGadgetID) - 1, #False)
+				Case #PB_GadgetType_Editor
+					SendMessage_(GadgetID(pbGadgetID), #EM_SCROLLCARET, #SB_BOTTOM, 0)
+			EndSelect
+		CompilerCase #PB_OS_Linux
+			Protected *Adjustment.GtkAdjustment
+			*Adjustment = gtk_scrolled_window_get_vadjustment_(gtk_widget_get_parent_(GadgetID(pbGadgetID)))
+			*Adjustment\value = *Adjustment\upper
+			gtk_adjustment_value_changed_(*Adjustment)
+	CompilerEndSelect 
+EndMacro
+
 
 Procedure.s             Capitalize( sz.s, option.i = 0 )
    Protected            i, j, flag
@@ -99,7 +121,7 @@ Procedure               C2FetchPush()
    ; Generic FETCH - only copy integer value (compiler should use FETCHS/FETCHF for typed variables)
    If gVarMeta(varSlot)\paramOffset >= 0 And gFunctionDepth > 0
       ; Read from Local array using paramOffset
-      gVar( sp )\i = llStack()\LocalInt(gVarMeta(varSlot)\paramOffset)
+      gVar( sp )\i = gStack(gStackDepth)\LocalInt(gVarMeta(varSlot)\paramOffset)
    Else
       ; Regular global variable
       gVar( sp )\i = gVar( varSlot )\i
@@ -118,7 +140,7 @@ Procedure               C2FETCHS()
    ; Check if this is a parameter/local variable AND we're in a function
    If gVarMeta(varSlot)\paramOffset >= 0 And gFunctionDepth > 0
       ; Read from Local array using paramOffset
-      gVar( sp )\ss = llStack()\LocalString(gVarMeta(varSlot)\paramOffset)
+      gVar( sp )\ss = gStack(gStackDepth)\LocalString(gVarMeta(varSlot)\paramOffset)
    Else
       ; Regular global variable
       gVar( sp )\ss = gVar( varSlot )\ss
@@ -137,7 +159,7 @@ Procedure               C2FETCHF()
    ; Check if this is a parameter/local variable AND we're in a function
    If gVarMeta(varSlot)\paramOffset >= 0 And gFunctionDepth > 0
       ; Read from Local array using paramOffset
-      gVar( sp )\f = llStack()\LocalFloat(gVarMeta(varSlot)\paramOffset)
+      gVar( sp )\f = gStack(gStackDepth)\LocalFloat(gVarMeta(varSlot)\paramOffset)
    Else
       ; Regular global variable
       gVar( sp )\f = gVar( varSlot )\f
@@ -157,7 +179,7 @@ Procedure               C2POP()
    ; Check if this is a parameter/local variable AND we're in a function
    If gVarMeta(varSlot)\paramOffset >= 0 And gFunctionDepth > 0
       ; Write to Local array using paramOffset
-      llStack()\LocalInt(gVarMeta(varSlot)\paramOffset) = gVar( sp )\i
+      gStack(gStackDepth)\LocalInt(gVarMeta(varSlot)\paramOffset) = gVar( sp )\i
    Else
       ; Regular global variable - write to variable slot
       gVar( varSlot )\i = gVar( sp )\i
@@ -176,7 +198,7 @@ Procedure               C2POPS()
    ; Check if this is a parameter/local variable AND we're in a function
    If gVarMeta(varSlot)\paramOffset >= 0 And gFunctionDepth > 0
       ; Write to Local array using paramOffset
-      llStack()\LocalString(gVarMeta(varSlot)\paramOffset) = gVar( sp )\ss
+      gStack(gStackDepth)\LocalString(gVarMeta(varSlot)\paramOffset) = gVar( sp )\ss
    Else
       ; Regular global variable - write to variable slot
       gVar( varSlot )\ss = gVar( sp )\ss
@@ -195,7 +217,7 @@ Procedure               C2POPF()
    ; Check if this is a parameter/local variable AND we're in a function
    If gVarMeta(varSlot)\paramOffset >= 0 And gFunctionDepth > 0
       ; Write to Local array using paramOffset
-      llStack()\LocalFloat(gVarMeta(varSlot)\paramOffset) = gVar( sp )\f
+      gStack(gStackDepth)\LocalFloat(gVarMeta(varSlot)\paramOffset) = gVar( sp )\f
    Else
       ; Regular global variable - write to variable slot
       gVar( varSlot )\f = gVar( sp )\f
@@ -213,7 +235,7 @@ Procedure               C2PUSHS()
    ; Check if this is a parameter/local variable AND we're in a function
    If gVarMeta(varSlot)\paramOffset >= 0 And gFunctionDepth > 0
       ; Read from Local array using paramOffset
-      gVar( sp )\ss = llStack()\LocalString(gVarMeta(varSlot)\paramOffset)
+      gVar( sp )\ss = gStack(gStackDepth)\LocalString(gVarMeta(varSlot)\paramOffset)
    Else
       ; Regular global variable
       gVar( sp )\ss = gVar( varSlot )\ss
@@ -232,7 +254,7 @@ Procedure               C2PUSHF()
    ; Check if this is a parameter/local variable AND we're in a function
    If gVarMeta(varSlot)\paramOffset >= 0 And gFunctionDepth > 0
       ; Read from Local array using paramOffset
-      gVar( sp )\f = llStack()\LocalFloat(gVarMeta(varSlot)\paramOffset)
+      gVar( sp )\f = gStack(gStackDepth)\LocalFloat(gVarMeta(varSlot)\paramOffset)
    Else
       ; Regular global variable
       gVar( sp )\f = gVar( varSlot )\f
@@ -252,7 +274,7 @@ Procedure               C2Store()
    ; Check if this is a parameter/local variable AND we're in a function
    If gVarMeta(varSlot)\paramOffset >= 0 And gFunctionDepth > 0
       ; Write to Local array using paramOffset
-      llStack()\LocalInt(gVarMeta(varSlot)\paramOffset) = gVar( sp )\i
+      gStack(gStackDepth)\LocalInt(gVarMeta(varSlot)\paramOffset) = gVar( sp )\i
    Else
       ; Regular global variable - write to variable slot
       gVar( varSlot )\i = gVar( sp )\i
@@ -271,7 +293,7 @@ Procedure               C2STORES()
    ; Check if this is a parameter/local variable AND we're in a function
    If gVarMeta(varSlot)\paramOffset >= 0 And gFunctionDepth > 0
       ; Write to Local array using paramOffset
-      llStack()\LocalString(gVarMeta(varSlot)\paramOffset) = gVar( sp )\ss
+      gStack(gStackDepth)\LocalString(gVarMeta(varSlot)\paramOffset) = gVar( sp )\ss
    Else
       ; Regular global variable - write to variable slot
       gVar( varSlot )\ss = gVar( sp )\ss
@@ -290,7 +312,7 @@ Procedure               C2STOREF()
    ; Check if this is a parameter/local variable AND we're in a function
    If gVarMeta(varSlot)\paramOffset >= 0 And gFunctionDepth > 0
       ; Write to Local array using paramOffset
-      llStack()\LocalFloat(gVarMeta(varSlot)\paramOffset) = gVar( sp )\f
+      gStack(gStackDepth)\LocalFloat(gVarMeta(varSlot)\paramOffset) = gVar( sp )\f
    Else
       ; Regular global variable - write to variable slot
       gVar( varSlot )\f = gVar( sp )\f
@@ -321,40 +343,52 @@ EndProcedure
 Procedure               C2LMOV()
    vm_DebugFunctionName()
    ; Copy from global to local: LocalInt(offset) = gVarInt(global_index)
-   llStack()\LocalInt(_AR()\i) = gVar( _AR()\j )\i
+   If _AR()\i < 0 Or _AR()\i > ArraySize(gStack(gStackDepth)\LocalInt())
+      Debug "*** ERROR LMOV at pc=" + Str(pc) + " INVALID INDEX: _AR()\i=" + Str(_AR()\i) + " but LocalInt ArraySize=" + Str(ArraySize(gStack(gStackDepth)\LocalInt())) + " (valid: 0-" + Str(ArraySize(gStack(gStackDepth)\LocalInt())) + ") _AR()\j=" + Str(_AR()\j) + " gStackDepth=" + Str(gStackDepth)
+      ProcedureReturn
+   EndIf
+   gStack(gStackDepth)\LocalInt(_AR()\i) = gVar( _AR()\j )\i
    pc + 1
 EndProcedure
 
 Procedure               C2LMOVS()
    vm_DebugFunctionName()
-   llStack()\LocalString(_AR()\i) = gVar( _AR()\j )\ss
+   If _AR()\i < 0 Or _AR()\i > ArraySize(gStack(gStackDepth)\LocalString())
+      Debug "*** ERROR LMOVS at pc=" + Str(pc) + " INVALID INDEX: _AR()\i=" + Str(_AR()\i) + " but LocalString ArraySize=" + Str(ArraySize(gStack(gStackDepth)\LocalString())) + " (valid: 0-" + Str(ArraySize(gStack(gStackDepth)\LocalString())) + ") _AR()\j=" + Str(_AR()\j) + " gStackDepth=" + Str(gStackDepth)
+      ProcedureReturn
+   EndIf
+   gStack(gStackDepth)\LocalString(_AR()\i) = gVar( _AR()\j )\ss
    pc + 1
 EndProcedure
 
 Procedure               C2LMOVF()
    vm_DebugFunctionName()
-   llStack()\LocalFloat(_AR()\i) = gVar( _AR()\j )\f
+   If _AR()\i < 0 Or _AR()\i > ArraySize(gStack(gStackDepth)\LocalFloat())
+      Debug "*** ERROR LMOVF at pc=" + Str(pc) + " INVALID INDEX: _AR()\i=" + Str(_AR()\i) + " but LocalFloat ArraySize=" + Str(ArraySize(gStack(gStackDepth)\LocalFloat())) + " (valid: 0-" + Str(ArraySize(gStack(gStackDepth)\LocalFloat())) + ") _AR()\j=" + Str(_AR()\j) + " gStackDepth=" + Str(gStackDepth)
+      ProcedureReturn
+   EndIf
+   gStack(gStackDepth)\LocalFloat(_AR()\i) = gVar( _AR()\j )\f
    pc + 1
 EndProcedure
 
 Procedure               C2LFETCH()
    vm_DebugFunctionName()
    ; Fetch local integer variable to stack
-   gVar( sp )\i = llStack()\LocalInt(_AR()\i)
+   gVar( sp )\i = gStack(gStackDepth)\LocalInt(_AR()\i)
    sp + 1
    pc + 1
 EndProcedure
 
 Procedure               C2LFETCHS()
    vm_DebugFunctionName()
-   gVar( sp )\ss = llStack()\LocalString(_AR()\i)
+   gVar( sp )\ss = gStack(gStackDepth)\LocalString(_AR()\i)
    sp + 1
    pc + 1
 EndProcedure
 
 Procedure               C2LFETCHF()
    vm_DebugFunctionName()
-   gVar( sp )\f = llStack()\LocalFloat(_AR()\i)
+   gVar( sp )\f = gStack(gStackDepth)\LocalFloat(_AR()\i)
    sp + 1
    pc + 1
 EndProcedure
@@ -363,21 +397,36 @@ Procedure               C2LSTORE()
    vm_DebugFunctionName()
    ; Store from stack to local variable
    sp - 1
-   llStack()\LocalInt(_AR()\i) = gVar( sp )\i
+   ; Validate index - only show error if invalid
+   If _AR()\i < 0 Or _AR()\i > ArraySize(gStack(gStackDepth)\LocalInt())
+      Debug "*** ERROR LSTORE at pc=" + Str(pc) + " INVALID INDEX: _AR()\i=" + Str(_AR()\i) + " but LocalInt ArraySize=" + Str(ArraySize(gStack(gStackDepth)\LocalInt())) + " (valid: 0-" + Str(ArraySize(gStack(gStackDepth)\LocalInt())) + ") sp=" + Str(sp) + " gStackDepth=" + Str(gStackDepth)
+      End
+   EndIf
+   gStack(gStackDepth)\LocalInt(_AR()\i) = gVar( sp )\i
    pc + 1
 EndProcedure
 
 Procedure               C2LSTORES()
    vm_DebugFunctionName()
    sp - 1
-   llStack()\LocalString(_AR()\i) = gVar( sp )\ss
+   ; Validate index - only show error if invalid
+   If _AR()\i < 0 Or _AR()\i > ArraySize(gStack(gStackDepth)\LocalString())
+      Debug "*** ERROR LSTORES at pc=" + Str(pc) + " INVALID INDEX: _AR()\i=" + Str(_AR()\i) + " but LocalString ArraySize=" + Str(ArraySize(gStack(gStackDepth)\LocalString())) + " (valid: 0-" + Str(ArraySize(gStack(gStackDepth)\LocalString())) + ") sp=" + Str(sp)
+      End
+   EndIf
+   gStack(gStackDepth)\LocalString(_AR()\i) = gVar( sp )\ss
    pc + 1
 EndProcedure
 
 Procedure               C2LSTOREF()
    vm_DebugFunctionName()
    sp - 1
-   llStack()\LocalFloat(_AR()\i) = gVar( sp )\f
+   ; Validate index - only show error if invalid
+   If _AR()\i < 0 Or _AR()\i > ArraySize(gStack(gStackDepth)\LocalFloat())
+      Debug "*** ERROR LSTOREF at pc=" + Str(pc) + " INVALID INDEX: _AR()\i=" + Str(_AR()\i) + " but LocalFloat ArraySize=" + Str(ArraySize(gStack(gStackDepth)\LocalFloat())) + " (valid: 0-" + Str(ArraySize(gStack(gStackDepth)\LocalFloat())) + ") sp=" + Str(sp)
+      End
+   EndIf
+   gStack(gStackDepth)\LocalFloat(_AR()\i) = gVar( sp )\f
    pc + 1
 EndProcedure
 
@@ -598,6 +647,7 @@ Procedure               C2PRTC()
          cy + 1
          cline = ""
          AddGadgetItem( #edConsole, -1, "" )
+         vm_ScrollToBottom( #edConsole )
       Else
          cline = cline + Chr( gVar( sp )\i )
          If gFastPrint = #False
@@ -680,49 +730,55 @@ EndProcedure
 Procedure               C2CALL()
    vm_DebugFunctionName()
    Protected nParams.l, nLocals.l, totalVars.l, nLocalArrays.l
-   Protected i.l, paramSp.l, funcId.l, varSlot.l, arraySize.l
+   Protected i.l, paramSp.l, funcId.l, pcAddr.l, varSlot.l, arraySize.l
+   Protected prevStackDepth.i
 
    ; Read nParams, nLocals, and nLocalArrays from instruction fields
    nParams = _AR()\j
    nLocals = _AR()\n
    nLocalArrays = _AR()\ndx
    totalVars = nParams + nLocals
-   funcId = _AR()\i  ; Function ID for lookup
+   pcAddr = _AR()\i  ; PC address for jumping
+   funcId = _AR()\flags  ; Function ID for gFuncLocalArraySlots lookup
 
    ; User-defined function - create stack frame and jump to bytecode address
-   AddElement( llStack() )
-   llStack()\pc = pc + 1
-   llStack()\sp = sp - nParams  ; Save sp BEFORE params were pushed (FIX: prevents stack leak)
+   prevStackDepth = gStackDepth
+
+   ; Increment stack depth (create new frame)
+   gStackDepth = gStackDepth + 1
+
+   If gStackDepth >= gMaxStackDepth
+      Debug "*** FATAL ERROR: Stack overflow - max depth " + Str(gMaxStackDepth) + " exceeded at pc=" + Str(pc) + " funcId=" + Str(funcId)
+      End
+   EndIf
+
+   gStack(gStackDepth)\pc = pc + 1
+   gStack(gStackDepth)\sp = sp - nParams  ; Save sp BEFORE params were pushed (FIX: prevents stack leak)
 
    ; Allocate separate Local arrays for this function call (params + locals)
    If totalVars > 0
-      ReDim llStack()\LocalInt(totalVars - 1)
-      ReDim llStack()\LocalFloat(totalVars - 1)
-      ReDim llStack()\LocalString(totalVars - 1)
+      ;Debug "CALL: Allocating Local arrays - nParams=" + Str(nParams) + " nLocals=" + Str(nLocals) + " totalVars=" + Str(totalVars) + " -> ReDim(" + Str(totalVars-1) + ") funcId=" + Str(funcId)
+      ReDim gStack(gStackDepth)\LocalInt(totalVars - 1)
+      ReDim gStack(gStackDepth)\LocalFloat(totalVars - 1)
+      ReDim gStack(gStackDepth)\LocalString(totalVars - 1)
+      ;Debug "CALL: After ReDim - ArraySize(LocalInt)=" + Str(ArraySize(gStack(gStackDepth)\LocalInt())) + " ArraySize(LocalFloat)=" + Str(ArraySize(gStack(gStackDepth)\LocalFloat())) + " gStackDepth=" + Str(gStackDepth)
 
       ; Copy parameters from stack into Local arrays
       paramSp = sp - nParams
       For i = 0 To nParams - 1
-         llStack()\LocalInt(i) = gVar(paramSp + i)\i
-         llStack()\LocalFloat(i) = gVar(paramSp + i)\f
-         llStack()\LocalString(i) = gVar(paramSp + i)\ss
+         gStack(gStackDepth)\LocalInt(i) = gVar(paramSp + i)\i
+         gStack(gStackDepth)\LocalFloat(i) = gVar(paramSp + i)\f
+         gStack(gStackDepth)\LocalString(i) = gVar(paramSp + i)\ss
       Next
-
-      ; Clear the stack positions that held parameters (prevents garbage in next call)
-      ;For i = paramSp To sp - 1
-      ;   gVarInt(i) = 0
-      ;   gVarFloat(i) = 0.0
-      ;   gVarString(i) = ""
-      ;Next
    EndIf
 
    ; Allocate and initialize local arrays for this function
 
    If nLocalArrays > 0
-      ReDim llStack()\LocalArrays(nLocalArrays - 1)
+      ReDim gStack(gStackDepth)\LocalArrays(nLocalArrays - 1)
 
       ; Initialize each local array with proper size and type
-      ; funcId is a PC address - use it directly (slots were remapped after compilation)
+      ; funcId is the parsing function ID from _AR()\flags (gFuncLocalArraySlots is indexed by function ID, not PC address)
       For i = 0 To nLocalArrays - 1
          varSlot = gFuncLocalArraySlots(funcId, i)
          arraySize = gVarMeta(varSlot)\arraySize
@@ -732,14 +788,18 @@ Procedure               C2CALL()
          CompilerEndIf
 
          If arraySize > 0
-            ReDim llStack()\LocalArrays(i)\dta\ar(arraySize - 1)
-            llStack()\LocalArrays(i)\dta\size = arraySize  ; Store size in structure
+            ReDim gStack(gStackDepth)\LocalArrays(i)\dta\ar(arraySize - 1)
+            gStack(gStackDepth)\LocalArrays(i)\dta\size = arraySize  ; Store size in structure
          EndIf
       Next
    EndIf
 
-   pc = funcId  ; Jump to function address (funcId is the PC address)
-   gFunctionDepth + 1  ; Increment function depth counter
+   pc = pcAddr  ; Jump to function address (pcAddr from _AR()\i field)
+   gFunctionDepth = gFunctionDepth + 1  ; Increment function depth counter
+
+   ;If gFunctionDepth > 200
+   ;   Debug "*** WARNING: Function depth exceeds 200! depth=" + Str(gFunctionDepth) + " gStackDepth=" + Str(gStackDepth)
+   ;EndIf
 
 EndProcedure
 
@@ -750,7 +810,7 @@ Procedure               C2Return()
 
    ; Initialize to default integer 0 (prevents uninitialized returns)
    returnValue = 0
-   callerSp = llStack()\sp
+   callerSp = gStack(gStackDepth)\sp
 
    ; Save return value from top of stack (sp-1) if there's anything on function's stack
    If sp > callerSp
@@ -758,14 +818,16 @@ Procedure               C2Return()
    EndIf
 
    ; Restore caller's program counter and stack pointer
-   pc = llStack()\pc
+   pc = gStack(gStackDepth)\pc
    sp = callerSp
 
    ; Cleanup local arrays (ReDim to 0 to free memory)
-   ReDim llStack()\LocalArrays(0)
+   ReDim gStack(gStackDepth)\LocalArrays(0)
 
-   DeleteElement( llStack() )
-   gFunctionDepth - 1  ; Decrement function depth counter
+   ; Delete current stack frame (decrement depth)
+   ;Debug "RET at pc=" + Str(pc) + ": Decrementing gStackDepth from " + Str(gStackDepth) + " to " + Str(gStackDepth - 1)
+   gStackDepth = gStackDepth - 1
+   gFunctionDepth = gFunctionDepth - 1  ; Decrement function depth counter
 
    ; Push return value onto caller's stack
    gVar( sp )\i = returnValue
@@ -783,7 +845,7 @@ Procedure               C2ReturnF()
    returnValue = 0.0
 
    ; Save caller's stack pointer
-   callerSp = llStack()\sp
+   callerSp = gStack(gStackDepth)\sp
 
    ; Save float return value from top of stack (sp-1) if there's anything on function's stack
    If sp > callerSp
@@ -791,14 +853,16 @@ Procedure               C2ReturnF()
    EndIf
 
    ; Restore caller's program counter and stack pointer
-   pc = llStack()\pc
+   pc = gStack(gStackDepth)\pc
    sp = callerSp
 
    ; Cleanup local arrays (ReDim to 0 to free memory)
-   ReDim llStack()\LocalArrays(0)
+   ReDim gStack(gStackDepth)\LocalArrays(0)
 
-   DeleteElement( llStack() )
-   gFunctionDepth - 1  ; Decrement function depth counter
+   ; Delete current stack frame (decrement depth)
+   ;Debug "RETF at pc=" + Str(pc) + ": Decrementing gStackDepth from " + Str(gStackDepth) + " to " + Str(gStackDepth - 1)
+   gStackDepth = gStackDepth - 1
+   gFunctionDepth = gFunctionDepth - 1  ; Decrement function depth counter
 
    ; Push float return value onto caller's stack
    gVar( sp )\f = returnValue
@@ -816,7 +880,7 @@ Procedure               C2ReturnS()
    returnValue = ""
 
    ; Save caller's stack pointer
-   callerSp = llStack()\sp
+   callerSp = gStack(gStackDepth)\sp
 
    ; Save string return value from top of stack (sp-1) if there's anything on function's stack
    If sp > callerSp
@@ -824,14 +888,16 @@ Procedure               C2ReturnS()
    EndIf
 
    ; Restore caller's program counter and stack pointer
-   pc = llStack()\pc
+   pc = gStack(gStackDepth)\pc
    sp = callerSp
 
    ; Cleanup local arrays (ReDim to 0 to free memory)
-   ReDim llStack()\LocalArrays(0)
+   ReDim gStack(gStackDepth)\LocalArrays(0)
 
-   DeleteElement( llStack() )
-   gFunctionDepth - 1  ; Decrement function depth counter
+   ; Delete current stack frame (decrement depth)
+   ;Debug "RETS at pc=" + Str(pc) + ": Decrementing gStackDepth from " + Str(gStackDepth) + " to " + Str(gStackDepth - 1)
+   gStackDepth = gStackDepth - 1
+   gFunctionDepth = gFunctionDepth - 1  ; Decrement function depth counter
 
    ; Push string return value onto caller's stack
    gVar( sp )\ss = returnValue
@@ -1091,7 +1157,7 @@ Procedure               C2ARRAYFETCH()
    CompilerIf #DEBUG
       Protected arraySize.i
       If _AR()\j
-         arraySize = llStack()\LocalArrays(arrIdx)\dta\size
+         arraySize = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
       Else
          arraySize = gVar(arrIdx)\dta\size
       EndIf
@@ -1104,161 +1170,9 @@ Procedure               C2ARRAYFETCH()
 
    ; Copy entire stVT - j=1 for local, j=0 for global
    If _AR()\j
-      CopyStructure( gVar(sp), llStack()\LocalArrays(arrIdx)\dta\ar(index), stVTSimple )
+      CopyStructure( gVar(sp), gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index), stVTSimple )
    Else
       CopyStructure( gVar(sp), gVar(arrIdx)\dta\ar(index), stVTSimple )
-   EndIf
-
-   sp + 1
-   pc + 1
-EndProcedure
-
-Procedure               C2ARRAYFETCH_INT()
-   ; Integer array fetch (typed by postprocessor)
-   ; _AR()\i = array index (global varSlot OR local array index)
-   ; _AR()\j = 0 for global, 1 for local
-   ; _AR()\n = varSlot (used by postprocessor for typing)
-   ; _AR()\ndx = index slot (>= 0 if optimized by postprocessor, -1 if on stack)
-
-   Protected arrIdx.i, index.i
-
-   vm_DebugFunctionName()
-
-   arrIdx = _AR()\i
-
-   ; Get index from ndx field (optimized) or stack
-   If _AR()\ndx >= 0
-      index = gVar(_AR()\ndx)\i
-   Else
-      sp - 1
-      index = gVar(sp)\i
-   EndIf
-
-   ; Bounds checking - read size from structure
-   CompilerIf #DEBUG
-      Protected arraySize.i
-      If _AR()\j
-         arraySize = llStack()\LocalArrays(arrIdx)\dta\size
-      Else
-         arraySize = gVar(arrIdx)\dta\size
-      EndIf
-      If index < 0 Or index >= arraySize
-         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
-         gExitApplication = #True  ; Force halt on error
-         ProcedureReturn
-      EndIf
-   CompilerEndIf
-
-   ; Fetch - j=1 for local, j=0 for global
-   ; Clear float field to prevent type pollution (in case previous value was float)
-   If _AR()\j
-      gVar(sp)\f = 0.0
-      gVar(sp)\i = llStack()\LocalArrays(arrIdx)\dta\ar(index)\i
-   Else
-      gVar(sp)\f = 0.0
-      gVar(sp)\i = gVar(arrIdx)\dta\ar(index)\i
-   EndIf
-
-   sp + 1
-   pc + 1
-EndProcedure
-
-Procedure               C2ARRAYFETCH_FLOAT()
-   ; Float array fetch (typed by postprocessor)
-   ; _AR()\i = array index (global varSlot OR local array index)
-   ; _AR()\j = 0 for global, 1 for local
-   ; _AR()\n = varSlot (used by postprocessor for typing)
-   ; _AR()\ndx = index variable slot (if ndx >= 0, optimized path)
-
-   Protected arrIdx.i, index.i
-
-   vm_DebugFunctionName()
-
-   arrIdx = _AR()\i
-
-   ; Get index from ndx field (optimized) or stack
-   If _AR()\ndx >= 0
-      index = gVar(_AR()\ndx)\i
-   Else
-      sp - 1
-      index = gVar(sp)\i
-   EndIf
-
-   ; Bounds checking - read size from structure
-   CompilerIf #DEBUG
-      Protected arraySize.i
-      If _AR()\j
-         arraySize = llStack()\LocalArrays(arrIdx)\dta\size
-      Else
-         arraySize = gVar(arrIdx)\dta\size
-      EndIf
-      If index < 0 Or index >= arraySize
-         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
-         gExitApplication = #True  ; Force halt on error
-         ProcedureReturn
-      EndIf
-   CompilerEndIf
-
-   ; Fetch - j=1 for local, j=0 for global
-   ; Clear integer field to prevent type pollution (especially in non-optimized path where index was in \i)
-   If _AR()\j
-      gVar(sp)\i = 0
-      gVar(sp)\f = llStack()\LocalArrays(arrIdx)\dta\ar(index)\f
-   Else
-      gVar(sp)\i = 0
-      gVar(sp)\f = gVar(arrIdx)\dta\ar(index)\f
-   EndIf
-
-   sp + 1
-   pc + 1
-EndProcedure
-
-Procedure               C2ARRAYFETCH_STR()
-   ; String array fetch (typed by postprocessor)
-   ; _AR()\i = array index (global varSlot OR local array index)
-   ; _AR()\j = 0 for global, 1 for local
-   ; _AR()\n = varSlot (used by postprocessor for typing)
-   ; _AR()\ndx = index variable slot (if ndx >= 0, optimized path)
-
-   Protected arrIdx.i, index.i
-
-   vm_DebugFunctionName()
-
-   arrIdx = _AR()\i
-
-   ; Get index from ndx field (optimized) or stack
-   If _AR()\ndx >= 0
-      index = gVar(_AR()\ndx)\i
-   Else
-      sp - 1
-      index = gVar(sp)\i
-   EndIf
-
-   ; Bounds checking - read size from structure
-   CompilerIf #DEBUG
-      Protected arraySize.i
-      If _AR()\j
-         arraySize = llStack()\LocalArrays(arrIdx)\dta\size
-      Else
-         arraySize = gVar(arrIdx)\dta\size
-      EndIf
-      If index < 0 Or index >= arraySize
-         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
-         gExitApplication = #True  ; Force halt on error
-         ProcedureReturn
-      EndIf
-   CompilerEndIf
-
-   ; Fetch - j=1 for local, j=0 for global
-   ; Clear integer and float fields to prevent type pollution (especially in non-optimized path where index was in \i)
-   If _AR()\j
-      gVar(sp)\i = 0
-      gVar(sp)\f = 0.0
-      gVar(sp)\ss = llStack()\LocalArrays(arrIdx)\dta\ar(index)\ss
-   Else
-      gVar(sp)\i = 0
-      gVar(sp)\f = 0.0
-      gVar(sp)\ss = gVar(arrIdx)\dta\ar(index)\ss
    EndIf
 
    sp + 1
@@ -1299,7 +1213,7 @@ Procedure               C2ARRAYSTORE()
 
    ; Copy entire stVT - j=1 for local, j=0 for global
    If _AR()\j
-      CopyStructure( llStack()\LocalArrays(arrIdx)\dta\ar(index), gVar(sp), stVTSimple )
+      CopyStructure( gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index), gVar(sp), stVTSimple )
    Else
       CopyStructure( gVar(arrIdx)\dta\ar(index), gVar(sp), stVTSimple )
    EndIf
@@ -1307,224 +1221,753 @@ Procedure               C2ARRAYSTORE()
    pc + 1
 EndProcedure
 
-Procedure               C2ARRAYSTORE_INT()
-   ; Integer array store (typed by postprocessor)
-   ; _AR()\i = array index (global varSlot OR local array index)
-   ; _AR()\j = 0 for global, 1 for local
-   ; _AR()\n = varSlot (used by postprocessor for typing)
-   ; _AR()\ndx = index slot (>= 0 if optimized by postprocessor, -1 if on stack)
+;- Specialized ARRAYFETCH handlers (no runtime branching)
 
-   Protected arrIdx.i, index.i, value.i
-
-   vm_DebugFunctionName()
-
-   arrIdx = _AR()\i
-
-   ; Get index and value from ndx/stack
-   If _AR()\ndx >= 0
-      index = gVar(_AR()\ndx)\i
-      sp - 1
-      CompilerIf #DEBUG
-         If sp < 0 Or sp > #C2MAXCONSTANTS
-            Debug "ARRAYSTORE_INT: sp out of bounds after decrement: sp=" + Str(sp) + " at pc=" + Str(pc)
-            Debug "  arrIdx=" + Str(arrIdx) + " ndx=" + Str(_AR()\ndx) + " index=" + Str(index)
-            gExitApplication = #True  ; Force halt on error
-            ProcedureReturn
-         EndIf
-      CompilerEndIf
-      value = gVar(sp)\i
-   Else
-      sp - 1
-      CompilerIf #DEBUG
-         If sp < 0 Or sp > #C2MAXCONSTANTS
-            Debug "ARRAYSTORE_INT: sp out of bounds after first decrement: sp=" + Str(sp) + " at pc=" + Str(pc)
-            gExitApplication = #True  ; Force halt on error
-            ProcedureReturn
-         EndIf
-      CompilerEndIf
-      index = gVar(sp)\i
-      sp - 1
-      CompilerIf #DEBUG
-         If sp < 0 Or sp > #C2MAXCONSTANTS
-            Debug "ARRAYSTORE_INT: sp out of bounds after second decrement: sp=" + Str(sp) + " at pc=" + Str(pc)
-            Debug "  arrIdx=" + Str(arrIdx) + " index=" + Str(index)
-            gExitApplication = #True  ; Force halt on error
-            ProcedureReturn
-         EndIf
-      CompilerEndIf
-      value = gVar(sp)\i
-   EndIf
-
-   ; Bounds checking - read size from structure
-   CompilerIf #DEBUG
-      Protected arraySize.i
-      If _AR()\j
-         arraySize = llStack()\LocalArrays(arrIdx)\dta\size
-      Else
-         arraySize = gVar(arrIdx)\dta\size
-      EndIf
-      If index < 0 Or index >= arraySize
-         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
-         gExitApplication = #True  ; Force halt on error
-         ProcedureReturn
-      EndIf
-   CompilerEndIf
-
-   ; Store - j=1 for local, j=0 for global
-   If _AR()\j
-      llStack()\LocalArrays(arrIdx)\dta\ar(index)\i = value
-   Else
-      gVar(arrIdx)\dta\ar(index)\i = value
-   EndIf
-
-   pc + 1
-EndProcedure
-
-Procedure               C2ARRAYSTORE_FLOAT()
-   ; Float array store (typed by postprocessor)
-   ; _AR()\i = array index (global varSlot OR local array index)
-   ; _AR()\j = 0 for global, 1 for local
-   ; _AR()\n = varSlot (used by postprocessor for typing)
-   ; _AR()\ndx = index slot (>= 0 if optimized by postprocessor, -1 if on stack)
-
+Procedure               C2ARRAYFETCH_INT_GLOBAL_OPT()
+   ; Integer array fetch - global array, optimized index
    Protected arrIdx.i, index.i
-   Protected value.d
-
    vm_DebugFunctionName()
-
    arrIdx = _AR()\i
-
-   ; Get index and value from ndx/stack
-   If _AR()\ndx >= 0
-      index = gVar(_AR()\ndx)\i
-      sp - 1
-      CompilerIf #DEBUG
-         If sp < 0 Or sp > #C2MAXCONSTANTS
-            Debug "ARRAYSTORE_FLOAT: sp out of bounds after decrement: sp=" + Str(sp) + " at pc=" + Str(pc)
-            Debug "  arrIdx=" + Str(arrIdx) + " ndx=" + Str(_AR()\ndx) + " index=" + Str(index)
-            gExitApplication = #True  ; Force halt on error
-            ProcedureReturn
-         EndIf
-      CompilerEndIf
-      value = gVar(sp)\f
-   Else
-      sp - 1
-      CompilerIf #DEBUG
-         If sp < 0 Or sp > #C2MAXCONSTANTS
-            Debug "ARRAYSTORE_FLOAT: sp out of bounds after first decrement: sp=" + Str(sp) + " at pc=" + Str(pc)
-            gExitApplication = #True  ; Force halt on error
-            ProcedureReturn
-         EndIf
-      CompilerEndIf
-      index = gVar(sp)\i
-      sp - 1
-      CompilerIf #DEBUG
-         If sp < 0 Or sp > #C2MAXCONSTANTS
-            Debug "ARRAYSTORE_FLOAT: sp out of bounds after second decrement: sp=" + Str(sp) + " at pc=" + Str(pc)
-            Debug "  arrIdx=" + Str(arrIdx) + " index=" + Str(index)
-            gExitApplication = #True  ; Force halt on error
-            ProcedureReturn
-         EndIf
-      CompilerEndIf
-      value = gVar(sp)\f
-   EndIf
-
-   ; Bounds checking - read size from structure
+   index = gVar(_AR()\ndx)\i
    CompilerIf #DEBUG
-      Protected arraySize.i
-      If _AR()\j
-         arraySize = llStack()\LocalArrays(arrIdx)\dta\size
-      Else
-         arraySize = gVar(arrIdx)\dta\size
-      EndIf
+      Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
-         gExitApplication = #True  ; Force halt on error
+         gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-
-   ; Store - j=1 for local, j=0 for global
-   If _AR()\j
-      llStack()\LocalArrays(arrIdx)\dta\ar(index)\f = value
-   Else
-      gVar(arrIdx)\dta\ar(index)\f = value
-   EndIf
-
+   gVar(sp)\f = 0.0
+   gVar(sp)\i = gVar(arrIdx)\dta\ar(index)\i
+   sp + 1
    pc + 1
 EndProcedure
 
-Procedure               C2ARRAYSTORE_STR()
-   ; String array store (typed by postprocessor)
-   ; _AR()\i = array index (global varSlot OR local array index)
-   ; _AR()\j = 0 for global, 1 for local
-   ; _AR()\n = varSlot (used by postprocessor for typing)
-   ; _AR()\ndx = index slot (>= 0 if optimized by postprocessor, -1 if on stack)
+Procedure               C2ARRAYFETCH_INT_GLOBAL_STACK()
+   ; Integer array fetch - global array, stack index
+   Protected arrIdx.i, index.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(sp)\f = 0.0
+   gVar(sp)\i = gVar(arrIdx)\dta\ar(index)\i
+   sp + 1
+   pc + 1
+EndProcedure
 
+Procedure               C2ARRAYFETCH_INT_LOCAL_OPT()
+   ; Integer array fetch - local array, optimized index
+   Protected arrIdx.i, index.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(sp)\f = 0.0
+   gVar(sp)\i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\i
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYFETCH_INT_LOCAL_STACK()
+   ; Integer array fetch - local array, stack index
+   Protected arrIdx.i, index.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(sp)\f = 0.0
+   gVar(sp)\i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\i
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYFETCH_FLOAT_GLOBAL_OPT()
+   ; Float array fetch - global array, optimized index
+   Protected arrIdx.i, index.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(sp)\i = 0
+   gVar(sp)\f = gVar(arrIdx)\dta\ar(index)\f
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYFETCH_FLOAT_GLOBAL_STACK()
+   ; Float array fetch - global array, stack index
+   Protected arrIdx.i, index.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(sp)\i = 0
+   gVar(sp)\f = gVar(arrIdx)\dta\ar(index)\f
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYFETCH_FLOAT_LOCAL_OPT()
+   ; Float array fetch - local array, optimized index
+   Protected arrIdx.i, index.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(sp)\i = 0
+   gVar(sp)\f = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\f
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYFETCH_FLOAT_LOCAL_STACK()
+   ; Float array fetch - local array, stack index
+   Protected arrIdx.i, index.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(sp)\i = 0
+   gVar(sp)\f = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\f
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYFETCH_STR_GLOBAL_OPT()
+   ; String array fetch - global array, optimized index
+   Protected arrIdx.i, index.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(sp)\i = 0
+   gVar(sp)\f = 0.0
+   gVar(sp)\ss = gVar(arrIdx)\dta\ar(index)\ss
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYFETCH_STR_GLOBAL_STACK()
+   ; String array fetch - global array, stack index
+   Protected arrIdx.i, index.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(sp)\i = 0
+   gVar(sp)\f = 0.0
+   gVar(sp)\ss = gVar(arrIdx)\dta\ar(index)\ss
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYFETCH_STR_LOCAL_OPT()
+   ; String array fetch - local array, optimized index
+   Protected arrIdx.i, index.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(sp)\i = 0
+   gVar(sp)\f = 0.0
+   gVar(sp)\ss = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\ss
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYFETCH_STR_LOCAL_STACK()
+   ; String array fetch - local array, stack index
+   Protected arrIdx.i, index.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(sp)\i = 0
+   gVar(sp)\f = 0.0
+   gVar(sp)\ss = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\ss
+   sp + 1
+   pc + 1
+EndProcedure
+
+;- Specialized ARRAYSTORE handlers (no runtime branching)
+
+Procedure               C2ARRAYSTORE_INT_GLOBAL_OPT_OPT()
+   ; Integer array store - global array, optimized index, optimized value
+   Protected arrIdx.i, index.i, value.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   value = gVar(_AR()\n)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(arrIdx)\dta\ar(index)\i = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_INT_GLOBAL_OPT_STACK()
+   ; Integer array store - global array, optimized index, stack value
+   Protected arrIdx.i, index.i, value.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   sp - 1
+   value = gVar(sp)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(arrIdx)\dta\ar(index)\i = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_INT_GLOBAL_STACK_OPT()
+   ; Integer array store - global array, stack index, optimized value
+   Protected arrIdx.i, index.i, value.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   value = gVar(_AR()\n)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(arrIdx)\dta\ar(index)\i = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_INT_GLOBAL_STACK_STACK()
+   ; Integer array store - global array, stack index, stack value
+   Protected arrIdx.i, index.i, value.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   sp - 1
+   value = gVar(sp)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(arrIdx)\dta\ar(index)\i = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_INT_LOCAL_OPT_OPT()
+   ; Integer array store - local array, optimized index, optimized value
+   Protected arrIdx.i, index.i, value.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   value = gVar(_AR()\n)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\i = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_INT_LOCAL_OPT_STACK()
+   ; Integer array store - local array, optimized index, stack value
+   Protected arrIdx.i, index.i, value.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   sp - 1
+   value = gVar(sp)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\i = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_INT_LOCAL_STACK_OPT()
+   ; Integer array store - local array, stack index, optimized value
+   Protected arrIdx.i, index.i, value.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   value = gVar(_AR()\n)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\i = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_INT_LOCAL_STACK_STACK()
+   ; Integer array store - local array, stack index, stack value
+   Protected arrIdx.i, index.i, value.i
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   sp - 1
+   value = gVar(sp)\i
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\i = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_OPT_OPT()
+   ; Float array store - global array, optimized index, optimized value
+   Protected arrIdx.i, index.i
+   Protected value.f
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   value = gVar(_AR()\n)\f
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(arrIdx)\dta\ar(index)\f = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_OPT_STACK()
+   ; Float array store - global array, optimized index, stack value
+   Protected arrIdx.i, index.i
+   Protected value.f
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   sp - 1
+   value = gVar(sp)\f
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(arrIdx)\dta\ar(index)\f = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_STACK_OPT()
+   ; Float array store - global array, stack index, optimized value
+   Protected arrIdx.i, index.i
+   Protected value.f
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   value = gVar(_AR()\n)\f
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(arrIdx)\dta\ar(index)\f = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_STACK_STACK()
+   ; Float array store - global array, stack index, stack value
+   Protected arrIdx.i, index.i
+   Protected value.f
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   sp - 1
+   value = gVar(sp)\f
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(arrIdx)\dta\ar(index)\f = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_FLOAT_LOCAL_OPT_OPT()
+   ; Float array store - local array, optimized index, optimized value
+   Protected arrIdx.i, index.i
+   Protected value.f
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   value = gVar(_AR()\n)\f
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\f = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_FLOAT_LOCAL_OPT_STACK()
+   ; Float array store - local array, optimized index, stack value
+   Protected arrIdx.i, index.i
+   Protected value.f
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   sp - 1
+   value = gVar(sp)\f
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\f = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_FLOAT_LOCAL_STACK_OPT()
+   ; Float array store - local array, stack index, optimized value
+   Protected arrIdx.i, index.i
+   Protected value.f
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   value = gVar(_AR()\n)\f
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\f = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_FLOAT_LOCAL_STACK_STACK()
+   ; Float array store - local array, stack index, stack value
+   Protected arrIdx.i, index.i
+   Protected value.f
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   sp - 1
+   value = gVar(sp)\f
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\f = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_STR_GLOBAL_OPT_OPT()
+   ; String array store - global array, optimized index, optimized value
    Protected arrIdx.i, index.i
    Protected value.s
-
    vm_DebugFunctionName()
-
    arrIdx = _AR()\i
-
-   ; Get index and value from ndx/stack
-   If _AR()\ndx >= 0
-      index = gVar(_AR()\ndx)\i
-      sp - 1
-      CompilerIf #DEBUG
-         If sp < 0 Or sp > #C2MAXCONSTANTS
-            Debug "ARRAYSTORE_STR: sp out of bounds after decrement: sp=" + Str(sp) + " at pc=" + Str(pc)
-            Debug "  arrIdx=" + Str(arrIdx) + " ndx=" + Str(_AR()\ndx) + " index=" + Str(index)
-            gExitApplication = #True  ; Force halt on error
-            ProcedureReturn
-         EndIf
-      CompilerEndIf
-      value = gVar(sp)\ss
-   Else
-      sp - 1
-      CompilerIf #DEBUG
-         If sp < 0 Or sp > #C2MAXCONSTANTS
-            Debug "ARRAYSTORE_STR: sp out of bounds after first decrement: sp=" + Str(sp) + " at pc=" + Str(pc)
-            gExitApplication = #True  ; Force halt on error
-            ProcedureReturn
-         EndIf
-      CompilerEndIf
-      index = gVar(sp)\i
-      sp - 1
-      CompilerIf #DEBUG
-         If sp < 0 Or sp > #C2MAXCONSTANTS
-            Debug "ARRAYSTORE_STR: sp out of bounds after second decrement: sp=" + Str(sp) + " at pc=" + Str(pc)
-            Debug "  arrIdx=" + Str(arrIdx) + " index=" + Str(index)
-            gExitApplication = #True  ; Force halt on error
-            ProcedureReturn
-         EndIf
-      CompilerEndIf
-      value = gVar(sp)\ss
-   EndIf
-
-   ; Bounds checking - read size from structure
+   index = gVar(_AR()\ndx)\i
+   value = gVar(_AR()\n)\ss
    CompilerIf #DEBUG
-      Protected arraySize.i
-      If _AR()\j
-         arraySize = llStack()\LocalArrays(arrIdx)\dta\size
-      Else
-         arraySize = gVar(arrIdx)\dta\size
-      EndIf
+      Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
-         gExitApplication = #True  ; Force halt on error
+         gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
+   gVar(arrIdx)\dta\ar(index)\ss = value
+   pc + 1
+EndProcedure
 
-   ; Store - j=1 for local, j=0 for global
-   If _AR()\j
-      llStack()\LocalArrays(arrIdx)\dta\ar(index)\ss = value
-   Else
-      gVar(arrIdx)\dta\ar(index)\ss = value
-   EndIf
+Procedure               C2ARRAYSTORE_STR_GLOBAL_OPT_STACK()
+   ; String array store - global array, optimized index, stack value
+   Protected arrIdx.i, index.i
+   Protected value.s
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   sp - 1
+   value = gVar(sp)\ss
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(arrIdx)\dta\ar(index)\ss = value
+   pc + 1
+EndProcedure
 
+Procedure               C2ARRAYSTORE_STR_GLOBAL_STACK_OPT()
+   ; String array store - global array, stack index, optimized value
+   Protected arrIdx.i, index.i
+   Protected value.s
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   value = gVar(_AR()\n)\ss
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(arrIdx)\dta\ar(index)\ss = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_STR_GLOBAL_STACK_STACK()
+   ; String array store - global array, stack index, stack value
+   Protected arrIdx.i, index.i
+   Protected value.s
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   sp - 1
+   value = gVar(sp)\ss
+   CompilerIf #DEBUG
+      Protected arraySize.i = gVar(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gVar(arrIdx)\dta\ar(index)\ss = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_STR_LOCAL_OPT_OPT()
+   ; String array store - local array, optimized index, optimized value
+   Protected arrIdx.i, index.i
+   Protected value.s
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   value = gVar(_AR()\n)\ss
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\ss = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_STR_LOCAL_OPT_STACK()
+   ; String array store - local array, optimized index, stack value
+   Protected arrIdx.i, index.i
+   Protected value.s
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   index = gVar(_AR()\ndx)\i
+   sp - 1
+   value = gVar(sp)\ss
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\ss = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_STR_LOCAL_STACK_OPT()
+   ; String array store - local array, stack index, optimized value
+   Protected arrIdx.i, index.i
+   Protected value.s
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   value = gVar(_AR()\n)\ss
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\ss = value
+   pc + 1
+EndProcedure
+
+Procedure               C2ARRAYSTORE_STR_LOCAL_STACK_STACK()
+   ; String array store - local array, stack index, stack value
+   Protected arrIdx.i, index.i
+   Protected value.s
+   vm_DebugFunctionName()
+   arrIdx = _AR()\i
+   sp - 1
+   index = gVar(sp)\i
+   sp - 1
+   value = gVar(sp)\ss
+   CompilerIf #DEBUG
+      Protected arraySize.i = gStack(gStackDepth)\LocalArrays(arrIdx)\dta\size
+      If index < 0 Or index >= arraySize
+         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+   gStack(gStackDepth)\LocalArrays(arrIdx)\dta\ar(index)\ss = value
    pc + 1
 EndProcedure
 
@@ -1542,10 +1985,10 @@ EndProcedure
 
 ;- End VM functions
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 730
-; FirstLine = 727
-; Folding = --------------------
-; Markers = 922
+; CursorPosition = 66
+; FirstLine = 47
+; Folding = ----------------------------
+; Markers = 625
 ; EnableAsm
 ; EnableThread
 ; EnableXP

@@ -29,6 +29,14 @@ Procedure            PostProcessor()
       Protected newConstFIdx.i
       Protected varIdx.i
       Protected funcEndIdx.i, lastOpcode.i, needsReturn.i, returnOpcode.i
+      Protected optimizationsEnabled.i
+      Protected indexVarSlot.i
+      Protected varSlot.i
+      Protected isFetch.i
+      Protected optimized.i
+      Protected valueSlot.i
+      Protected savedPos
+      Protected foundEnd.i
 
       ; Fix up opcodes based on actual variable types
       ; This handles cases where types weren't known at parse time
@@ -87,7 +95,26 @@ Procedure            PostProcessor()
                      ; String operations always produce string results
                      NextElement(llObjects())  ; Move back to PRTI
                      llObjects()\code = #ljPRTS
-                     PreviousElement(llObjects())  ; Stay positioned   
+                     PreviousElement(llObjects())  ; Stay positioned
+                  ; Check if previous operation is an array fetch
+                  ElseIf llObjects()\code = #ljARRAYFETCH_FLOAT Or
+                         llObjects()\code = #ljARRAYFETCH_FLOAT_GLOBAL_OPT Or
+                         llObjects()\code = #ljARRAYFETCH_FLOAT_GLOBAL_STACK Or
+                         llObjects()\code = #ljARRAYFETCH_FLOAT_LOCAL_OPT Or
+                         llObjects()\code = #ljARRAYFETCH_FLOAT_LOCAL_STACK
+                     ; Float array fetch - change to PRTF
+                     NextElement(llObjects())  ; Move back to PRTI
+                     llObjects()\code = #ljPRTF
+                     PreviousElement(llObjects())  ; Stay positioned
+                  ElseIf llObjects()\code = #ljARRAYFETCH_STR Or
+                         llObjects()\code = #ljARRAYFETCH_STR_GLOBAL_OPT Or
+                         llObjects()\code = #ljARRAYFETCH_STR_GLOBAL_STACK Or
+                         llObjects()\code = #ljARRAYFETCH_STR_LOCAL_OPT Or
+                         llObjects()\code = #ljARRAYFETCH_STR_LOCAL_STACK
+                     ; String array fetch - change to PRTS
+                     NextElement(llObjects())  ; Move back to PRTI
+                     llObjects()\code = #ljPRTS
+                     PreviousElement(llObjects())  ; Stay positioned
                   EndIf
                   NextElement(llObjects())  ; Return to PRTI position
                EndIf
@@ -108,6 +135,24 @@ Procedure            PostProcessor()
                            PreviousElement(llObjects())
                         EndIf
                      EndIf
+                  ElseIf llObjects()\code = #ljARRAYFETCH_INT Or
+                         llObjects()\code = #ljARRAYFETCH_INT_GLOBAL_OPT Or
+                         llObjects()\code = #ljARRAYFETCH_INT_GLOBAL_STACK Or
+                         llObjects()\code = #ljARRAYFETCH_INT_LOCAL_OPT Or
+                         llObjects()\code = #ljARRAYFETCH_INT_LOCAL_STACK
+                     ; Integer array fetch - change to PRTI
+                     NextElement(llObjects())
+                     llObjects()\code = #ljPRTI
+                     PreviousElement(llObjects())
+                  ElseIf llObjects()\code = #ljARRAYFETCH_STR Or
+                         llObjects()\code = #ljARRAYFETCH_STR_GLOBAL_OPT Or
+                         llObjects()\code = #ljARRAYFETCH_STR_GLOBAL_STACK Or
+                         llObjects()\code = #ljARRAYFETCH_STR_LOCAL_OPT Or
+                         llObjects()\code = #ljARRAYFETCH_STR_LOCAL_STACK
+                     ; String array fetch - change to PRTS
+                     NextElement(llObjects())
+                     llObjects()\code = #ljPRTS
+                     PreviousElement(llObjects())
                   EndIf
                   NextElement(llObjects())
                EndIf
@@ -128,6 +173,24 @@ Procedure            PostProcessor()
                            PreviousElement(llObjects())
                         EndIf
                      EndIf
+                  ElseIf llObjects()\code = #ljARRAYFETCH_INT Or
+                         llObjects()\code = #ljARRAYFETCH_INT_GLOBAL_OPT Or
+                         llObjects()\code = #ljARRAYFETCH_INT_GLOBAL_STACK Or
+                         llObjects()\code = #ljARRAYFETCH_INT_LOCAL_OPT Or
+                         llObjects()\code = #ljARRAYFETCH_INT_LOCAL_STACK
+                     ; Integer array fetch - change to PRTI
+                     NextElement(llObjects())
+                     llObjects()\code = #ljPRTI
+                     PreviousElement(llObjects())
+                  ElseIf llObjects()\code = #ljARRAYFETCH_FLOAT Or
+                         llObjects()\code = #ljARRAYFETCH_FLOAT_GLOBAL_OPT Or
+                         llObjects()\code = #ljARRAYFETCH_FLOAT_GLOBAL_STACK Or
+                         llObjects()\code = #ljARRAYFETCH_FLOAT_LOCAL_OPT Or
+                         llObjects()\code = #ljARRAYFETCH_FLOAT_LOCAL_STACK
+                     ; Float array fetch - change to PRTF
+                     NextElement(llObjects())
+                     llObjects()\code = #ljPRTF
+                     PreviousElement(llObjects())
                   EndIf
                   NextElement(llObjects())
                EndIf
@@ -139,7 +202,7 @@ Procedure            PostProcessor()
       ;- ==================================================================
 
       ; Check if optimizations are enabled (default ON)
-      Protected optimizationsEnabled.i = #True
+      optimizationsEnabled = #True
       If FindMapElement(mapPragmas(), "optimizecode")
          If LCase(mapPragmas()) = "off" Or mapPragmas() = "0"
             optimizationsEnabled = #False
@@ -157,7 +220,7 @@ Procedure            PostProcessor()
                   If PreviousElement(llObjects())
                      If (llObjects()\code = #ljPush Or llObjects()\code = #ljPUSHF Or llObjects()\code = #ljPUSHS)
                         ; Get the variable/constant index
-                        Protected indexVarSlot.i = llObjects()\i
+                        indexVarSlot = llObjects()\i
                         NextElement(llObjects())  ; Back to ARRAYFETCH/ARRAYSTORE
 
                         ; Store variable slot in ndx field (ndx >= 0 signals optimization)
@@ -180,8 +243,8 @@ Procedure            PostProcessor()
          Select llObjects()\code
             Case #ljARRAYFETCH, #ljARRAYSTORE
                ; Get varSlot from n field (codegen stores it there for typing)
-               Protected varSlot.i = llObjects()\n
-               Protected isFetch.i = Bool(llObjects()\code = #ljARRAYFETCH)
+               varSlot = llObjects()\n
+               isFetch = Bool(llObjects()\code = #ljARRAYFETCH)
 
                ; Type the operation based on array's type flags
                If gVarMeta(varSlot)\flags & #C2FLAG_STR
@@ -206,22 +269,207 @@ Procedure            PostProcessor()
          EndSelect
       Next
 
+      ;- Pass 1b2: Fold value PUSH into ARRAYSTORE (after typing is complete)
+      ; Optimize: PUSH value + ARRAYSTORE → ARRAYSTORE with value in n field
+      ; Since typing is complete, we can repurpose the n field to hold the value slot
+      ; If not optimized, set n = -1 to signal VM to use stack
+      ForEach llObjects()
+         Select llObjects()\code
+            Case #ljARRAYSTORE_INT, #ljARRAYSTORE_FLOAT, #ljARRAYSTORE_STR
+               ; Check if previous instruction is PUSH (of value)
+               optimized = #False
+               If PreviousElement(llObjects())
+                  If (llObjects()\code = #ljPush Or llObjects()\code = #ljPUSHF Or llObjects()\code = #ljPUSHS)
+                     ; Get the value variable/constant slot
+                     valueSlot = llObjects()\i
+                     NextElement(llObjects())  ; Back to ARRAYSTORE
+
+                     ; Store value slot in n field (repurposing after typing complete)
+                     ; n field is now used by VM to fetch value directly instead of from stack
+                     llObjects()\n = valueSlot
+                     optimized = #True
+
+                     ; Mark PUSH as NOOP
+                     PreviousElement(llObjects())
+                     llObjects()\code = #ljNOOP
+                     NextElement(llObjects())
+                  Else
+                     NextElement(llObjects())
+                  EndIf
+               EndIf
+
+               ; If not optimized, set n = -1 to signal VM to use stack for value
+               If Not optimized
+                  llObjects()\n = -1
+               EndIf
+         EndSelect
+      Next
+
+      ;- Pass 1b3: Specialize array opcodes to eliminate runtime branching
+      ; Convert typed opcodes to fully specialized variants based on:
+      ; - j field: 0=GLOBAL, 1=LOCAL
+      ; - ndx field: >=0=OPT, -1=STACK
+      ; - n field (STORE only): >=0=OPT, -1=STACK
+      ForEach llObjects()
+         Select llObjects()\code
+            ; ARRAYFETCH specialization
+            Case #ljARRAYFETCH_INT
+               If llObjects()\j = 0  ; Global
+                  If llObjects()\ndx >= 0
+                     llObjects()\code = #ljARRAYFETCH_INT_GLOBAL_OPT
+                  Else
+                     llObjects()\code = #ljARRAYFETCH_INT_GLOBAL_STACK
+                  EndIf
+               Else  ; Local
+                  If llObjects()\ndx >= 0
+                     llObjects()\code = #ljARRAYFETCH_INT_LOCAL_OPT
+                  Else
+                     llObjects()\code = #ljARRAYFETCH_INT_LOCAL_STACK
+                  EndIf
+               EndIf
+
+            Case #ljARRAYFETCH_FLOAT
+               If llObjects()\j = 0  ; Global
+                  If llObjects()\ndx >= 0
+                     llObjects()\code = #ljARRAYFETCH_FLOAT_GLOBAL_OPT
+                  Else
+                     llObjects()\code = #ljARRAYFETCH_FLOAT_GLOBAL_STACK
+                  EndIf
+               Else  ; Local
+                  If llObjects()\ndx >= 0
+                     llObjects()\code = #ljARRAYFETCH_FLOAT_LOCAL_OPT
+                  Else
+                     llObjects()\code = #ljARRAYFETCH_FLOAT_LOCAL_STACK
+                  EndIf
+               EndIf
+
+            Case #ljARRAYFETCH_STR
+               If llObjects()\j = 0  ; Global
+                  If llObjects()\ndx >= 0
+                     llObjects()\code = #ljARRAYFETCH_STR_GLOBAL_OPT
+                  Else
+                     llObjects()\code = #ljARRAYFETCH_STR_GLOBAL_STACK
+                  EndIf
+               Else  ; Local
+                  If llObjects()\ndx >= 0
+                     llObjects()\code = #ljARRAYFETCH_STR_LOCAL_OPT
+                  Else
+                     llObjects()\code = #ljARRAYFETCH_STR_LOCAL_STACK
+                  EndIf
+               EndIf
+
+            ; ARRAYSTORE specialization (3 dimensions: global/local, index source, value source)
+            Case #ljARRAYSTORE_INT
+               If llObjects()\j = 0  ; Global
+                  If llObjects()\ndx >= 0  ; Optimized index
+                     If llObjects()\n >= 0  ; Optimized value
+                        llObjects()\code = #ljARRAYSTORE_INT_GLOBAL_OPT_OPT
+                     Else  ; Stack value
+                        llObjects()\code = #ljARRAYSTORE_INT_GLOBAL_OPT_STACK
+                     EndIf
+                  Else  ; Stack index
+                     If llObjects()\n >= 0  ; Optimized value
+                        llObjects()\code = #ljARRAYSTORE_INT_GLOBAL_STACK_OPT
+                     Else  ; Stack value
+                        llObjects()\code = #ljARRAYSTORE_INT_GLOBAL_STACK_STACK
+                     EndIf
+                  EndIf
+               Else  ; Local
+                  If llObjects()\ndx >= 0  ; Optimized index
+                     If llObjects()\n >= 0  ; Optimized value
+                        llObjects()\code = #ljARRAYSTORE_INT_LOCAL_OPT_OPT
+                     Else  ; Stack value
+                        llObjects()\code = #ljARRAYSTORE_INT_LOCAL_OPT_STACK
+                     EndIf
+                  Else  ; Stack index
+                     If llObjects()\n >= 0  ; Optimized value
+                        llObjects()\code = #ljARRAYSTORE_INT_LOCAL_STACK_OPT
+                     Else  ; Stack value
+                        llObjects()\code = #ljARRAYSTORE_INT_LOCAL_STACK_STACK
+                     EndIf
+                  EndIf
+               EndIf
+
+            Case #ljARRAYSTORE_FLOAT
+               If llObjects()\j = 0  ; Global
+                  If llObjects()\ndx >= 0  ; Optimized index
+                     If llObjects()\n >= 0  ; Optimized value
+                        llObjects()\code = #ljARRAYSTORE_FLOAT_GLOBAL_OPT_OPT
+                     Else  ; Stack value
+                        llObjects()\code = #ljARRAYSTORE_FLOAT_GLOBAL_OPT_STACK
+                     EndIf
+                  Else  ; Stack index
+                     If llObjects()\n >= 0  ; Optimized value
+                        llObjects()\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_OPT
+                     Else  ; Stack value
+                        llObjects()\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_STACK
+                     EndIf
+                  EndIf
+               Else  ; Local
+                  If llObjects()\ndx >= 0  ; Optimized index
+                     If llObjects()\n >= 0  ; Optimized value
+                        llObjects()\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_OPT
+                     Else  ; Stack value
+                        llObjects()\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_STACK
+                     EndIf
+                  Else  ; Stack index
+                     If llObjects()\n >= 0  ; Optimized value
+                        llObjects()\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_OPT
+                     Else  ; Stack value
+                        llObjects()\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_STACK
+                     EndIf
+                  EndIf
+               EndIf
+
+            Case #ljARRAYSTORE_STR
+               If llObjects()\j = 0  ; Global
+                  If llObjects()\ndx >= 0  ; Optimized index
+                     If llObjects()\n >= 0  ; Optimized value
+                        llObjects()\code = #ljARRAYSTORE_STR_GLOBAL_OPT_OPT
+                     Else  ; Stack value
+                        llObjects()\code = #ljARRAYSTORE_STR_GLOBAL_OPT_STACK
+                     EndIf
+                  Else  ; Stack index
+                     If llObjects()\n >= 0  ; Optimized value
+                        llObjects()\code = #ljARRAYSTORE_STR_GLOBAL_STACK_OPT
+                     Else  ; Stack value
+                        llObjects()\code = #ljARRAYSTORE_STR_GLOBAL_STACK_STACK
+                     EndIf
+                  EndIf
+               Else  ; Local
+                  If llObjects()\ndx >= 0  ; Optimized index
+                     If llObjects()\n >= 0  ; Optimized value
+                        llObjects()\code = #ljARRAYSTORE_STR_LOCAL_OPT_OPT
+                     Else  ; Stack value
+                        llObjects()\code = #ljARRAYSTORE_STR_LOCAL_OPT_STACK
+                     EndIf
+                  Else  ; Stack index
+                     If llObjects()\n >= 0  ; Optimized value
+                        llObjects()\code = #ljARRAYSTORE_STR_LOCAL_STACK_OPT
+                     Else  ; Stack value
+                        llObjects()\code = #ljARRAYSTORE_STR_LOCAL_STACK_STACK
+                     EndIf
+                  EndIf
+               EndIf
+         EndSelect
+      Next
+
       ;- Pass 1c: Add implicit returns to functions without explicit returns
       ; Scan for function boundaries and ensure each has a RET before next function/HALT
       ForEach llObjects()
          If llObjects()\code = #ljFunction
             ; Found a function start, scan forward to find where it ends
             needsReturn = #True
-            Protected savedPos = @llObjects()
-            Protected foundEnd.i = #False
+            savedPos = @llObjects()
+            foundEnd = #False
 
             While NextElement(llObjects())
                ; Check if we hit another function or HALT
                If llObjects()\code = #ljFunction Or llObjects()\code = #ljHALT
                   ; End of current function - check if previous instruction was RET
                   If needsReturn
-                     ; Insert RET before this instruction
-                     PreviousElement(llObjects())
+                     ; Insert RET before FUNCTION/HALT marker (after last instruction of function)
+                     ; Do NOT use PreviousElement - insert directly before current element
                      InsertElement(llObjects())
                      llObjects()\code = #ljreturn
                      llObjects()\i = 0
@@ -390,8 +638,10 @@ Procedure            PostProcessor()
                If PreviousElement(llObjects())
                   If (llObjects()\code = #ljPUSHF Or llObjects()\code = #ljPush) And (gVarMeta( llObjects()\i )\flags & #C2FLAG_CONST)
                      const2fIdx = llObjects()\i
+                     const2f = gVarMeta(const2fIdx)\valueFloat
                      If PreviousElement(llObjects())
                         If (llObjects()\code = #ljPUSHF Or llObjects()\code = #ljPush) And (gVarMeta( llObjects()\i )\flags & #C2FLAG_CONST)
+                           const1f = gVarMeta(llObjects()\i)\valueFloat
                            canFold = #True
 
                            ; Compute the constant result

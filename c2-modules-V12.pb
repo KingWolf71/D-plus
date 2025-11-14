@@ -17,10 +17,11 @@
 ; ======================================================================================================
 
 DisableDebugger
+EnableDebugger
 
 DeclareModule C2Common
 
-   #DEBUG = 1
+   #DEBUG = 0
    XIncludeFile         "c2-inc-v08.pbi"
 EndDeclareModule
 
@@ -567,7 +568,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
    ;- Preprocessors
    ;- =====================================
    Macro                pre_FindNextWord( tsize, withinv, extra )
-      p = Trim( Mid( p, tsize ) )
+      p = pre_TrimWhiteSpace( Mid( p, tsize ) )
       
       CompilerIf withinv
          temp = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" + #INV$ + extra
@@ -581,7 +582,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       ForEver
    EndMacro
    Macro                pre_TrimWhiteSpace( string )
-      Trim( Trim( string ), #TAB$ )
+      Trim( Trim( Trim( string ), #TAB$ ), #CR$ )
    EndMacro
    Macro                par_AddModule( modname, mparams )
       
@@ -694,7 +695,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       Protected         bInv, Bracket
       Protected         i, j
       Protected         tmpMod.stModInfo
-      Protected.s       temp, nc, name, p, param
+      Protected.s       temp, nc, name, p, param, macroKey
       Protected         depth = 0, start = 2
       Protected         mret = #True
       
@@ -721,12 +722,12 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          ;Debug name + " --> [" + param + "]," + Str(Len( param))
       ; It has to be at the beginning
       ElseIf FindString( p, "#define", #PB_String_NoCase ) = 1
+         j = 1  ; Reset j before finding next word
          pre_FindNextWord( 8, 0, "" )
-         name  = Left( p, j - 1 )
-         temp  = UCase( name )
-         
-         AddMapElement( mapMacros(), temp )
-         p     = Trim( Mid( p, j ) )
+         name = Left( p, j - 1 )
+
+         AddMapElement( mapMacros(), name )
+         p     = pre_TrimWhiteSpace( Mid( p, j ) )
           
          If Left( p, 1 ) = "("
             Repeat
@@ -756,6 +757,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          
          mapMacros()\name  = name
          mapMacros()\body  = p
+         Debug "Macro stored - Key: [" + name + "] Name: [" + name + "] Body: [" + p + "]"
          mret              = #False
       EndIf
       
@@ -771,28 +773,66 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       Protected         p = 1
       Protected         lenInput, start
       Protected NewList ll.s()
+      Protected.i       inString = #False
+      Protected.i       escaped = #False
+      Protected.s       currentChar
+      Protected.i       argInString = #False
+      Protected.i       argEscaped = #False
+      Protected.s       argChar
 
       lenInput = Len( line )
       output   = ""
-      
+
       If Mid( line, lenInput , 1 ) = #CR$
          lenInput - 1
       EndIf
-      
+
       While p <= lenInput
+         currentChar = Mid( line, p, 1 )
+
+         ; Handle escape sequences
+         If escaped
+            output + currentChar
+            escaped = #False
+            p + 1
+            Continue
+         EndIf
+
+         ; Check for backslash (escape character)
+         If currentChar = "\"
+            escaped = #True
+            output + currentChar
+            p + 1
+            Continue
+         EndIf
+
+         ; Track string literals (don't expand macros inside strings)
+         If currentChar = #DQUOTE$
+            inString = 1 - inString  ; Toggle
+            output + currentChar
+            p + 1
+            Continue
+         EndIf
+
+         ; If we're inside a string, just copy characters
+         If inString
+            output + currentChar
+            p + 1
+            Continue
+         EndIf
+
          ; If identifier start
-         If FindString( "#abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_", Mid( line, p, 1 ), 1 )
+         If FindString( "#abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_", currentChar, 1 )
             start = p
-         
+
             While p <= lenInput And FindString( "#abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", Mid( line, p, 1 ), 1 )
               p + 1
             Wend
-            
+
             ident    = Mid( line, start, p - start )
-            temp     = UCase( ident )
-      
-            ; Macro lookup
-            If FindMapElement( mapMacros(), temp )
+
+            ; Macro lookup (case-sensitive)
+            If FindMapElement( mapMacros(), ident )
                m = mapMacros()
                
                ; If function-like, parse args
@@ -801,20 +841,47 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
                   p + 1 : depth = 0
                   argStart = p
                   ClearList( ll() )
-      
-                  ; Build argument list by counting parentheses
+                  argInString = #False
+                  argEscaped = #False
+
+                  ; Build argument list by counting parentheses (respecting strings)
                   While p <= lenInput
-                     If Mid( line, p, 1 ) = "(" : depth + 1
-                     ElseIf Mid( line, p, 1 ) = ")" 
-                        If depth = 0 : Break : EndIf
-                        depth - 1
-                     ElseIf Mid( line, p, 1 ) = "," And depth = 0
-                        ; Split argument
-                        AddElement( ll() )
-                        ll() = Trim( Mid( line, argStart, p - argStart ) )
-                        argStart = p + 1
+                     argChar = Mid( line, p, 1 )
+
+                     ; Handle escape sequences in argument strings
+                     If argEscaped
+                        argEscaped = #False
+                        p + 1
+                        Continue
                      EndIf
-                  
+
+                     If argChar = "\"
+                        argEscaped = #True
+                        p + 1
+                        Continue
+                     EndIf
+
+                     ; Track string state within arguments
+                     If argChar = #DQUOTE$
+                        argInString = 1 - argInString
+                        p + 1
+                        Continue
+                     EndIf
+
+                     ; Only count parentheses and commas outside of strings
+                     If Not argInString
+                        If argChar = "(" : depth + 1
+                        ElseIf argChar = ")"
+                           If depth = 0 : Break : EndIf
+                           depth - 1
+                        ElseIf argChar = "," And depth = 0
+                           ; Split argument
+                           AddElement( ll() )
+                           ll() = Trim( Mid( line, argStart, p - argStart ) )
+                           argStart = p + 1
+                        EndIf
+                     EndIf
+
                      p + 1
                   Wend
                   
@@ -1046,13 +1113,6 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
 
       gMemSize = Len( gszFileText )
       sizeAfterMacros = gMemSize
-
-      ; Display preprocessing statistics
-      Debug "=== Preprocessor Statistics ==="
-      Debug "Size before stripping:  " + Str(sizeBeforeStrip) + " chars"
-      Debug "Size after stripping:   " + Str(sizeAfterStrip) + " chars (removed " + Str(sizeBeforeStrip - sizeAfterStrip) + ")"
-      Debug "Size after macros:      " + Str(sizeAfterMacros) + " chars"
-      Debug "==============================="
    EndProcedure
    ;- =====================================
    ;- Parser 
@@ -1835,7 +1895,7 @@ EndProcedure
    Procedure            stmt()
       Protected.i       i, n
       Protected.stTree  *p, *v, *e, *r, *s, *s2
-      Protected.s       text, param
+      Protected.s       text, param, macroKey, macroBody
       Protected         printType.i
       Protected         varIdx.i
       Protected         moduleId.i
@@ -1892,12 +1952,34 @@ EndProcedure
             EndIf
             NextToken()
 
-            ; Parse size (must be integer constant)
-            If TOKEN()\TokenType <> #ljINT
-               SetError("Array size must be integer constant", #C2ERR_EXPECTED_STATEMENT)
+            ; Parse size (must be integer constant or macro constant)
+            If TOKEN()\TokenType = #ljINT
+               arraySize = Val(TOKEN()\value)
+            ElseIf TOKEN()\TokenType = #ljIDENT
+               ; Try to resolve as macro constant (case-sensitive)
+               macroKey = TOKEN()\value
+               Debug "Array size lookup - Token: [" + TOKEN()\value + "]"
+               Debug "Available macros: " + Str(MapSize(mapMacros()))
+               ForEach mapMacros()
+                  Debug "  Key: [" + MapKey(mapMacros()) + "] Body: [" + mapMacros()\body + "]"
+               Next
+               If FindMapElement(mapMacros(), macroKey)
+                  macroBody = Trim(mapMacros()\body)
+                  ; Verify the macro body is a numeric constant
+                  If macroBody <> "" And Val(macroBody) > 0
+                     arraySize = Val(macroBody)
+                  Else
+                     SetError("Array size macro '" + TOKEN()\value + "' must be a positive integer constant", #C2ERR_EXPECTED_STATEMENT)
+                     ProcedureReturn 0
+                  EndIf
+               Else
+                  SetError("Array size must be integer constant (identifier '" + TOKEN()\value + "' is not defined)", #C2ERR_EXPECTED_STATEMENT)
+                  ProcedureReturn 0
+               EndIf
+            Else
+               SetError("Array size must be integer constant or macro constant", #C2ERR_EXPECTED_STATEMENT)
                ProcedureReturn 0
             EndIf
-            arraySize = Val(TOKEN()\value)
             NextToken()
 
             ; Expect ]
@@ -2290,6 +2372,8 @@ EndProcedure
       Protected sourceFlags.w, destFlags.w
       Protected isSourceLocal.b, isDestLocal.b
       Protected sourceFlags2.w, destFlags2.w
+      Protected localOffset.i, localOffset2.i, localOffset3.i, localOffset4.i
+      Protected savedSource.i, savedSrc2.i
 
       If gEmitIntCmd = #ljpush And op = #ljStore
          ; PUSH+STORE optimization
@@ -2309,16 +2393,33 @@ EndProcedure
             If isDestLocal
                ; Destination is local - use LMOV
                ; For LMOV: i = paramOffset (destination), j = source varIndex
-               Protected savedSource.i = llObjects()\i  ; Save source BEFORE overwriting
-               If sourceFlags & #C2FLAG_STR
-                  llObjects()\code = #ljLMOVS
-               ElseIf sourceFlags & #C2FLAG_FLOAT
-                  llObjects()\code = #ljLMOVF
+               savedSource = llObjects()\i  ; Save source BEFORE overwriting
+               localOffset = gVarMeta(nVar)\paramOffset
+
+               ; Safety check: Ensure paramOffset is valid (should be >= 0 and < 20)
+               ; If paramOffset looks invalid (too large - likely a slot number), fall back to PUSH+STORE
+               If localOffset < 0 Or localOffset >= 20
+                  ; paramOffset not set or suspiciously large - fall back to PUSH+STORE
+                  gEmitIntLastOp = AddElement( llObjects() )
+                  If destFlags & #C2FLAG_STR
+                     llObjects()\code = #ljSTORES
+                  ElseIf destFlags & #C2FLAG_FLOAT
+                     llObjects()\code = #ljSTOREF
+                  Else
+                     llObjects()\code = #ljSTORE
+                  EndIf
+                  llObjects()\i = nVar
                Else
-                  llObjects()\code = #ljLMOV
+                  If sourceFlags & #C2FLAG_STR
+                     llObjects()\code = #ljLMOVS
+                  ElseIf sourceFlags & #C2FLAG_FLOAT
+                     llObjects()\code = #ljLMOVF
+                  Else
+                     llObjects()\code = #ljLMOV
+                  EndIf
+                  llObjects()\j = savedSource  ; j = source varIndex
+                  llObjects()\i = localOffset  ; i = destination paramOffset
                EndIf
-               llObjects()\j = savedSource  ; j = source varIndex
-               llObjects()\i = gVarMeta(nVar)\paramOffset  ; i = destination paramOffset
             Else
                ; Global destination - use regular MOV
                If sourceFlags & #C2FLAG_STR
@@ -2337,14 +2438,30 @@ EndProcedure
             ; One is a parameter - keep as PUSH+STORE but use local version if dest is local
             gEmitIntLastOp = AddElement( llObjects() )
             If isDestLocal
-               If destFlags & #C2FLAG_STR
-                  llObjects()\code = #ljLSTORES
-               ElseIf destFlags & #C2FLAG_FLOAT
-                  llObjects()\code = #ljLSTOREF
-               Else
-                  llObjects()\code = #ljLSTORE
-               EndIf
+               localOffset3 = gVarMeta(nVar)\paramOffset
 
+               ; Safety check: Ensure paramOffset is valid (should be >= 0 and < 20)
+               If localOffset3 >= 0 And localOffset3 < 20
+                  If destFlags & #C2FLAG_STR
+                     llObjects()\code = #ljLSTORES
+                  ElseIf destFlags & #C2FLAG_FLOAT
+                     llObjects()\code = #ljLSTOREF
+                  Else
+                     llObjects()\code = #ljLSTORE
+                  EndIf
+                  ; Set the local variable index (paramOffset)
+                  llObjects()\i = localOffset3
+               Else
+                  ; paramOffset not set - use global STORE
+                  If destFlags & #C2FLAG_STR
+                     llObjects()\code = #ljSTORES
+                  ElseIf destFlags & #C2FLAG_FLOAT
+                     llObjects()\code = #ljSTOREF
+                  Else
+                     llObjects()\code = #ljSTORE
+                  EndIf
+                  llObjects()\i = nVar
+               EndIf
             Else
                llObjects()\code = op
             EndIf
@@ -2364,16 +2481,32 @@ EndProcedure
             ; Can optimize to MOV or LMOV
             If isDestLocal
                ; Use LMOV for local destination
-               If sourceFlags2 & #C2FLAG_STR
-                  llObjects()\code = #ljLMOVS
-               ElseIf sourceFlags2 & #C2FLAG_FLOAT
-                  llObjects()\code = #ljLMOVF
+               localOffset2 = gVarMeta(nVar)\paramOffset
+
+               ; Safety check: Ensure paramOffset is valid (should be >= 0 and < 20)
+               If localOffset2 < 0 Or localOffset2 >= 20
+                  ; paramOffset not set - fall back to FETCH+STORE
+                  gEmitIntLastOp = AddElement( llObjects() )
+                  If destFlags2 & #C2FLAG_STR
+                     llObjects()\code = #ljSTORES
+                  ElseIf destFlags2 & #C2FLAG_FLOAT
+                     llObjects()\code = #ljSTOREF
+                  Else
+                     llObjects()\code = #ljSTORE
+                  EndIf
+                  llObjects()\i = nVar
                Else
-                  llObjects()\code = #ljLMOV
+                  If sourceFlags2 & #C2FLAG_STR
+                     llObjects()\code = #ljLMOVS
+                  ElseIf sourceFlags2 & #C2FLAG_FLOAT
+                     llObjects()\code = #ljLMOVF
+                  Else
+                     llObjects()\code = #ljLMOV
+                  EndIf
+                  savedSrc2 = llObjects()\i
+                  llObjects()\i = localOffset2
+                  llObjects()\j = savedSrc2
                EndIf
-               Protected savedSrc2.i = llObjects()\i
-               llObjects()\i = gVarMeta(nVar)\paramOffset
-               llObjects()\j = savedSrc2
             Else
                ; Use regular MOV for global destination
                If sourceFlags2 & #C2FLAG_STR
@@ -2389,12 +2522,29 @@ EndProcedure
             ; Keep as FETCH+STORE but use local version if appropriate
             gEmitIntLastOp = AddElement( llObjects() )
             If isDestLocal
-               If destFlags2 & #C2FLAG_STR
-                  llObjects()\code = #ljLSTORES
-               ElseIf destFlags2 & #C2FLAG_FLOAT
-                  llObjects()\code = #ljLSTOREF
+               localOffset4 = gVarMeta(nVar)\paramOffset
+
+               ; Safety check: Ensure paramOffset is valid (should be >= 0 and < 20)
+               If localOffset4 >= 0 And localOffset4 < 20
+                  If destFlags2 & #C2FLAG_STR
+                     llObjects()\code = #ljLSTORES
+                  ElseIf destFlags2 & #C2FLAG_FLOAT
+                     llObjects()\code = #ljLSTOREF
+                  Else
+                     llObjects()\code = #ljLSTORE
+                  EndIf
+                  ; Set the local variable index (paramOffset)
+                  llObjects()\i = localOffset4
                Else
-                  llObjects()\code = #ljLSTORE
+                  ; paramOffset not set - use global STORE
+                  If destFlags2 & #C2FLAG_STR
+                     llObjects()\code = #ljSTORES
+                  ElseIf destFlags2 & #C2FLAG_FLOAT
+                     llObjects()\code = #ljSTOREF
+                  Else
+                     llObjects()\code = #ljSTORE
+                  EndIf
+                  llObjects()\i = nVar
                EndIf
             Else
                llObjects()\code = op
@@ -2433,14 +2583,26 @@ EndProcedure
          EndIf
       EndIf
 
+      ; Only set llObjects()\i for variable-related opcodes
+      ; Skip this for opcodes that don't operate on variables (CALL uses funcId, not varSlot)
+      ; Note: For local opcodes (LFETCH, LSTORE, etc.), \i was already set in optimization paths above
       If nVar > -1
-         ; For local opcodes, store paramOffset; for globals, store varIndex
-         If IsLocalVar(nVar)
-            ; For local variables, store offset (not global variable index)
-            llObjects()\i = gVarMeta(nVar)\paramOffset
-         Else
-            llObjects()\i = nVar
-         EndIf
+         ; Check if this is an opcode that operates on variables
+         Protected currentCode.i = llObjects()\code
+         Select currentCode
+            ; Local opcodes - \i already set to paramOffset in optimization code above, don't touch
+            Case #ljLFETCH, #ljLFETCHS, #ljLFETCHF, #ljLSTORE, #ljLSTORES, #ljLSTOREF, #ljLMOV, #ljLMOVS, #ljLMOVF
+               ; Do nothing - \i already contains correct paramOffset from optimization paths
+
+            ; Global opcodes - need to set \i to variable slot
+            Case #ljFetch, #ljFETCHS, #ljFETCHF, #ljStore, #ljSTORES, #ljSTOREF,
+                 #ljPush, #ljPUSHS, #ljPUSHF, #ljPOP, #ljPOPS, #ljPOPF
+               llObjects()\i = nVar
+
+            Default
+               ; Non-variable opcode (CALL, JMP, etc.) - store nVar as-is
+               llObjects()\i = nVar
+         EndSelect
       EndIf
 
       ; Mark instruction if inside ternary expression
@@ -2963,10 +3125,12 @@ EndProcedure
                ; Check if this is a function parameter
                If gCodeGenParamIndex >= 0
                   ; This is a function parameter - mark it and don't emit POP
-                  gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_PARAM
+                  ; IMPORTANT: Clear existing type flags before setting parameter type
+                  ; Parameters may have been created by FetchVarOffset with wrong inferred types
+                  gVarMeta( n )\flags = (gVarMeta( n )\flags & ~#C2FLAG_TYPE) | #C2FLAG_PARAM
                   gVarMeta( n )\paramOffset = gCodeGenParamIndex
 
-                  ; Set type flags
+                  ; Set type flags (type bits already cleared above)
                   If *x\typeHint = #ljFLOAT
                      gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_FLOAT
                   ElseIf *x\typeHint = #ljSTRING
@@ -3203,8 +3367,14 @@ EndProcedure
             EndIf
 
          Case #ljWHILE
-            p1 = llObjects()
+            ; Save position before condition, then find first instruction of condition
+            Protected beforeCondition = llObjects()
             CodeGenerator( *x\left )
+            ; Navigate to first instruction of condition (after beforeCondition)
+            ChangeCurrentElement(llObjects(), beforeCondition)
+            NextElement(llObjects())
+            p1 = llObjects()   ; This is where JMP should target
+            LastElement(llObjects())  ; Move to end for next emissions
             EmitInt( #ljJZ)
             p2 = Hole()
             CodeGenerator( *x\right )
@@ -3448,6 +3618,7 @@ EndProcedure
       Protected         i, pos, pair
       Protected         srcPos.i
       Protected         offset.i
+      Protected         remapIdx.i
 
       ForEach llHoles()
          If llHoles()\mode = 1
@@ -3456,6 +3627,19 @@ EndProcedure
                pair  = llHoles()\id
                ChangeCurrentElement( llObjects(), llHoles()\location )
                pos   = ListIndex( llObjects() )
+
+               ; JZ/TENIF should jump to the instruction AFTER the target (skip the body)
+               ; fix() stores the last instruction of the body, but conditional jumps
+               ; need to land on the first instruction after the body
+               ; Move to next element to get the correct jump target
+               If NextElement(llObjects())
+                  pos = ListIndex(llObjects())
+                  CompilerIf #DEBUG
+                     Debug "FixJMP: JZ target adjusted to " + Str(pos) + " (after body)"
+                  CompilerEndIf
+                  PreviousElement(llObjects())  ; Restore position
+               EndIf
+
                i     = 0
                
                ForEach llHoles()
@@ -3464,15 +3648,13 @@ EndProcedure
                         ChangeCurrentElement( llObjects(), llHoles()\location )
                         srcPos = ListIndex( llObjects() )                        
 
-                        ; Ternary opcodes jump to NOOPIF markers - use direct offset
-                        ; Other opcodes use +1 to account for fix() marker semantics
-                        If llObjects()\code = #ljTENIF Or llObjects()\code = #ljTENELSE
-                           offset = (pos - srcPos)
-                        Else
-                           offset = (pos - srcPos) + 1
-                        EndIf
+                        ; After PostProcessor removes NOOPs, list positions are final
+                        ; Use direct offset calculation (pos - srcPos)
+                        offset = (pos - srcPos)
 
-                        ; Debug jump offset calculation
+                        CompilerIf #DEBUG
+                           Debug "FixJMP: " + gszATR(llObjects()\code)\s + " at srcPos=" + Str(srcPos) + " target pos=" + Str(pos) + " offset=" + Str(offset)
+                        CompilerEndIf
                         ;If llObjects()\code = #ljTENIF Or llObjects()\code = #ljTENELSE
                         ;   Debug "FixJMP: " + gszATR(llObjects()\code)\s + " at " + Str(srcPos) + " target " + Str(pos) + " (NOOPIF) offset " + Str(offset)
                         ;ElseIf llObjects()\code = #ljJMP And (llObjects()\flags & #INST_FLAG_TERNARY)
@@ -3488,14 +3670,18 @@ EndProcedure
             ChangeCurrentElement( llObjects(), llHoles()\src )
             pos = ListIndex( llObjects() )
             ChangeCurrentElement( llObjects(), llHoles()\location )
-            ; Perhaps, keep an eye on this
-            llObjects()\i = (pos - ListIndex( llObjects() ) ) + 1
+            ; After PostProcessor removes NOOPs, use direct position difference
+            llObjects()\i = (pos - ListIndex( llObjects() ) )
          EndIf
       Next
 
       ; Recalculate function addresses after PostProcessor optimizations
       ; This is critical because PostProcessor may add/remove/optimize instructions
       ; Strategy: Use stored element pointers to find actual post-optimization positions
+
+      ; gFuncLocalArraySlots already populated during CodeGenerator phase
+      ; Array sized at (512, 15) - sufficient for most programs
+      ; DO NOT redimension here as Dim/ReDim would clear the data!
 
       ; Recalculate function indexes using stored element pointers
       ForEach mapModules()
@@ -3513,6 +3699,8 @@ EndProcedure
       Next
 
       ; Now patch all CALL instructions with correct function addresses AND nLocals count
+      ; IMPORTANT: Store function ID in flags field (for gFuncLocalArraySlots lookup)
+      ;            Store PC address in i field (for jumping)
       ForEach llObjects()
          If llObjects()\code = #ljCall
             CompilerIf #DEBUG
@@ -3520,10 +3708,11 @@ EndProcedure
             CompilerEndIf
             ForEach mapModules()
                If mapModules()\function = llObjects()\i
-                  llObjects()\i = mapModules()\Index  ; Replace parsing ID with PC address
+                  llObjects()\flags = mapModules()\function  ; Store function ID in flags (for array lookup)
+                  llObjects()\i = mapModules()\Index  ; Store PC address in i (for jumping)
                   llObjects()\n = mapModules()\nLocals  ; Update nLocals from final count
                   CompilerIf #DEBUG
-                     Debug "  -> new Index=" + Str(mapModules()\Index) + ", nLocals=" + Str(mapModules()\nLocals)
+                     Debug "  -> PC=" + Str(mapModules()\Index) + ", funcId=" + Str(mapModules()\function) + ", nLocals=" + Str(mapModules()\nLocals)
                   CompilerEndIf
                   Break
                EndIf
@@ -3531,17 +3720,8 @@ EndProcedure
          EndIf
       Next
 
-      ; Remap local array slots from (parsingID, idx) to (PCAddress, idx)
-      ; This must be done after functions get their final PC addresses (Index)
-      ForEach mapModules()
-         If mapModules()\nLocalArrays > 0
-            Protected remapIdx.i
-            For remapIdx = 0 To mapModules()\nLocalArrays - 1
-               ; Copy from (parsingID, idx) to (PCAddress, idx)
-               gFuncLocalArraySlots(mapModules()\Index, remapIdx) = gFuncLocalArraySlots(mapModules()\function, remapIdx)               
-            Next
-         EndIf
-      Next
+      ; NO REMAPPING NEEDED - gFuncLocalArraySlots stays indexed by function ID
+      ; VM will use flags field to get function ID for array lookup
 
       ; Convert all NOOPIF markers to NOOP - they were only needed for offset calculation
       ; We replace instead of delete to preserve positions (deleting would shift all offsets!)
@@ -3668,15 +3848,18 @@ CompilerIf #PB_Compiler_IsMainFile
    Define         err
    Define.s       filename
    
-   ;filename = ".\Examples\00 comprehensive test.lj"
+   filename = ".\Examples\00 comprehensive test.lj"
    filename = ".\Examples\bug fix2.lj"
+   ;filename = ".\Examples\20 array sort stress test.lj"
    ;filename = ".\Examples\22 array comprehensive.lj"
-   ;filename = ".\Examples\23 test local string Array.lj"
-   ;filename = ".\Examples\temp.lj"
+   ;filename = ".\Examples\07 floats and macros.lj"
    
-   ;filename = OpenFileRequester( "Please choose source", ".\Examples\", "LJ Files|*.lj", 0 )
+   filename = OpenFileRequester( "Please choose source", ".\Examples\", "LJ Files|*.lj", 0 )
 
    If filename > ""
+      Debug "Executing: " + filename
+      Debug "==========================================="
+      
       If C2Lang::LoadLJ( filename )
          Debug "Error: " + C2Lang::Error( @err )
       Else
@@ -3699,15 +3882,15 @@ CompilerEndIf
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 3660
-; FirstLine = 3422
-; Folding = ---f-f------
-; Markers = 1068
+; CursorPosition = 3852
+; FirstLine = 3779
+; Folding = -----f------
+; Markers = 571,720
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; CPU = 1
-; EnableCompileCount = 789
+; EnableCompileCount = 909
 ; EnableBuildCount = 0
 ; EnableExeConstant
 ; IncludeVersionInfo

@@ -1,96 +1,160 @@
 /* Bug Fix Test 2
 */
 
-#pragma appname "Bug Fix"
+#pragma appname "Bug Fix 2"
 #pragma "decimals" 3
 #pragma "console" "on"
-#pragma "consolesize"  "760x690"
+#pragma "consolesize"  "560x590"
 #pragma "optimizecode" "on"
 #pragma "ListASM" on
 #pragma "version"
 #pragma FastPrint on
 #pragma RunThreaded on
 
-// Global arrays
-array global_ints.i[4];
-global_ints[0] = 10;
-global_ints[1] = 20;
-global_ints[2] = 30;
-global_ints[3] = 40;
+#define		ELEMENTS 777
 
-array global_floats.f[3];
-global_floats[0] = 1.1;
-global_floats[1] = 2.2;
-global_floats[2] = 3.3;
 
-array global_strings.s[3];
-global_strings[0] = "Red";
-global_strings[1] = "Green";
-global_strings[2] = "Blue";
+print("Array size: [", ELEMENTS, "] -- elements ELEMENTS");
+print("");
 
-function processArrays() {
-    // Local arrays
-    array local_ints.i[4];
-    array local_floats.f[3];
-    array local_strings.s[3];
+// Comprehensive array test for LJ2
+// Tests global arrays, local arrays, all types, indexing, and edge cases
 
-    // Copy from global to local
-    print("  Copying from global to local arrays...");
-    local_ints[0] = global_ints[0];
-    local_ints[1] = global_ints[1];
-    local_ints[2] = global_ints[2];
-    local_ints[3] = global_ints[3];
+#pragma appname "LJ2 Comprehensive Array Test"
+#pragma console on
+#pragma optimizecode on
+#pragma version
+#pragma ListASM on
+#pragma floattolerance 0.00001
+#pragma FastPrint off
+#pragma RunThreaded on
 
-    local_floats[0] = global_floats[0];
-    local_floats[1] = global_floats[1];
-    local_floats[2] = global_floats[2];
+print("=== LJ2 Comprehensive Array Test ===");
+print("");
 
-    local_strings[0] = global_strings[0];
-    local_strings[1] = global_strings[1];
-    local_strings[2] = global_strings[2];
+// === Test 1: Global Integer Arrays ===
+print("Test 1: Global Integer Arrays");
+array g_ints.i[5];
+g_ints[0] = 10;
+g_ints[1] = 20;
+g_ints[2] = 30;
+g_ints[3] = 40;
+g_ints[4] = 50;
 
-    // Verify local arrays have correct values
-    print("  Verifying local arrays:");
-    print("    local_ints[1] = ", local_ints[1]);
-    assertEqual(20, local_ints[1]);
-    print("    local_floats[2] = ", local_floats[2]);
-    assertFloatEqual(3.3, local_floats[2]);
-    print("    local_strings[0] = ", local_strings[0]);
-    assertStringEqual("Red", local_strings[0]);
-
-    // Modify local arrays
-    print("  Modifying local arrays...");
-    local_ints[0] = local_ints[0] * 2;
-    local_ints[1] = local_ints[1] * 2;
-    local_floats[0] = local_floats[0] + 10.0;
-    local_strings[1] = "Yellow";
-
-    // Copy modified values back to global
-    print("  Copying modified values back to global...");
-    global_ints[0] = local_ints[0];
-    global_ints[1] = local_ints[1];
-    global_floats[0] = local_floats[0];
-    global_strings[1] = local_strings[1];
-
-    // Mixed operations: combine global and local
-    result = global_ints[2] + local_ints[2];
-    print("  Mixed operation: global_ints[2] + local_ints[2] = ", result);
-    assertEqual(60, result);
-
-    fresult = global_floats[1] * local_floats[1];
-    print("  Mixed operation: global_floats[1] * local_floats[1] = ", fresult);
-    assertFloatEqual(4.84, fresult);
+i = 0;
+while i < 5 {
+    print("  g_ints[", i, "] = ", g_ints[i]);
+    i = i + 1;
 }
 
-processArrays();
+print("  Asserting g_ints[0] = ", g_ints[0]);
+assertEqual(10, g_ints[0]);
+print("  Asserting g_ints[2] = ", g_ints[2]);
+assertEqual(30, g_ints[2]);
+print("  Asserting g_ints[4] = ", g_ints[4]);
+assertEqual(50, g_ints[4]);
+print("  PASS: Global int array read/write");
+print("");
 
-// Verify global arrays were modified by function
-print("  Verifying global arrays after function:");
-print("    global_ints[0] = ", global_ints[0]);
-assertEqual(20, global_ints[0]);
-print("    global_ints[1] = ", global_ints[1]);
-assertEqual(40, global_ints[1]);
-print("    global_floats[0] = ", global_floats[0]);
-assertFloatEqual(11.1, global_floats[0]);
-print("    global_strings[1] = ", global_strings[1]);
-assertStringEqual("Yellow", global_strings[1]);
+// === Test 2: Global Float Arrays ===
+print("Test 2: Global Float Arrays");
+array g_floats.f[3];
+g_floats[0] = 1.5;
+g_floats[1] = 2.75;
+g_floats[2] = 3.125;
+
+i = 0;
+while i < 3 {
+    print("  g_floats[", i, "] = ", g_floats[i]);
+    i = i + 1;
+}
+
+print("  Asserting g_floats[0] = ", g_floats[0]);
+assertFloatEqual(1.5, g_floats[0]);
+print("  Asserting g_floats[1] = ", g_floats[1]);
+assertFloatEqual(2.75, g_floats[1]);
+print("  Asserting g_floats[2] = ", g_floats[2]);
+assertFloatEqual(3.125, g_floats[2]);
+print("  PASS: Global float array read/write");
+print("");
+
+// === Test 3: Global String Arrays ===
+print("Test 3: Global String Arrays");
+array g_strings.s[4];
+g_strings[0] = "Hello";
+g_strings[1] = "World";
+g_strings[2] = "Array";
+g_strings[3] = "Test";
+
+i = 0;
+while i < 4 {
+    print("  g_strings[", i, "] = ", g_strings[i]);
+    i = i + 1;
+}
+
+print("  Asserting g_strings[0] = ", g_strings[0]);
+assertStringEqual("Hello", g_strings[0]);
+print("  Asserting g_strings[3] = ", g_strings[3]);
+assertStringEqual("Test", g_strings[3]);
+print("  PASS: Global string array read/write");
+print("");
+
+// === Test 4: Array Expressions ===
+print("Test 4: Array Expressions");
+g_ints[2] = g_ints[0] + g_ints[1];
+print("  g_ints[0] + g_ints[1] = ", g_ints[2]);
+assertEqual(30, g_ints[2]);
+
+result = g_ints[4] - g_ints[3];
+print("  g_ints[4] - g_ints[3] = ", result);
+assertEqual(10, result);
+
+g_floats[2] = g_floats[0] * g_floats[1];
+print("  g_floats[0] * g_floats[1] = ", g_floats[2]);
+assertFloatEqual(4.125, g_floats[2]);
+print("  PASS: Array expressions");
+print("");
+
+// === Test 5: Variable Indexing ===
+print("Test 5: Variable Indexing");
+idx = 1;
+g_ints[idx] = 99;
+print("  Set g_ints[idx] where idx=1 to 99");
+print("  g_ints[1] = ", g_ints[idx]);
+assertEqual(99, g_ints[idx]);
+
+idx = idx + 1;
+print("  g_ints[2] = ", g_ints[idx]);
+assertEqual(30, g_ints[idx]);
+print("  PASS: Variable indexing");
+print("");
+
+// === Test 6: Local Arrays in Functions ===
+print("Test 6: Local Arrays in Functions");
+
+function testLocalInts() {
+    array local_ints.i[3];
+    local_ints[0] = 100;
+    local_ints[1] = 200;
+    local_ints[2] = 300;
+
+    print("  Local int array:");
+    j = 0;
+    while j < 3 {
+        print("    local_ints[", j, "] = ", local_ints[j]);
+        j = j + 1;
+    }
+
+    print("  Asserting local_ints[0] = ", local_ints[0]);
+    assertEqual(100, local_ints[0]);
+    print("  Asserting local_ints[2] = ", local_ints[2]);
+    assertEqual(300, local_ints[2]);
+
+    sum = local_ints[0] + local_ints[1] + local_ints[2];
+    print("  Sum of local_ints = ", sum);
+    assertEqual(600, sum);
+}
+
+testLocalInts();
+print("  PASS: Local int arrays");
+print("");

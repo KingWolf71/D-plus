@@ -14,7 +14,7 @@ CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
 CompilerEndIf
 
 ; Include the LJ2 compiler and VM
-XIncludeFile "c2-modules-V11.pb"
+XIncludeFile "c2-modules-V12.pb"
 
 ; ============================================================================
 ; Structures
@@ -490,13 +490,13 @@ Main()
 ; ExecutableFormat = Console
 ; IDE Options = PureBasic 6.21 (Windows - x64)
 ; ExecutableFormat = Console
-; CursorPosition = 350
-; FirstLine = 340
+; CursorPosition = 16
+; FirstLine = 12
 ; Folding = --
 ; Optimizer
 ; EnableAsm
 ; EnableThread
 ; CPU = 1
-; EnableCompileCount = 37
+; EnableCompileCount = 38
 ; EnableBuildCount = 0
 ; EnableExeConstant

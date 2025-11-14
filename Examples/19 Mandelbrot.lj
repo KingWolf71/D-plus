@@ -11,7 +11,10 @@
 #pragma "version"
 #pragma FastPrint on
 #pragma RunThreaded on
-	
+#pragma stackspace 1024
+#pragma stackdepth 2048
+
+
 	left_edge   = -420;
     right_edge  =  300;
     top_edge    =  300;

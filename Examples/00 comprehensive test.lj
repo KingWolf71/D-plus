@@ -11,6 +11,9 @@
 #pragma floattolerance 0.00001
 #pragma FastPrint on
 #pragma RunThreaded on
+#pragma consolesize	"520x820"
+#pragma stackspace 512
+#pragma stackdepth 3072
 
 print("LJ2 COMPREHENSIVE FEATURE TEST SUITE");
 print("-------------------------------------");

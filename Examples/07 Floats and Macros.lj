@@ -3,6 +3,13 @@
 #pragma appname 	"Float Demo"
 #pragma consolesize	"420x320"
 #pragma decimals		 4
+#pragma version
+#pragma ListASM on
+#pragma floattolerance 0.001
+#pragma FastPrint off
+#pragma RunThreaded on
+#pragma stackspace 1024
+#pragma stackdepth 1024
 
 #define A1(x) (x) + 1
 #define B2(x) A1((x) * 2)
@@ -45,104 +52,21 @@ l.f = 4.7/m + m;
 big = 211789;
 
 print( l, " , ", fl + fl, " ", #PI );
-ex2 = 789.123;
+ex2.f = 789.123;
 
 print( MAX(ex2,fl) );
 print( MAX(10,big) );
 
 //should print 100
 print("macro1=", SUM_THEN_DOUBLE_AND_SQUARE(2, 3));
-print("macro2=", SUM_THEN_DOUBLE_AND_SQUARE(2.25, 3.33));
+conv2f.f = SUM_THEN_DOUBLE_AND_SQUARE(2.25, 3.33);
+print("macro2=", conv2f);
 print("should be 157=",E5(4));
 print(A1(4));
 n = A1(4);
 print(n);
 
 /*
-// C Version
-
-#include <stdio.h>
-#include <string.h>
-#include <math.h>
-
-// Macros translate directly
-#define A1(x) (x) + 1
-#define B2(x) A1((x) * 2)
-#define C3(x) B2((x) - 3)
-#define D4(x) C3((x) * (x))
-#define E5(x) D4((x) + 5)
-
-#define MAX(a,b) if( (a) > (b) ){  res=a; } else { res=b; }
-#define SQUARE(x) ((x) * (x)) 
-#define DOUBLE_AND_SQUARE(x) SQUARE((x) + (x))
-#define SUM_THEN_DOUBLE_AND_SQUARE(a, b) DOUBLE_AND_SQUARE((a) + (b))
-
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
-
-int main() {
-    int n;
-    double ar, fl, ex, f1, m, l, big, ex2, res;
-    char bstr[256], bstr2[512], temp[256];
-    
-    n = 1 + 4;
-    printf("%d\n", n);
-    
-    printf("%d\n", A1(4));
-    
-    ar = 10.77654;
-    printf("%.4f\n", ar);
-    
-    fl = 10.77654;
-    fl = fl * 91.023;
-    ex = 2e10;
-    
-    printf("%.4f,%.4f\n", fl, ex - fl);
-    
-    // String concatenation in C
-    strcpy(bstr, "Today");
-    strcat(bstr, ",");
-    strcat(bstr, "is a great");
-    strcat(bstr, " ");
-    strcat(bstr, "day");
-    
-    printf("%s!!! %.4f\n", bstr, 22.0/7.0);
-    
-    sprintf(bstr2, "%s%.4f", bstr, 231.9961123);
-    printf("And now?%s\n", bstr2);
-    
-    // Automatic conversion to float (works in C too)
-    printf("%.4f\n", fl + ar);
-    
-    f1 = 1.41;
-    m = 8.1;
-    
-    fl = 6.8741;
-    l = 4.7/m + m;
-    big = 211789;
-    
-    printf("%.4f , %.4f %.4f\n", l, fl + fl, M_PI);
-    ex2 = 789.123;
-    
-    MAX(ex2, fl);
-    printf("%.4f\n", res);
-    
-    MAX(10, big);
-    printf("%.4f\n", res);
-    
-    // Should print 100
-    printf("macro1=%d\n", SUM_THEN_DOUBLE_AND_SQUARE(2, 3));
-    printf("macro2=%.4f\n", SUM_THEN_DOUBLE_AND_SQUARE(2.25, 3.33));
-    printf("should be 157=%d\n", E5(4));
-    printf("%d\n", A1(4));
-    
-    n = A1(4);
-    printf("%d\n", n);
-    
-    return 0;
-}
-
 //Output
 
 5
