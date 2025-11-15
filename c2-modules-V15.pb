@@ -22,23 +22,23 @@ EnableDebugger
 DeclareModule C2Common
 
    #DEBUG = 0
-   XIncludeFile         "c2-inc-v08.pbi"
+   XIncludeFile         "c2-inc-v11.pbi"
 EndDeclareModule
 
 Module C2Common
    ;Empty by design
-   
+
 EndModule
 
 DeclareModule C2Lang
    EnableExplicit
-   #WithEOL = 1   
+   #WithEOL = 1
    #C2PROFILER = 0
    UseModule C2Common
 
    Global               gExit
    Global               gszlastError.s
- 
+
    Structure stTree
       NodeType.i
       TypeHint.i
@@ -47,14 +47,14 @@ DeclareModule C2Lang
       *left.stTree
       *right.stTree
    EndStructure
-   
+
    Declare.s            Error( *error.Integer )
    Declare              Compile()
    Declare              ListCode( gadget = 0 )
    Declare              LoadLJ( file.s )
 EndDeclareModule
 
-XIncludeFile            "c2-vm-V07.pb"
+XIncludeFile            "c2-vm-V10.pb"
 
 Module C2Lang
    EnableExplicit
@@ -183,7 +183,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
    ;- =====================================
    ;- Add compiler parts
    ;- =====================================
-   XIncludeFile         "c2-postprocessor-v01.pbi"
+   XIncludeFile         "c2-postprocessor-V03.pbi"
    
    CreateRegularExpression( #C2REG_FLOATS, gszFloating )
    
@@ -418,6 +418,23 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       par_SetPre( #ljSUBTRACT,     0, 1, 0, 12 )
       par_SetPre( #ljNEGATE,       0, 0, 1, 14 )
       par_SetPre( #ljNOT,          0, 0, 1, 14 )
+
+      ; Increment/decrement operators - not traditional binary/unary in precedence table
+      ; These are handled specially in expr() loop
+      par_SetPre2( #ljINC, -1 )
+      par_SetPre2( #ljDEC, -1 )
+      par_SetPre2( #ljPRE_INC, -1 )
+      par_SetPre2( #ljPRE_DEC, -1 )
+      par_SetPre2( #ljPOST_INC, -1 )
+      par_SetPre2( #ljPOST_DEC, -1 )
+
+      ; Compound assignment operators - not binary operators
+      par_SetPre2( #ljADD_ASSIGN, -1 )
+      par_SetPre2( #ljSUB_ASSIGN, -1 )
+      par_SetPre2( #ljMUL_ASSIGN, -1 )
+      par_SetPre2( #ljDIV_ASSIGN, -1 )
+      par_SetPre2( #ljMOD_ASSIGN, -1 )
+
       par_SetPre( #ljLESS,         0, 1, 0, 10 )
       par_SetPre( #ljLESSEQUAL,    0, 1, 0, 10 )
       par_SetPre( #ljGREATER,      0, 1, 0, 10 )
@@ -1285,13 +1302,45 @@ EndProcedure
             Case "]"
                par_AddTokenSimple( #ljRightBracket )
             Case "+"
-               par_AddToken( #ljOP, #ljADD, "", "" )
+               ; Check for ++ or +=
+               par_NextCharacter()
+               If gNextChar = "+"
+                  par_AddToken( #ljOP, #ljINC, "", "" )
+               ElseIf gNextChar = "="
+                  par_AddToken( #ljOP, #ljADD_ASSIGN, "", "" )
+               Else
+                  par_AddToken( #ljOP, #ljADD, "", "" )
+                  gPos - 1
+               EndIf
             Case "-"
-               par_AddToken( #ljOP, #ljSUBTRACT, "", "" )
+               ; Check for -- or -=
+               par_NextCharacter()
+               If gNextChar = "-"
+                  par_AddToken( #ljOP, #ljDEC, "", "" )
+               ElseIf gNextChar = "="
+                  par_AddToken( #ljOP, #ljSUB_ASSIGN, "", "" )
+               Else
+                  par_AddToken( #ljOP, #ljSUBTRACT, "", "" )
+                  gPos - 1
+               EndIf
             Case "*"
-               par_AddToken( #ljOP, #ljMULTIPLY, "", "" )
-            Case "%"    
-               par_AddToken( #ljOP, #ljMOD, "", "" )
+               ; Check for *=
+               par_NextCharacter()
+               If gNextChar = "="
+                  par_AddToken( #ljOP, #ljMUL_ASSIGN, "", "" )
+               Else
+                  par_AddToken( #ljOP, #ljMULTIPLY, "", "" )
+                  gPos - 1
+               EndIf
+            Case "%"
+               ; Check for %=
+               par_NextCharacter()
+               If gNextChar = "="
+                  par_AddToken( #ljOP, #ljMOD_ASSIGN, "", "" )
+               Else
+                  par_AddToken( #ljOP, #ljMOD, "", "" )
+                  gPos - 1
+               EndIf
             Case ";"
                par_AddTokenSimple( #ljSemi )
             Case ","
@@ -1301,7 +1350,14 @@ EndProcedure
             Case ":"
                par_AddTokenSimple( #ljCOLON )
             Case "/"
-               par_AddToken( #ljOP, #ljDIVIDE, "", "" )
+               ; Check for /=
+               par_NextCharacter()
+               If gNextChar = "="
+                  par_AddToken( #ljOP, #ljDIV_ASSIGN, "", "" )
+               Else
+                  par_AddToken( #ljOP, #ljDIVIDE, "", "" )
+                  gPos - 1
+               EndIf
             Case "'"
                par_NextCharacter()
 
@@ -1567,7 +1623,7 @@ EndProcedure
    EndProcedure
 
    Procedure            expr( var )
-      Protected.stTree  *p, *node, *r, *e, *trueExpr, *falseExpr, *branches
+      Protected.stTree  *p, *node, *r, *e, *trueExpr, *falseExpr, *branches, *oldP
       Protected         op, q
       Protected         moduleId.i
 
@@ -1595,13 +1651,33 @@ EndProcedure
             op = TOKEN()\TokenExtra
             NextToken()
             *node = expr( gPreTable( #ljNEGATE )\Precedence )
-            
+
             If op = #ljSUBTRACT
                *p = MakeNode( #ljNEGATE, *node, 0 )
             Else
                *p = *Node
             EndIf
-            
+
+         Case #ljINC  ; Pre-increment: ++var
+            NextToken()
+            *node = expr( gPreTable( #ljNEGATE )\Precedence )  ; Parse variable
+            ; Create a PRE_INC node - will be handled in code generator
+            *p = MakeNode( #ljPRE_INC, *node, 0 )
+            ; Preserve type hint from variable
+            If *node\TypeHint
+               *p\TypeHint = *node\TypeHint
+            EndIf
+
+         Case #ljDEC  ; Pre-decrement: --var
+            NextToken()
+            *node = expr( gPreTable( #ljNEGATE )\Precedence )  ; Parse variable
+            ; Create a PRE_DEC node - will be handled in code generator
+            *p = MakeNode( #ljPRE_DEC, *node, 0 )
+            ; Preserve type hint from variable
+            If *node\TypeHint
+               *p\TypeHint = *node\TypeHint
+            EndIf
+
          Case  #ljNOT
             NextToken()
             *p = MakeNode( #ljNOT, expr( gPreTable( #ljNOT )\Precedence ), 0 )
@@ -1695,63 +1771,90 @@ EndProcedure
 
       EndSelect
       
-      While gPreTable( TOKEN()\TokenExtra )\bBinary And gPreTable( TOKEN()\TokenExtra )\Precedence >= var
-         op = TOKEN()\TokenExtra
+      ; Main operator parsing loop - handles both postfix and infix operators
+      While #True
+         ; First check for postfix operators (highest precedence)
+         If (TOKEN()\TokenExtra = #ljINC Or TOKEN()\TokenExtra = #ljDEC)
+            op = TOKEN()\TokenExtra
+            NextToken()
 
-         ; Special handling for ternary operator
-         If op = #ljQUESTION
-            NextToken()  ; Skip ?
-            *trueExpr = expr( 0 )  ; Parse true expression
-
-            If gLastError
-               ProcedureReturn *p
+            ; Create POST_INC or POST_DEC node
+            *oldP = *p
+            If op = #ljINC
+               *p = MakeNode( #ljPOST_INC, *oldP, 0 )
+            Else
+               *p = MakeNode( #ljPOST_DEC, *oldP, 0 )
             EndIf
-
-            Expect( "ternary", #ljCOLON )  ; Expect :
-
-            If gLastError
-               ProcedureReturn *p
+            ; Preserve type hint from variable
+            If *oldP\TypeHint
+               *p\TypeHint = *oldP\TypeHint
             EndIf
+            ; Continue loop to check for more operators
 
-            *falseExpr = expr( gPreTable( op )\Precedence )  ; Parse false expression (right-assoc)
+         ElseIf gPreTable( TOKEN()\TokenExtra )\bBinary And gPreTable( TOKEN()\TokenExtra )\Precedence >= var
+            ; Handle infix operators
+            op = TOKEN()\TokenExtra
 
-            If gLastError
-               ProcedureReturn *p
-            EndIf
+            ; Special handling for ternary operator
+            If op = #ljQUESTION
+               NextToken()  ; Skip ?
+               *trueExpr = expr( 0 )  ; Parse true expression
 
-            ; Create ternary node: left=condition, right=node containing true/false branches
-            ; Only create the node if we have valid pointers
-            If *trueExpr And *falseExpr And *p
-               *branches = MakeNode( #ljCOLON, *trueExpr, *falseExpr )
-
-               ; Validate the created node
-               If Not *branches
-                  SetError( "Failed to allocate memory for ternary branches", #C2ERR_MEMORY_ALLOCATION )
+               If gLastError
                   ProcedureReturn *p
                EndIf
 
-               *p = MakeNode( #ljTERNARY, *p, *branches )
+               Expect( "ternary", #ljCOLON )  ; Expect :
 
-               ; Validate the final ternary node
-               If Not *p
-                  SetError( "Failed to allocate memory for ternary node", #C2ERR_MEMORY_ALLOCATION )
-                  ProcedureReturn 0
+               If gLastError
+                  ProcedureReturn *p
                EndIf
+
+               *falseExpr = expr( gPreTable( op )\Precedence )  ; Parse false expression (right-assoc)
+
+               If gLastError
+                  ProcedureReturn *p
+               EndIf
+
+               ; Create ternary node: left=condition, right=node containing true/false branches
+               ; Only create the node if we have valid pointers
+               If *trueExpr And *falseExpr And *p
+                  *branches = MakeNode( #ljCOLON, *trueExpr, *falseExpr )
+
+                  ; Validate the created node
+                  If Not *branches
+                     SetError( "Failed to allocate memory for ternary branches", #C2ERR_MEMORY_ALLOCATION )
+                     ProcedureReturn *p
+                  EndIf
+
+                  *p = MakeNode( #ljTERNARY, *p, *branches )
+
+                  ; Validate the final ternary node
+                  If Not *p
+                     SetError( "Failed to allocate memory for ternary node", #C2ERR_MEMORY_ALLOCATION )
+                     ProcedureReturn 0
+                  EndIf
+               EndIf
+            Else
+               NextToken()
+
+               q = gPreTable( op )\Precedence
+
+               If Not gPreTable( op )\bRightAssociation
+                  q + 1
+               EndIf
+
+               *node = expr( q )
+               *p = MakeNode( gPreTable( op )\NodeType, *p, *node )
             EndIf
+            ; Continue loop to check for more operators
+
          Else
-            NextToken()
-
-            q = gPreTable( op )\Precedence
-
-            If Not gPreTable( op )\bRightAssociation
-               q + 1
-            EndIf
-
-            *node = expr( q )
-            *p = MakeNode( gPreTable( op )\NodeType, *p, *node )
+            ; No more operators to handle, exit loop
+            Break
          EndIf
       Wend
-      
+
       ProcedureReturn *p
 
    EndProcedure
@@ -1924,8 +2027,9 @@ EndProcedure
       gStack + 1
 
       If gStack > #MAX_RECURSESTACK
-         NextToken()
          SetError( "Stack overflow", #C2ERR_STACK_OVERFLOW )
+         gStack - 1
+         ProcedureReturn 0
       EndIf
 
       Select TOKEN()\TokenType
@@ -1935,6 +2039,7 @@ EndProcedure
 
             If TOKEN()\TokenType <> #ljIDENT
                SetError("Expected identifier after 'array'", #C2ERR_EXPECTED_STATEMENT)
+               gStack - 1
                ProcedureReturn 0
             EndIf
 
@@ -1948,6 +2053,7 @@ EndProcedure
             ; Expect [
             If TOKEN()\TokenType <> #ljLeftBracket
                SetError("Expected '[' after array name", #C2ERR_EXPECTED_STATEMENT)
+               gStack - 1
                ProcedureReturn 0
             EndIf
             NextToken()
@@ -1970,14 +2076,17 @@ EndProcedure
                      arraySize = Val(macroBody)
                   Else
                      SetError("Array size macro '" + TOKEN()\value + "' must be a positive integer constant", #C2ERR_EXPECTED_STATEMENT)
+                     gStack - 1
                      ProcedureReturn 0
                   EndIf
                Else
                   SetError("Array size must be integer constant (identifier '" + TOKEN()\value + "' is not defined)", #C2ERR_EXPECTED_STATEMENT)
+                  gStack - 1
                   ProcedureReturn 0
                EndIf
             Else
                SetError("Array size must be integer constant or macro constant", #C2ERR_EXPECTED_STATEMENT)
+               gStack - 1
                ProcedureReturn 0
             EndIf
             NextToken()
@@ -1985,6 +2094,7 @@ EndProcedure
             ; Expect ]
             If TOKEN()\TokenType <> #ljRightBracket
                SetError("Expected ']' after array size", #C2ERR_EXPECTED_STATEMENT)
+               gStack - 1
                ProcedureReturn 0
             EndIf
             NextToken()
@@ -1992,6 +2102,7 @@ EndProcedure
             ; Expect ;
             If TOKEN()\TokenType <> #ljSemi
                SetError("Expected ';' after array declaration", #C2ERR_EXPECTED_STATEMENT)
+               gStack - 1
                ProcedureReturn 0
             EndIf
             NextToken()
@@ -2124,17 +2235,24 @@ EndProcedure
             NextToken()
             
          Case #ljIDENT
-            ; Check if this is a function call (built-in or user-defined)
-            ; Peek ahead to see if next token is '('
+            ; Check if this is a function call, increment/decrement, or assignment
+            ; Peek ahead to see if next token is '(', '++', '--', or assignment op
             Protected identName.s = TOKEN()\value
             Protected savedListIndex2.i = ListIndex(llTokenList())
             NextToken()
 
             If TOKEN()\TokenExtra = #ljLeftParent
-               ; It's a function call - restore position and parse as expression statement
+               ; It's a function call - parse as expression statement (result is discarded)
                SelectElement(llTokenList(), savedListIndex2)
                *e = expr(0)
                *p = *e
+               Expect("Statement", #ljSemi)
+            ElseIf TOKEN()\TokenExtra = #ljINC Or TOKEN()\TokenExtra = #ljDEC
+               ; It's standalone increment/decrement - parse as expression and discard result
+               SelectElement(llTokenList(), savedListIndex2)
+               *e = expr(0)
+               ; Wrap in SEQ with POP to discard the result value
+               *p = MakeNode(#ljSEQ, *e, Makeleaf(#ljPOP, "0"))
                Expect("Statement", #ljSemi)
             Else
                ; It's an assignment statement - restore position and parse normally
@@ -2176,6 +2294,7 @@ EndProcedure
 
                   If TOKEN()\TokenType <> #ljRightBracket
                      SetError( "Expected ']' after array index", #C2ERR_EXPECTED_STATEMENT )
+                     gStack - 1
                      ProcedureReturn 0
                   EndIf
                   NextToken()  ; Skip ']'
@@ -2184,10 +2303,54 @@ EndProcedure
                   *v = MakeNode( #ljLeftBracket, *v, *indexExpr )
                EndIf
 
-               Expect( "Assign", #ljASSIGN )
+               ; Check for assignment or compound assignment (=, +=, -=, *=, /=, %=)
+               Protected assignOp.i = TOKEN()\TokenExtra
+               If assignOp <> #ljASSIGN And assignOp <> #ljADD_ASSIGN And assignOp <> #ljSUB_ASSIGN And assignOp <> #ljMUL_ASSIGN And assignOp <> #ljDIV_ASSIGN And assignOp <> #ljMOD_ASSIGN
+                  SetError("Expected assignment operator (=, +=, -=, *=, /=, %=)", #C2ERR_EXPECTED_STATEMENT)
+                  gStack - 1
+                  ProcedureReturn 0
+               EndIf
+               NextToken()  ; Skip assignment operator
 
                ; Parse right-hand side using expr() - handles all cases including nested calls
                *e = expr( 0 )
+
+               ; For compound assignments, expand to: var = var OP rhs
+               If assignOp <> #ljASSIGN
+                  Protected *lhsCopy.stTree
+                  Protected binaryOp.i
+
+                  ; Create copy of LHS for the binary operation
+                  ; For simple vars, just create another leaf node
+                  ; For arrays (arr[idx]), need to duplicate the whole subtree
+                  If *v\NodeType = #ljLeftBracket
+                     ; Array indexing - need to duplicate: arr[idx] OP= rhs becomes arr[idx] = arr[idx] OP rhs
+                     ; We already have arr[idx] in *v, need to make a copy for RHS
+                     *lhsCopy = MakeNode(#ljLeftBracket, Makeleaf(#ljIDENT, *v\left\value), *v\right)
+                     *lhsCopy\left\TypeHint = *v\left\TypeHint
+                  Else
+                     ; Simple variable
+                     *lhsCopy = Makeleaf(#ljIDENT, *v\value)
+                     *lhsCopy\TypeHint = *v\TypeHint
+                  EndIf
+
+                  ; Determine binary operator based on compound assignment
+                  Select assignOp
+                     Case #ljADD_ASSIGN
+                        binaryOp = #ljADD
+                     Case #ljSUB_ASSIGN
+                        binaryOp = #ljSUBTRACT
+                     Case #ljMUL_ASSIGN
+                        binaryOp = #ljMULTIPLY
+                     Case #ljDIV_ASSIGN
+                        binaryOp = #ljDIVIDE
+                     Case #ljMOD_ASSIGN
+                        binaryOp = #ljMOD
+                  EndSelect
+
+                  ; Create binary operation: lhsCopy OP rhs
+                  *e = MakeNode(binaryOp, *lhsCopy, *e)
+               EndIf
 
                ; Insert automatic type conversion for assignment if needed
                If *v\TypeHint <> 0 And *e
@@ -2236,11 +2399,11 @@ EndProcedure
             
          Case #ljLeftBrace
             Expect( "Left Bracket", #ljLeftBrace )
-            
-            While TOKEN()\TokenExtra <> #ljRightBrace And TOKEN()\TokenExtra <> #ljEOF
+
+            While TOKEN()\TokenExtra <> #ljRightBrace And TOKEN()\TokenExtra <> #ljEOF And Not gLastError
                *p = MakeNode( #ljSEQ, *p, stmt() )
             Wend
-            
+
             Expect( "Left Bracket", #ljRightBrace )
             
          Case #ljEOF
@@ -2295,7 +2458,8 @@ EndProcedure
             SetError( "Expecting beginning of a statement, found " + TOKEN()\name, #C2ERR_EXPECTED_STATEMENT )
 
       EndSelect
-      
+
+      gStack - 1
       ProcedureReturn *p
    EndProcedure
    
@@ -2746,19 +2910,9 @@ EndProcedure
             ElseIf TOKEN()\typeHint = #ljSTRING
                gVarMeta(gnLastVariable)\flags = #C2FLAG_IDENT | #C2FLAG_STR
             Else
-               ; No suffix - infer from assignment if provided
-               inferredType = 0
-               If *assignmentTree
-                  ; Use the helper function to determine expression result type
-                  inferredType = GetExprResultType(*assignmentTree)
-               EndIf
-   
-               ; Default to INT if no inference possible
-               If inferredType = 0
-                  inferredType = #C2FLAG_INT
-               EndIf
-   
-               gVarMeta(gnLastVariable)\flags = #C2FLAG_IDENT | inferredType
+               ; No suffix - default to INT (no type inference from assignment)
+               ; Type conversion will be handled during code generation
+               gVarMeta(gnLastVariable)\flags = #C2FLAG_IDENT | #C2FLAG_INT
             EndIf
             ;gVarInt(gnLastVariable) = gnLastVariable
    
@@ -2933,6 +3087,13 @@ EndProcedure
 
          Case #ljNEGATE
             ; Negation preserves type
+            If *x\left
+               ProcedureReturn GetExprResultType(*x\left, depth + 1)
+            EndIf
+            ProcedureReturn #C2FLAG_INT
+
+         Case #ljPRE_INC, #ljPRE_DEC, #ljPOST_INC, #ljPOST_DEC
+            ; Increment/decrement operators preserve the variable's type
             If *x\left
                ProcedureReturn GetExprResultType(*x\left, depth + 1)
             EndIf
@@ -3274,23 +3435,30 @@ EndProcedure
                ; Regular variable assignment
                n = FetchVarOffset( *x\left\value, *x\right )
 
-               ; Apply explicit type hint if provided
+               ; Apply explicit type hint if provided (only for new variables)
                If *x\left\TypeHint = #ljFLOAT And Not (gVarMeta(n)\flags & #C2FLAG_FLOAT)
                   gVarMeta(n)\flags = (gVarMeta(n)\flags & ~#C2FLAG_TYPE) | #C2FLAG_FLOAT
                ElseIf *x\left\TypeHint = #ljSTRING And Not (gVarMeta(n)\flags & #C2FLAG_STR)
                   gVarMeta(n)\flags = (gVarMeta(n)\flags & ~#C2FLAG_TYPE) | #C2FLAG_STR
-               ElseIf Not *x\left\TypeHint
-                  ; No explicit hint - ensure type inference happened correctly
-                  rightType = GetExprResultType(*x\right)
-
-                  If rightType & #C2FLAG_FLOAT And Not (gVarMeta(n)\flags & #C2FLAG_FLOAT)
-                     gVarMeta(n)\flags = (gVarMeta(n)\flags & ~#C2FLAG_TYPE) | #C2FLAG_FLOAT
-                  ElseIf rightType & #C2FLAG_STR And Not (gVarMeta(n)\flags & #C2FLAG_STR)
-                     gVarMeta(n)\flags = (gVarMeta(n)\flags & ~#C2FLAG_TYPE) | #C2FLAG_STR
-                  EndIf
+               ElseIf Not (gVarMeta(n)\flags & #C2FLAG_TYPE)
+                  ; Variable has no type set - default to INT
+                  gVarMeta(n)\flags = gVarMeta(n)\flags | #C2FLAG_INT
                EndIf
 
+               ; Generate code for right-hand expression
                CodeGenerator( *x\right )
+
+               ; Get the type of the right-hand expression result
+               rightType = GetExprResultType(*x\right)
+
+               ; Insert type conversion if needed
+               If gVarMeta(n)\flags & #C2FLAG_FLOAT And Not (rightType & #C2FLAG_FLOAT)
+                  ; Variable is FLOAT, expression is INT - convert INT to FLOAT
+                  EmitInt( #ljITOF, 0 )
+               ElseIf gVarMeta(n)\flags & #C2FLAG_INT And (rightType & #C2FLAG_FLOAT)
+                  ; Variable is INT, expression is FLOAT - convert FLOAT to INT
+                  EmitInt( #ljFTOI, 0 )
+               EndIf
 
                ; Emit appropriate STORE variant based on variable type
                If gVarMeta(n)\flags & #C2FLAG_STR
@@ -3306,6 +3474,74 @@ EndProcedure
                   llObjects()\code <> #ljLMOV And llObjects()\code <> #ljLMOVS And llObjects()\code <> #ljLMOVF
                   ; Keep the variable's declared type (don't change it)
                   ; Type checking could be added here later
+               EndIf
+            EndIf
+
+         Case #ljPRE_INC
+            ; Pre-increment: ++var (integers only)
+            ; Increments variable in place and pushes new value
+            ; Uses single efficient opcode
+            If *x\left And *x\left\NodeType = #ljIDENT
+               n = FetchVarOffset(*x\left\value)
+
+               ; Check if local or global variable
+               If gVarMeta(n)\flags & #C2FLAG_PARAM
+                  ; Local variable - use local increment
+                  EmitInt( #ljLINC_VAR_PRE, gVarMeta(n)\paramOffset )
+               Else
+                  ; Global variable
+                  EmitInt( #ljINC_VAR_PRE, n )
+               EndIf
+            EndIf
+
+         Case #ljPRE_DEC
+            ; Pre-decrement: --var (integers only)
+            ; Decrements variable in place and pushes new value
+            ; Uses single efficient opcode
+            If *x\left And *x\left\NodeType = #ljIDENT
+               n = FetchVarOffset(*x\left\value)
+
+               ; Check if local or global variable
+               If gVarMeta(n)\flags & #C2FLAG_PARAM
+                  ; Local variable - use local decrement
+                  EmitInt( #ljLDEC_VAR_PRE, gVarMeta(n)\paramOffset )
+               Else
+                  ; Global variable
+                  EmitInt( #ljDEC_VAR_PRE, n )
+               EndIf
+            EndIf
+
+         Case #ljPOST_INC
+            ; Post-increment: var++ (integers only)
+            ; Pushes old value to stack, then increments variable in place
+            ; Uses single efficient opcode
+            If *x\left And *x\left\NodeType = #ljIDENT
+               n = FetchVarOffset(*x\left\value)
+
+               ; Check if local or global variable
+               If gVarMeta(n)\flags & #C2FLAG_PARAM
+                  ; Local variable - use local increment
+                  EmitInt( #ljLINC_VAR_POST, gVarMeta(n)\paramOffset )
+               Else
+                  ; Global variable
+                  EmitInt( #ljINC_VAR_POST, n )
+               EndIf
+            EndIf
+
+         Case #ljPOST_DEC
+            ; Post-decrement: var-- (integers only)
+            ; Pushes old value to stack, then decrements variable in place
+            ; Uses single efficient opcode
+            If *x\left And *x\left\NodeType = #ljIDENT
+               n = FetchVarOffset(*x\left\value)
+
+               ; Check if local or global variable
+               If gVarMeta(n)\flags & #C2FLAG_PARAM
+                  ; Local variable - use local decrement
+                  EmitInt( #ljLDEC_VAR_POST, gVarMeta(n)\paramOffset )
+               Else
+                  ; Global variable
+                  EmitInt( #ljDEC_VAR_POST, n )
                EndIf
             EndIf
 
@@ -3848,13 +4084,17 @@ CompilerIf #PB_Compiler_IsMainFile
    Define         err
    Define.s       filename
    
-   filename = ".\Examples\00 comprehensive test.lj"
+   
+   ;filename = ".\Examples\07 floats and macros.lj"
    filename = ".\Examples\bug fix2.lj"
+   
+   ;filename = ".\Examples\00 comprehensive test.lj"
    ;filename = ".\Examples\20 array sort stress test.lj"
    ;filename = ".\Examples\22 array comprehensive.lj"
-   ;filename = ".\Examples\07 floats and macros.lj"
+   ;filename = ".\Examples\23 test increment operators.lj"
    
-   filename = OpenFileRequester( "Please choose source", ".\Examples\", "LJ Files|*.lj", 0 )
+   
+   ;filename = OpenFileRequester( "Please choose source", ".\Examples\", "LJ Files|*.lj", 0 )
 
    If filename > ""
       Debug "Executing: " + filename
@@ -3882,15 +4122,15 @@ CompilerEndIf
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 3852
-; FirstLine = 3779
+; CursorPosition = 210
+; FirstLine = 187
 ; Folding = -----f------
 ; Markers = 571,720
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; CPU = 1
-; EnableCompileCount = 909
+; EnableCompileCount = 993
 ; EnableBuildCount = 0
 ; EnableExeConstant
 ; IncludeVersionInfo

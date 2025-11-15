@@ -49,8 +49,21 @@ Enumeration
    #ljNEGATE
    #ljFLOATNEG
    #ljNOT
-   #ljASSIGN  
-   
+   #ljASSIGN
+
+   ; Compound assignment and increment/decrement operators
+   #ljADD_ASSIGN     ; +=
+   #ljSUB_ASSIGN     ; -=
+   #ljMUL_ASSIGN     ; *=
+   #ljDIV_ASSIGN     ; /=
+   #ljMOD_ASSIGN     ; %=
+   #ljINC            ; ++ (token)
+   #ljDEC            ; -- (token)
+   #ljPRE_INC        ; Pre-increment (AST node)
+   #ljPRE_DEC        ; Pre-decrement (AST node)
+   #ljPOST_INC       ; Post-increment (AST node)
+   #ljPOST_DEC       ; Post-decrement (AST node)
+
    #ljADD
    #ljSUBTRACT
    #ljMULTIPLY
@@ -144,6 +157,31 @@ Enumeration
    #ljLSTORE     ; Store from stack to local variable
    #ljLSTORES    ; Store string from stack to local
    #ljLSTOREF    ; Store float from stack to local
+
+   ;- In-place increment/decrement opcodes (efficient, no multi-operation sequences)
+   #ljINC_VAR        ; Increment global variable in place (no stack operation)
+   #ljDEC_VAR        ; Decrement global variable in place (no stack operation)
+   #ljINC_VAR_PRE    ; Pre-increment global: increment and push new value
+   #ljDEC_VAR_PRE    ; Pre-decrement global: decrement and push new value
+   #ljINC_VAR_POST   ; Post-increment global: push old value and increment
+   #ljDEC_VAR_POST   ; Post-decrement global: push old value and decrement
+   #ljLINC_VAR       ; Increment local variable in place (no stack operation)
+   #ljLDEC_VAR       ; Decrement local variable in place (no stack operation)
+   #ljLINC_VAR_PRE   ; Pre-increment local: increment and push new value
+   #ljLDEC_VAR_PRE   ; Pre-decrement local: decrement and push new value
+   #ljLINC_VAR_POST  ; Post-increment local: push old value and increment
+   #ljLDEC_VAR_POST  ; Post-decrement local: push old value and decrement
+
+   ;- In-place compound assignment opcodes (optimized by post-processor)
+   #ljADD_ASSIGN_VAR     ; Pop stack, add to variable, store (var = var + stack)
+   #ljSUB_ASSIGN_VAR     ; Pop stack, subtract from variable, store (var = var - stack)
+   #ljMUL_ASSIGN_VAR     ; Pop stack, multiply variable, store (var = var * stack)
+   #ljDIV_ASSIGN_VAR     ; Pop stack, divide variable, store (var = var / stack)
+   #ljMOD_ASSIGN_VAR     ; Pop stack, modulo variable, store (var = var % stack)
+   #ljFLOATADD_ASSIGN_VAR  ; Pop stack, float add to variable, store (var = var + stack)
+   #ljFLOATSUB_ASSIGN_VAR  ; Pop stack, float subtract from variable, store (var = var - stack)
+   #ljFLOATMUL_ASSIGN_VAR  ; Pop stack, float multiply variable, store (var = var * stack)
+   #ljFLOATDIV_ASSIGN_VAR  ; Pop stack, float divide variable, store (var = var / stack)
 
    ;- Built-in Function Opcodes
    #ljBUILTIN_RANDOM      ; random() or random(max) or random(min, max)
@@ -422,6 +460,18 @@ Macro          ASMLine(obj,show)
    ElseIf obj\code = #ljLMOV Or obj\code = #ljLMOVS Or obj\code = #ljLMOVF
       line + "[slot" + Str(obj\j) + "] --> [LOCAL[" + Str(obj\i) + "]]"
       flag + 1
+   ; In-place increment/decrement operations
+   ElseIf obj\code = #ljINC_VAR Or obj\code = #ljDEC_VAR Or obj\code = #ljINC_VAR_PRE Or obj\code = #ljDEC_VAR_PRE Or obj\code = #ljINC_VAR_POST Or obj\code = #ljDEC_VAR_POST
+      line + "[" + gVarMeta(obj\i)\name + "]"
+      flag + 1
+   ElseIf obj\code = #ljLINC_VAR Or obj\code = #ljLDEC_VAR Or obj\code = #ljLINC_VAR_PRE Or obj\code = #ljLDEC_VAR_PRE Or obj\code = #ljLINC_VAR_POST Or obj\code = #ljLDEC_VAR_POST
+      line + "[LOCAL[" + Str(obj\i) + "]]"
+      flag + 1
+   ; In-place compound assignment operations
+   ElseIf obj\code = #ljADD_ASSIGN_VAR Or obj\code = #ljSUB_ASSIGN_VAR Or obj\code = #ljMUL_ASSIGN_VAR Or obj\code = #ljDIV_ASSIGN_VAR Or obj\code = #ljMOD_ASSIGN_VAR Or obj\code = #ljFLOATADD_ASSIGN_VAR Or obj\code = #ljFLOATSUB_ASSIGN_VAR Or obj\code = #ljFLOATMUL_ASSIGN_VAR Or obj\code = #ljFLOATDIV_ASSIGN_VAR
+      _ASMLineHelper1( show, sp - 1 )
+      line + "[" + gVarMeta(obj\i)\name + " OP= sp" + temp + "]"
+      flag + 1
    ElseIf obj\code = #ljPUSH Or obj\code = #ljFetch Or obj\code = #ljPUSHS Or obj\code = #ljPUSHF
       flag + 1
       _ASMLineHelper1( show, obj\i )
@@ -523,7 +573,31 @@ c2tokens:
    Data.i   0, 0
    Data.s   "ASSIGN"
    Data.i   0, 0
-   
+
+   ; Compound assignment and increment/decrement operators
+   Data.s   "ADD_ASSIGN"
+   Data.i   0, 0
+   Data.s   "SUB_ASSIGN"
+   Data.i   0, 0
+   Data.s   "MUL_ASSIGN"
+   Data.i   0, 0
+   Data.s   "DIV_ASSIGN"
+   Data.i   0, 0
+   Data.s   "MOD_ASSIGN"
+   Data.i   0, 0
+   Data.s   "INC"
+   Data.i   0, 0
+   Data.s   "DEC"
+   Data.i   0, 0
+   Data.s   "PRE_INC"
+   Data.i   0, 0
+   Data.s   "PRE_DEC"
+   Data.i   0, 0
+   Data.s   "POST_INC"
+   Data.i   0, 0
+   Data.s   "POST_DEC"
+   Data.i   0, 0
+
    Data.s   "ADD"
    Data.i   #ljFLOATADD, #ljSTRADD
    Data.s   "SUB"
@@ -700,6 +774,52 @@ c2tokens:
    Data.s   "LSTORES"
    Data.i   0, 0
    Data.s   "LSTOREF"
+   Data.i   0, 0
+
+   ; In-place increment/decrement opcodes
+   Data.s   "INC_VAR"
+   Data.i   0, 0
+   Data.s   "DEC_VAR"
+   Data.i   0, 0
+   Data.s   "INC_VAR_PRE"
+   Data.i   0, 0
+   Data.s   "DEC_VAR_PRE"
+   Data.i   0, 0
+   Data.s   "INC_VAR_POST"
+   Data.i   0, 0
+   Data.s   "DEC_VAR_POST"
+   Data.i   0, 0
+   Data.s   "LINC_VAR"
+   Data.i   0, 0
+   Data.s   "LDEC_VAR"
+   Data.i   0, 0
+   Data.s   "LINC_VAR_PRE"
+   Data.i   0, 0
+   Data.s   "LDEC_VAR_PRE"
+   Data.i   0, 0
+   Data.s   "LINC_VAR_POST"
+   Data.i   0, 0
+   Data.s   "LDEC_VAR_POST"
+   Data.i   0, 0
+
+   ; In-place compound assignment opcodes
+   Data.s   "ADD_ASSIGN_VAR"
+   Data.i   0, 0
+   Data.s   "SUB_ASSIGN_VAR"
+   Data.i   0, 0
+   Data.s   "MUL_ASSIGN_VAR"
+   Data.i   0, 0
+   Data.s   "DIV_ASSIGN_VAR"
+   Data.i   0, 0
+   Data.s   "MOD_ASSIGN_VAR"
+   Data.i   0, 0
+   Data.s   "FLADD_ASSIGN_VAR"
+   Data.i   0, 0
+   Data.s   "FLSUB_ASSIGN_VAR"
+   Data.i   0, 0
+   Data.s   "FLMUL_ASSIGN_VAR"
+   Data.i   0, 0
+   Data.s   "FLDIV_ASSIGN_VAR"
    Data.i   0, 0
 
    ; Built-in functions

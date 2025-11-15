@@ -132,7 +132,7 @@ Module C2VM
       pc + 1
    EndMacro
   
-   XIncludeFile      "c2-vm-commands-v05.pb"
+   XIncludeFile      "c2-vm-commands-v07.pb"
 
    ;- Console GUI
    Procedure         MainWindow(name.s)
@@ -188,6 +188,19 @@ Module C2VM
       *ptrJumpTable( #ljLSTORE )          = @C2LSTORE()
       *ptrJumpTable( #ljLSTORES )         = @C2LSTORES()
       *ptrJumpTable( #ljLSTOREF )         = @C2LSTOREF()
+      ; In-place increment/decrement opcodes (efficient, no multi-operation sequences)
+      *ptrJumpTable( #ljINC_VAR )         = @C2INC_VAR()
+      *ptrJumpTable( #ljDEC_VAR )         = @C2DEC_VAR()
+      *ptrJumpTable( #ljINC_VAR_PRE )     = @C2INC_VAR_PRE()
+      *ptrJumpTable( #ljDEC_VAR_PRE )     = @C2DEC_VAR_PRE()
+      *ptrJumpTable( #ljINC_VAR_POST )    = @C2INC_VAR_POST()
+      *ptrJumpTable( #ljDEC_VAR_POST )    = @C2DEC_VAR_POST()
+      *ptrJumpTable( #ljLINC_VAR )        = @C2LINC_VAR()
+      *ptrJumpTable( #ljLDEC_VAR )        = @C2LDEC_VAR()
+      *ptrJumpTable( #ljLINC_VAR_PRE )    = @C2LINC_VAR_PRE()
+      *ptrJumpTable( #ljLDEC_VAR_PRE )    = @C2LDEC_VAR_PRE()
+      *ptrJumpTable( #ljLINC_VAR_POST )   = @C2LINC_VAR_POST()
+      *ptrJumpTable( #ljLDEC_VAR_POST )   = @C2LDEC_VAR_POST()
       *ptrJumpTable( #ljJMP )             = @C2JMP()
       *ptrJumpTable( #ljJZ )              = @C2JZ()
       *ptrJumpTable( #ljTENIF )           = @C2TENIF()
@@ -586,8 +599,8 @@ Module C2VM
 EndModule
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 333
-; FirstLine = 305
+; CursorPosition = 134
+; FirstLine = 130
 ; Folding = ----
 ; Markers = 14
 ; EnableAsm

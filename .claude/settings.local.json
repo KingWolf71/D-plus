@@ -12,7 +12,10 @@
       "Bash(dir:*)",
       "Bash(findstr:*)",
       "Bash(powershell -ExecutionPolicy Bypass -File \"D:\\OneDrive\\WIP\\Sources\\Intense.2020\\lj2\\add-assert-prints.ps1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -File fix-stack.ps1:*)"
+      "Bash(powershell -ExecutionPolicy Bypass -File fix-stack.ps1:*)",
+      "Bash(powershell:*)",
+      "Bash(del \"D:\\OneDrive\\WIP\\Sources\\Intense.2020\\lj2\\fix-semicolons.ps1\")",
+      "Bash(del \"D:\\OneDrive\\WIP\\Sources\\Intense.2020\\lj2\\remove-comment-semicolons.ps1\")"
     ],
     "deny": [],
     "ask": []

@@ -430,6 +430,182 @@ Procedure               C2LSTOREF()
    pc + 1
 EndProcedure
 
+;- In-place increment/decrement operations (efficient, no multi-operation sequences)
+
+Procedure               C2INC_VAR()
+   ; Increment global variable in place (no stack operation)
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2DEC_VAR()
+   ; Decrement global variable in place (no stack operation)
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i - 1
+   pc + 1
+EndProcedure
+
+Procedure               C2INC_VAR_PRE()
+   ; Pre-increment global: increment and push new value
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i + 1
+   gVar(sp)\i = gVar(_AR()\i)\i
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2DEC_VAR_PRE()
+   ; Pre-decrement global: decrement and push new value
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i - 1
+   gVar(sp)\i = gVar(_AR()\i)\i
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2INC_VAR_POST()
+   ; Post-increment global: push old value and increment
+   vm_DebugFunctionName()
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(_AR()\i)\i + 1
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2DEC_VAR_POST()
+   ; Post-decrement global: push old value and decrement
+   vm_DebugFunctionName()
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(_AR()\i)\i - 1
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2LINC_VAR()
+   ; Increment local variable in place (no stack operation)
+   vm_DebugFunctionName()
+   gStack(gStackDepth)\LocalInt(_AR()\i) + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2LDEC_VAR()
+   ; Decrement local variable in place (no stack operation)
+   vm_DebugFunctionName()
+   gStack(gStackDepth)\LocalInt(_AR()\i) - 1
+   pc + 1
+EndProcedure
+
+Procedure               C2LINC_VAR_PRE()
+   ; Pre-increment local: increment and push new value
+   vm_DebugFunctionName()
+   gStack(gStackDepth)\LocalInt(_AR()\i) + 1
+   gVar(sp)\i = gStack(gStackDepth)\LocalInt(_AR()\i)
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2LDEC_VAR_PRE()
+   ; Pre-decrement local: decrement and push new value
+   vm_DebugFunctionName()
+   gStack(gStackDepth)\LocalInt(_AR()\i) - 1
+   gVar(sp)\i = gStack(gStackDepth)\LocalInt(_AR()\i)
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2LINC_VAR_POST()
+   ; Post-increment local: push old value and increment
+   vm_DebugFunctionName()
+   gVar(sp)\i = gStack(gStackDepth)\LocalInt(_AR()\i)
+   gStack(gStackDepth)\LocalInt(_AR()\i) + 1
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2LDEC_VAR_POST()
+   ; Post-decrement local: push old value and decrement
+   vm_DebugFunctionName()
+   gVar(sp)\i = gStack(gStackDepth)\LocalInt(_AR()\i)
+   gStack(gStackDepth)\LocalInt(_AR()\i) - 1
+   sp + 1
+   pc + 1
+EndProcedure
+
+;- In-place compound assignment operations (pop stack, operate, store - no push)
+
+Procedure               C2ADD_ASSIGN_VAR()
+   ; Pop value from stack, add to variable, store back (no push)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i + gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2SUB_ASSIGN_VAR()
+   ; Pop value from stack, subtract from variable, store back (no push)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i - gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2MUL_ASSIGN_VAR()
+   ; Pop value from stack, multiply variable, store back (no push)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i * gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2DIV_ASSIGN_VAR()
+   ; Pop value from stack, divide variable, store back (no push)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i / gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2MOD_ASSIGN_VAR()
+   ; Pop value from stack, modulo variable, store back (no push)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i % gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2FLOATADD_ASSIGN_VAR()
+   ; Pop value from stack, float add to variable, store back (no push)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\f + gVar(sp)\f
+   pc + 1
+EndProcedure
+
+Procedure               C2FLOATSUB_ASSIGN_VAR()
+   ; Pop value from stack, float subtract from variable, store back (no push)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\f - gVar(sp)\f
+   pc + 1
+EndProcedure
+
+Procedure               C2FLOATMUL_ASSIGN_VAR()
+   ; Pop value from stack, float multiply variable, store back (no push)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\f * gVar(sp)\f
+   pc + 1
+EndProcedure
+
+Procedure               C2FLOATDIV_ASSIGN_VAR()
+   ; Pop value from stack, float divide variable, store back (no push)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\f / gVar(sp)\f
+   pc + 1
+EndProcedure
+
 Procedure               C2JMP()
    vm_DebugFunctionName()
    pc + _AR()\i
@@ -502,10 +678,17 @@ Procedure               C2ITOF()
    pc + 1
 EndProcedure
 
-Procedure               C2FTOI()
+Procedure               C2FTOI_ROUND()
    vm_DebugFunctionName()
-   ; Convert float to integer at stack top
+   ; Convert float to integer at stack top (round to nearest)
    gVar(sp - 1)\i = gVar(sp - 1)\f
+   pc + 1
+EndProcedure
+
+Procedure               C2FTOI_TRUNCATE()
+   vm_DebugFunctionName()
+   ; Convert float to integer at stack top (truncate towards zero)
+   gVar(sp - 1)\i = Int(gVar(sp - 1)\f)
    pc + 1
 EndProcedure
 

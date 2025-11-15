@@ -939,6 +939,154 @@ Procedure            PostProcessor()
       ; DISABLED: CodeGenerator now handles all returns correctly with proper typing
       ; This pass was adding duplicate returns due to incorrect function boundary detection
 
+      ;- Pass 9.6: Optimize compound assignment patterns (integers and floats)
+      ; Pattern: FETCH var, PUSH/FETCH value, ADD/SUB/MUL/DIV/MOD, STORE same_var
+      ; Replace with more efficient in-place operations
+      ForEach llObjects()
+         If llObjects()\code = #ljFetch Or llObjects()\code = #ljFETCHF
+            varSlot = llObjects()\i
+
+            ; Check next is PUSH or Fetch (value to add/sub/etc)
+            If NextElement(llObjects())
+               If llObjects()\code = #ljPush Or llObjects()\code = #ljFetch Or llObjects()\code = #ljPUSHF Or llObjects()\code = #ljFETCHF
+                  valueSlot = llObjects()\i
+
+                  ; Check next is arithmetic operation
+                  If NextElement(llObjects())
+                     Select llObjects()\code
+                        Case #ljADD, #ljSUBTRACT, #ljMULTIPLY, #ljDIVIDE, #ljMOD, #ljFLOATADD, #ljFLOATSUB, #ljFLOATMUL, #ljFLOATDIV
+                           opCode = llObjects()\code
+
+                           ; Check next is STORE to same variable
+                           If NextElement(llObjects())
+                              If (llObjects()\code = #ljStore Or llObjects()\code = #ljSTOREF) And llObjects()\i = varSlot
+                                 ; Found pattern! Optimize it
+                                 ; Go back to start of pattern
+                                 PreviousElement(llObjects())
+                                 PreviousElement(llObjects())
+                                 PreviousElement(llObjects())
+
+                                 ; Keep the PUSH/FETCH for the value, delete FETCH var
+                                 llObjects()\code = #ljNOOP
+                                 NextElement(llObjects())  ; Now at PUSH/FETCH value
+
+                                 ; Keep value load
+                                 NextElement(llObjects())  ; Now at ADD/SUB/etc
+
+                                 ; Replace arithmetic with compound assignment variant
+                                 Select opCode
+                                    Case #ljADD
+                                       llObjects()\code = #ljADD_ASSIGN_VAR
+                                    Case #ljSUBTRACT
+                                       llObjects()\code = #ljSUB_ASSIGN_VAR
+                                    Case #ljMULTIPLY
+                                       llObjects()\code = #ljMUL_ASSIGN_VAR
+                                    Case #ljDIVIDE
+                                       llObjects()\code = #ljDIV_ASSIGN_VAR
+                                    Case #ljMOD
+                                       llObjects()\code = #ljMOD_ASSIGN_VAR
+                                    Case #ljFLOATADD
+                                       llObjects()\code = #ljFLOATADD_ASSIGN_VAR
+                                    Case #ljFLOATSUB
+                                       llObjects()\code = #ljFLOATSUB_ASSIGN_VAR
+                                    Case #ljFLOATMUL
+                                       llObjects()\code = #ljFLOATMUL_ASSIGN_VAR
+                                    Case #ljFLOATDIV
+                                       llObjects()\code = #ljFLOATDIV_ASSIGN_VAR
+                                 EndSelect
+                                 llObjects()\i = varSlot  ; Store variable slot in opcode
+
+                                 NextElement(llObjects())  ; Now at STORE
+                                 llObjects()\code = #ljNOOP  ; Remove STORE
+                              Else
+                                 ; Not a match, restore position
+                                 PreviousElement(llObjects())
+                                 PreviousElement(llObjects())
+                                 PreviousElement(llObjects())
+                              EndIf
+                           Else
+                              ; Not a match, restore position
+                              PreviousElement(llObjects())
+                              PreviousElement(llObjects())
+                           EndIf
+
+                        Default
+                           ; Not a match, restore position
+                           PreviousElement(llObjects())
+                           PreviousElement(llObjects())
+                     EndSelect
+                  Else
+                     ; Not a match, restore position
+                     PreviousElement(llObjects())
+                  EndIf
+               EndIf
+            EndIf
+         EndIf
+      Next
+
+      ;- Pass 9.7: Optimize increment/decrement + POP patterns
+      ; When increment/decrement is used standalone (not in expression), it's wrapped with POP
+      ; PRE/POST variants push a value, but if immediately followed by POP, we can use the simpler INC/DEC opcodes
+      ForEach llObjects()
+         Select llObjects()\code
+            Case #ljINC_VAR_PRE, #ljINC_VAR_POST
+               ; Check if next instruction is POP
+               If NextElement(llObjects())
+                  If llObjects()\code = #ljPOP
+                     ; Replace PRE/POST with simple INC and remove POP
+                     PreviousElement(llObjects())
+                     llObjects()\code = #ljINC_VAR
+                     NextElement(llObjects())
+                     llObjects()\code = #ljNOOP
+                  Else
+                     PreviousElement(llObjects())
+                  EndIf
+               EndIf
+
+            Case #ljDEC_VAR_PRE, #ljDEC_VAR_POST
+               ; Check if next instruction is POP
+               If NextElement(llObjects())
+                  If llObjects()\code = #ljPOP
+                     ; Replace PRE/POST with simple DEC and remove POP
+                     PreviousElement(llObjects())
+                     llObjects()\code = #ljDEC_VAR
+                     NextElement(llObjects())
+                     llObjects()\code = #ljNOOP
+                  Else
+                     PreviousElement(llObjects())
+                  EndIf
+               EndIf
+
+            Case #ljLINC_VAR_PRE, #ljLINC_VAR_POST
+               ; Check if next instruction is POP
+               If NextElement(llObjects())
+                  If llObjects()\code = #ljPOP
+                     ; Replace PRE/POST with simple LINC and remove POP
+                     PreviousElement(llObjects())
+                     llObjects()\code = #ljLINC_VAR
+                     NextElement(llObjects())
+                     llObjects()\code = #ljNOOP
+                  Else
+                     PreviousElement(llObjects())
+                  EndIf
+               EndIf
+
+            Case #ljLDEC_VAR_PRE, #ljLDEC_VAR_POST
+               ; Check if next instruction is POP
+               If NextElement(llObjects())
+                  If llObjects()\code = #ljPOP
+                     ; Replace PRE/POST with simple LDEC and remove POP
+                     PreviousElement(llObjects())
+                     llObjects()\code = #ljLDEC_VAR
+                     NextElement(llObjects())
+                     llObjects()\code = #ljNOOP
+                  Else
+                     PreviousElement(llObjects())
+                  EndIf
+               EndIf
+         EndSelect
+      Next
+
       ;- Pass 10: Remove all NOOP instructions from the code stream
       ForEach llObjects()
          If llObjects()\code = #ljNOOP

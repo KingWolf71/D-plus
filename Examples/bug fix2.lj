@@ -2,159 +2,66 @@
 */
 
 #pragma appname "Bug Fix 2"
-#pragma "decimals" 3
-#pragma "console" "on"
-#pragma "consolesize"  "560x590"
-#pragma "optimizecode" "on"
-#pragma "ListASM" on
-#pragma "version"
+#pragma decimals 3
+#pragma console on
+#pragma consolesize "560x590"
+#pragma optimizecode on
+#pragma ListASM on
+#pragma version
 #pragma FastPrint on
 #pragma RunThreaded on
+#pragma ftoi "truncate"
 
-#define		ELEMENTS 777
+/* =============================================================================
+   SECTION 7: COMPOUND ASSIGNMENT - FLOATS (+=, -=, *=, /=)
+   ============================================================================= */
+print("SECTION 7: Compound Assignment (Floats)");
+print("----------------------------------------");
 
 
-print("Array size: [", ELEMENTS, "] -- elements ELEMENTS");
-print("");
+print("Test: Chained float compound assignments");
+x.f = 5.0;
+x += 3.5;
+x *= 2.0;
+x -= 4.0;
+x /= 2.0;
+assertFloatEqual(6.5, x);
 
-// Comprehensive array test for LJ2
-// Tests global arrays, local arrays, all types, indexing, and edge cases
 
-#pragma appname "LJ2 Comprehensive Array Test"
-#pragma console on
-#pragma optimizecode on
-#pragma version
-#pragma ListASM on
-#pragma floattolerance 0.00001
-#pragma FastPrint off
-#pragma RunThreaded on
-
-print("=== LJ2 Comprehensive Array Test ===");
-print("");
-
-// === Test 1: Global Integer Arrays ===
-print("Test 1: Global Integer Arrays");
-array g_ints.i[5];
-g_ints[0] = 10;
-g_ints[1] = 20;
-g_ints[2] = 30;
-g_ints[3] = 40;
-g_ints[4] = 50;
-
-i = 0;
-while i < 5 {
-    print("  g_ints[", i, "] = ", g_ints[i]);
-    i = i + 1;
+// Typed function signatures
+func squareInt(num) {
+    return num * num;
 }
 
-print("  Asserting g_ints[0] = ", g_ints[0]);
-assertEqual(10, g_ints[0]);
-print("  Asserting g_ints[2] = ", g_ints[2]);
-assertEqual(30, g_ints[2]);
-print("  Asserting g_ints[4] = ", g_ints[4]);
-assertEqual(50, g_ints[4]);
-print("  PASS: Global int array read/write");
-print("");
-
-// === Test 2: Global Float Arrays ===
-print("Test 2: Global Float Arrays");
-array g_floats.f[3];
-g_floats[0] = 1.5;
-g_floats[1] = 2.75;
-g_floats[2] = 3.125;
-
-i = 0;
-while i < 3 {
-    print("  g_floats[", i, "] = ", g_floats[i]);
-    i = i + 1;
+func squareFloat.f(num.f) {
+    return num * num;
 }
 
-print("  Asserting g_floats[0] = ", g_floats[0]);
-assertFloatEqual(1.5, g_floats[0]);
-print("  Asserting g_floats[1] = ", g_floats[1]);
-assertFloatEqual(2.75, g_floats[1]);
-print("  Asserting g_floats[2] = ", g_floats[2]);
-assertFloatEqual(3.125, g_floats[2]);
-print("  PASS: Global float array read/write");
-print("");
+// Automatic assignment type conversion: FLOAT -> INT
+assignFloatVal.f = 9.8;
+assignIntVal = assignFloatVal;
+print("Test: assignIntVal = 9");
+assertEqual(9, assignIntVal);
 
-// === Test 3: Global String Arrays ===
-print("Test 3: Global String Arrays");
-array g_strings.s[4];
-g_strings[0] = "Hello";
-g_strings[1] = "World";
-g_strings[2] = "Array";
-g_strings[3] = "Test";
 
-i = 0;
-while i < 4 {
-    print("  g_strings[", i, "] = ", g_strings[i]);
-    i = i + 1;
+func returnFloat.f() {
+    return 2.718;
 }
 
-print("  Asserting g_strings[0] = ", g_strings[0]);
-assertStringEqual("Hello", g_strings[0]);
-print("  Asserting g_strings[3] = ", g_strings[3]);
-assertStringEqual("Test", g_strings[3]);
-print("  PASS: Global string array read/write");
-print("");
 
-// === Test 4: Array Expressions ===
-print("Test 4: Array Expressions");
-g_ints[2] = g_ints[0] + g_ints[1];
-print("  g_ints[0] + g_ints[1] = ", g_ints[2]);
-assertEqual(30, g_ints[2]);
+// FLOAT function result to INT variable
+intFromFloat = returnFloat();
+print("Test: intFromFloat = 2");
+assertEqual(2, intFromFloat);
 
-result = g_ints[4] - g_ints[3];
-print("  g_ints[4] - g_ints[3] = ", result);
-assertEqual(10, result);
-
-g_floats[2] = g_floats[0] * g_floats[1];
-print("  g_floats[0] * g_floats[1] = ", g_floats[2]);
-assertFloatEqual(4.125, g_floats[2]);
-print("  PASS: Array expressions");
-print("");
-
-// === Test 5: Variable Indexing ===
-print("Test 5: Variable Indexing");
-idx = 1;
-g_ints[idx] = 99;
-print("  Set g_ints[idx] where idx=1 to 99");
-print("  g_ints[1] = ", g_ints[idx]);
-assertEqual(99, g_ints[idx]);
-
-idx = idx + 1;
-print("  g_ints[2] = ", g_ints[idx]);
-assertEqual(30, g_ints[idx]);
-print("  PASS: Variable indexing");
-print("");
-
-// === Test 6: Local Arrays in Functions ===
-print("Test 6: Local Arrays in Functions");
-
-function testLocalInts() {
-    array local_ints.i[3];
-    local_ints[0] = 100;
-    local_ints[1] = 200;
-    local_ints[2] = 300;
-
-    print("  Local int array:");
-    j = 0;
-    while j < 3 {
-        print("    local_ints[", j, "] = ", local_ints[j]);
-        j = j + 1;
-    }
-
-    print("  Asserting local_ints[0] = ", local_ints[0]);
-    assertEqual(100, local_ints[0]);
-    print("  Asserting local_ints[2] = ", local_ints[2]);
-    assertEqual(300, local_ints[2]);
-
-    sum = local_ints[0] + local_ints[1] + local_ints[2];
-    print("  Sum of local_ints = ", sum);
-    assertEqual(600, sum);
+// Complex type conversion chain
+func complexChain.f(a.f, b) {
+    tempInt = a;           // FLOAT -> INT in assignment
+    tempFloat.f = b;       // INT -> FLOAT in assignment
+    return tempInt + tempFloat;
 }
 
-testLocalInts();
-print("  PASS: Local int arrays");
-print("");
+chainResult.f = complexChain(5.8, 3);
+print("Test: chainResult ~= 8.0 (float)");
+assertFloatEqual(8.0, chainResult);
+

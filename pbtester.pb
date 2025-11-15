@@ -14,7 +14,7 @@ CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
 CompilerEndIf
 
 ; Include the LJ2 compiler and VM
-XIncludeFile "c2-modules-V12.pb"
+XIncludeFile "c2-modules-V14.pb"
 
 ; ============================================================================
 ; Structures
@@ -497,6 +497,6 @@ Main()
 ; EnableAsm
 ; EnableThread
 ; CPU = 1
-; EnableCompileCount = 38
+; EnableCompileCount = 39
 ; EnableBuildCount = 0
 ; EnableExeConstant
