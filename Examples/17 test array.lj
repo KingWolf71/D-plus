@@ -8,7 +8,10 @@
 #pragma floattolerance 0.00001
 #pragma FastPrint off
 #pragma RunThreaded on
-
+#pragma consolesize "640x480"
+#pragma stackspace 512
+#pragma stackdepth 1024
+#pragma PasteToClipboard on
 array numbers.i[5];
 
 numbers[0] = 10;
@@ -20,7 +23,7 @@ numbers[4] = 50;
 i = 0;
 while i < 5 {
    print(numbers[i]);
-   i = i + 1;
+   i++;
 }
 
 // Test with expressions

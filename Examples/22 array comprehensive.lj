@@ -4,11 +4,13 @@
 #pragma appname "LJ2 Comprehensive Array Test"
 #pragma console on
 #pragma optimizecode on
-#pragma version
-#pragma ListASM on
+#pragma version on
+#pragma ListASM off
 #pragma floattolerance 0.00001
 #pragma FastPrint off
 #pragma RunThreaded on
+#pragma modulename on
+#pragma PasteToClipboard on
 
 print("=== LJ2 Comprehensive Array Test ===");
 print("");

@@ -1,5 +1,5 @@
 ﻿
-; -- lexical parser to VM for a simplified C Language 
+; -- lexical parser to VM for a simplified C Language
 ; Tested in UTF8
 ; PBx64 v6.20
 ;
@@ -7,18 +7,40 @@
 ; And
 ; https://rosettacode.org/wiki/Compiler/syntax_analyzer
 ; Distribute and use freely
-; 
+;
 ; Kingwolf71 May/2025
-; 
+;
 ;
 ; Common constants and structures
+;
+; V1.18.0 - UNIFIED VARIABLE SYSTEM
+; ===================================
+; All variables (global and local) now use the same gVar[] array and opcodes.
+; Local variables are allocated as temporary gVar[] slots during function calls.
+; Benefits: Simpler code, one method for all variables, easier to understand.
+;
+; Variable Allocation:
+;   - gVar[0 to gnLastVariable-1]              : Permanent global variables
+;   - gVar[gnLastVariable to gCurrentMaxLocal] : Active local variables (nested calls)
+;   - gVar[gCurrentMaxLocal onwards]           : Evaluation stack (sp starts here)
+;
+; Local variable access:
+;   - paramOffset >= 0: actualSlot = localSlotStart + paramOffset
+;   - paramOffset = -1: use varSlot directly (global)
+;   - All variables use FETCH/STORE/MOV opcodes (no separate LFETCH/LSTORE/LMOV)
+;
+; V1.18.12 - paramOffset Space Allocation:
+;   - Regular local variables: paramOffset = 0 to nLocals-1
+;   - Local arrays: paramOffset = 1000 to 1000+nLocalArrays-1
+;   - Separation needed because arrays use gVar[slot].dta.ar() while variables use gVar[slot].i/.f/.ss
+;   - A gVar[] slot can hold EITHER a scalar value OR an array, but not both
 
 ; ======================================================================================================
 ;- Constants
 ; ======================================================================================================
 
 #INV$             = ~"\""
-#DEBUG = 0
+#DEBUG            = 0
 
 #C2MAXTOKENS      = 500   ; Legacy, use #C2TOKENCOUNT for actual count   
 #C2MAXCONSTANTS   = 8192
@@ -32,7 +54,14 @@
 #C2FLAG_CHG       = 32
 #C2FLAG_PARAM     = 64
 #C2FLAG_ARRAY     = 128
+#C2FLAG_POINTER   = 256  ; Variable is a pointer type
 
+Enumeration
+   #C2HOLE_START
+   #C2HOLE_DEFAULT
+   #C2HOLE_PAIR
+   #C2HOLE_BLIND
+EndEnumeration
 
 Enumeration
    #ljUNUSED
@@ -77,6 +106,8 @@ Enumeration
    #ljITOS         ; Integer To String conversion
    #ljITOF         ; Integer To Float conversion
    #ljFTOI         ; Float To Integer conversion
+   #ljSTOF         ; String To Float conversion
+   #ljSTOI         ; String To Integer conversion
 
    #ljOr
    #ljAND
@@ -120,7 +151,8 @@ Enumeration
    #ljLeftBracket
    #ljRightBracket
    #ljSemi
-   #ljComma   
+   #ljComma
+   #ljBackslash    ; V1.20.21: Pointer field accessor (ptr\i, ptr\f, ptr\s)
    #ljfunction
    #ljreturn
    #ljreturnF
@@ -147,30 +179,43 @@ Enumeration
    #ljSTORES
    #ljSTOREF
 
-   ;- Local Variable Opcodes (frame-relative access, no flag checks)
-   #ljLMOV       ; Move constant/global to local variable
-   #ljLMOVS      ; Move string to local variable
-   #ljLMOVF      ; Move float to local variable
-   #ljLFETCH     ; Fetch local variable to stack
-   #ljLFETCHS    ; Fetch local string to stack
-   #ljLFETCHF    ; Fetch local float to stack
-   #ljLSTORE     ; Store from stack to local variable
-   #ljLSTORES    ; Store string from stack to local
-   #ljLSTOREF    ; Store float from stack to local
+   ;- DEPRECATED: Local Variable Opcodes (kept for compatibility, V1.18.0)
+   ; These opcodes are DEPRECATED as of v1.18.0 - use unified FETCH/STORE/MOV instead
+   ; They are kept defined to avoid breaking existing code/postprocessor/modules
+   ; The VM procedures still exist but should not be used for new code
+   #ljLMOV       ; DEPRECATED - Use #ljMOV with unified slot calculation
+   #ljLMOVS      ; DEPRECATED - Use #ljMOVS with unified slot calculation
+   #ljLMOVF      ; DEPRECATED - Use #ljMOVF with unified slot calculation
+   #ljLFETCH     ; DEPRECATED - Use #ljFetch with unified slot calculation
+   #ljLFETCHS    ; DEPRECATED - Use #ljFETCHS with unified slot calculation
+   #ljLFETCHF    ; DEPRECATED - Use #ljFETCHF with unified slot calculation
+   #ljLSTORE     ; DEPRECATED - Use #ljStore with unified slot calculation
+   #ljLSTORES    ; DEPRECATED - Use #ljSTORES with unified slot calculation
+   #ljLSTOREF    ; DEPRECATED - Use #ljSTOREF with unified slot calculation
 
-   ;- In-place increment/decrement opcodes (efficient, no multi-operation sequences)
-   #ljINC_VAR        ; Increment global variable in place (no stack operation)
-   #ljDEC_VAR        ; Decrement global variable in place (no stack operation)
-   #ljINC_VAR_PRE    ; Pre-increment global: increment and push new value
-   #ljDEC_VAR_PRE    ; Pre-decrement global: decrement and push new value
-   #ljINC_VAR_POST   ; Post-increment global: push old value and increment
-   #ljDEC_VAR_POST   ; Post-decrement global: push old value and decrement
-   #ljLINC_VAR       ; Increment local variable in place (no stack operation)
-   #ljLDEC_VAR       ; Decrement local variable in place (no stack operation)
-   #ljLINC_VAR_PRE   ; Pre-increment local: increment and push new value
-   #ljLDEC_VAR_PRE   ; Pre-decrement local: decrement and push new value
-   #ljLINC_VAR_POST  ; Post-increment local: push old value and increment
-   #ljLDEC_VAR_POST  ; Post-decrement local: push old value and decrement
+   ;- In-place increment/decrement opcodes (unified for all variables)
+   #ljINC_VAR        ; Increment variable in place (no stack operation)
+   #ljDEC_VAR        ; Decrement variable in place (no stack operation)
+   #ljINC_VAR_PRE    ; Pre-increment: increment and push new value
+   #ljDEC_VAR_PRE    ; Pre-decrement: decrement and push new value
+   #ljINC_VAR_POST   ; Post-increment: push old value and increment
+   #ljDEC_VAR_POST   ; Post-decrement: push old value and decrement
+
+   ;- DEPRECATED: Local increment/decrement opcodes (kept for compatibility)
+   #ljLINC_VAR       ; DEPRECATED - Use #ljINC_VAR with unified slot calculation
+   #ljLDEC_VAR       ; DEPRECATED - Use #ljDEC_VAR with unified slot calculation
+   #ljLINC_VAR_PRE   ; DEPRECATED - Use #ljINC_VAR_PRE with unified slot calculation
+   #ljLDEC_VAR_PRE   ; DEPRECATED - Use #ljDEC_VAR_PRE with unified slot calculation
+   #ljLINC_VAR_POST  ; DEPRECATED - Use #ljINC_VAR_POST with unified slot calculation
+   #ljLDEC_VAR_POST  ; DEPRECATED - Use #ljDEC_VAR_POST with unified slot calculation
+
+   ;- Pointer increment/decrement opcodes (V1.20.36: pointer arithmetic)
+   #ljPTRINC         ; Increment pointer by sizeof(basetype) (no stack operation)
+   #ljPTRDEC         ; Decrement pointer by sizeof(basetype) (no stack operation)
+   #ljPTRINC_PRE     ; Pre-increment pointer: increment and push new value
+   #ljPTRDEC_PRE     ; Pre-decrement pointer: decrement and push new value
+   #ljPTRINC_POST    ; Post-increment pointer: push old value and increment
+   #ljPTRDEC_POST    ; Post-decrement pointer: push old value and decrement
 
    ;- In-place compound assignment opcodes (optimized by post-processor)
    #ljADD_ASSIGN_VAR     ; Pop stack, add to variable, store (var = var + stack)
@@ -182,6 +227,8 @@ Enumeration
    #ljFLOATSUB_ASSIGN_VAR  ; Pop stack, float subtract from variable, store (var = var - stack)
    #ljFLOATMUL_ASSIGN_VAR  ; Pop stack, float multiply variable, store (var = var * stack)
    #ljFLOATDIV_ASSIGN_VAR  ; Pop stack, float divide variable, store (var = var / stack)
+   #ljPTRADD_ASSIGN        ; Pop stack, add to pointer (ptr = ptr + offset), pointer arithmetic
+   #ljPTRSUB_ASSIGN        ; Pop stack, subtract from pointer (ptr = ptr - offset), pointer arithmetic
 
    ;- Built-in Function Opcodes
    #ljBUILTIN_RANDOM      ; random() or random(max) or random(min, max)
@@ -249,6 +296,50 @@ Enumeration
    #ljARRAYSTORE_STR_LOCAL_STACK_OPT      ; Local, stack index, opt value
    #ljARRAYSTORE_STR_LOCAL_STACK_STACK    ; Local, stack index, stack value
 
+   ;- Pointer Opcodes
+   #ljGETADDR         ; Get address of integer variable - &var
+   #ljGETADDRF        ; Get address of float variable - &var.f
+   #ljGETADDRS        ; Get address of string variable - &var.s
+   #ljPTRFETCH        ; Generic pointer fetch - *ptr
+   #ljPTRFETCH_INT    ; Fetch int through pointer
+   #ljPTRFETCH_FLOAT  ; Fetch float through pointer
+   #ljPTRFETCH_STR    ; Fetch string through pointer
+   #ljPTRSTORE        ; Generic pointer store - *ptr = value
+   #ljPTRSTORE_INT    ; Store int through pointer
+   #ljPTRSTORE_FLOAT  ; Store float through pointer
+   #ljPTRSTORE_STR    ; Store string through pointer
+
+   ;- Pointer Field Access (V1.20.21: ptr\i, ptr\f, ptr\s syntax)
+   #ljPTRFIELD_I      ; AST: ptr\i - read integer through pointer
+   #ljPTRFIELD_F      ; AST: ptr\f - read float through pointer
+   #ljPTRFIELD_S      ; AST: ptr\s - read string through pointer
+
+   #ljPTRADD          ; Pointer arithmetic: ptr + offset
+   #ljPTRSUB          ; Pointer arithmetic: ptr - offset
+   #ljGETFUNCADDR     ; Get function PC address - &function
+   #ljCALLFUNCPTR     ; Call function through pointer
+
+   ;- Array Pointer Opcodes (for &arr[index])
+   #ljGETARRAYADDR        ; Get address of array element - &arr[i] (integer)
+   #ljGETARRAYADDRF       ; Get address of array element - &arr.f[i] (float)
+   #ljGETARRAYADDRS       ; Get address of array element - &arr.s[i] (string)
+
+   #ljPRTPTR              ; Runtime dispatch print after generic pointer dereference
+
+   ;- Pointer-Only Opcodes (V1.20.27: No runtime checks, always copy metadata)
+   #ljPMOV                ; Pointer-only MOV (always copies ptr/ptrtype)
+   #ljPFETCH              ; Pointer-only FETCH (always copies ptr/ptrtype)
+   #ljPSTORE              ; Pointer-only STORE (always copies ptr/ptrtype)
+   #ljPPOP                ; Pointer-only POP (always copies ptr/ptrtype)
+   #ljPLFETCH             ; Pointer-only local FETCH (always copies ptr/ptrtype)
+   #ljPLSTORE             ; Pointer-only local STORE (always copies ptr/ptrtype)
+   #ljPLMOV               ; Pointer-only local MOV (always copies ptr/ptrtype)
+
+   ;- Cast Operators (AST nodes, V1.18.63)
+   #ljCAST_INT       ; Cast expression to integer: (int)expr
+   #ljCAST_FLOAT     ; Cast expression to float: (float)expr
+   #ljCAST_STRING    ; Cast expression to string: (string)expr
+
    #ljEOF
 EndEnumeration
 
@@ -287,28 +378,54 @@ Structure stType
    j.l
    n.l
    ndx.l
+   funcid.l
    flags.b     ; Instruction flags (bit 0: in ternary expression)
+   anchor.w    ; V1.020.070: Jump anchor ID for NOOP-safe offset recalculation
 EndStructure
 
 Structure stCodeIns
-   code.l
-   i.l
-   j.l
-   n.l
-   ndx.l
-   flags.b     ; Instruction flags (matches stType for bytecode copy)
+   code.l      ; Opcode
+   i.l         ; First parameter (full int)
+   j.l         ; Second parameter (full int)
+   n.w         ; Local var count (word)
+   ndx.w       ; Local array count or index slot (word)
+   funcid.w    ; Function ID for CALL (word)
+   anchor.w    ; V1.020.070: Jump anchor ID for NOOP-safe offset recalculation
 EndStructure
 
+; V1.020.073: Jump tracker for incremental NOOP offset adjustment
+Structure stJumpTracker
+   *instruction.stType  ; Pointer to jump instruction in llObjects()
+   *target.stType       ; V1.020.085: Pointer to target instruction
+   srcPos.i             ; Source position when created
+   targetPos.i          ; Target position when created
+   offset.i             ; Current offset (adjusted as NOOPs created)
+   type.i               ; Jump type: #ljJZ, #ljJMP, #ljTENIF, #ljTENELSE
+EndStructure
 
 ; Instruction flags
 #INST_FLAG_TERNARY = 1
+
+;- Pointer Type Tags (for efficient pointer metadata)
+Enumeration  ; Pointer Types
+   #PTR_NONE = 0           ; Not a pointer
+   #PTR_INT = 1            ; Pointer to integer variable
+   #PTR_FLOAT = 2          ; Pointer to float variable
+   #PTR_STRING = 3         ; Pointer to string variable
+   #PTR_ARRAY_INT = 4      ; Pointer to integer array element
+   #PTR_ARRAY_FLOAT = 5    ; Pointer to float array element
+   #PTR_ARRAY_STRING = 6   ; Pointer to string array element
+   #PTR_FUNCTION = 7       ; Pointer to function (PC address)
+EndEnumeration
 
 ; Runtime value arrays - separated by type for maximum VM performance
 Structure stVarMeta  ; Compile-time metadata and constant values
    name.s
    flags.w
-   paramOffset.i        ; For PARAM variables: offset from callerSp (0=first param, 1=second, etc)
-   typeSpecificIndex.i  ; For local variables: index within type-specific local array (0-based)
+   paramOffset.i        ; -1 = global variable (use varSlot directly)
+                        ; >= 0 = local variable (offset from localSlotStart)
+                        ; Used at runtime to compute: actualSlot = localSlotStart + paramOffset
+   typeSpecificIndex.i  ; For local arrays: index within function's local array list
    ; Array metadata (compile-time only)
    arraySize.i          ; Number of elements (0 if not array)
    elementSize.i        ; Slots per element (1 for primitives, N for structs)
@@ -341,14 +458,9 @@ Global Dim           arCode.stCodeIns(1)
 Global NewMap        mapPragmas.s()
 
 Global               gnLastVariable.i
+Global               gnGlobalVariables.i  ; V1.020.057: Count of global variables only (for stack calculation)
 Global               gnTotalTokens.i
-Global               gFunctionDepth       = 2048       ; Fast function depth counter (avoids ListSize)
-Global               gMaxStackSpace       = 2048
-Global               gMaxStackDepth       = 1024
-Global               gConsole.b           = #True
-Global               gszAppname.s
-Global               gWidth.i             = 640,
-                     gHeight.i            = 340
+Global               gPtrFetchExpectedType.w  ; V1.20.5: Expected type for PTRFETCH (0=use generic)
 
 ;- Macros
 Macro          _ASMLineHelper1(view, uvar)
@@ -361,6 +473,12 @@ Macro          _ASMLineHelper1(view, uvar)
          temp = " (" + gVarMeta( uvar )\valueString + ")"
       EndIf
    CompilerEndIf
+EndMacro
+
+Macro          DebugShowFilename()
+   Debug "==========================================="
+   Debug "Executing: " + filename
+   Debug "==========================================="
 EndMacro
 
 Macro          _ASMLineHelper2(uvar)
@@ -386,26 +504,24 @@ Macro                   _VarExpand(vr)
 EndMacro
 
 Macro          ASMLine(obj,show)
-   CompilerIf show
-      line = RSet( Str( pc ), 9 ) + "  "
+   CompilerIf show = 1
+      line = RSet( Str( i + 1 ), 9 ) + "  "
    CompilerElse
       line = RSet( Str( ListIndex(obj) ), 9 ) + "  "
    CompilerEndIf
    
-   line + LSet( gszATR( obj\code )\s, 20 ) + "  "
+   line + LSet( gszATR( obj\code )\s, 30 ) + "  "
    temp = "" : flag = 0
-   CompilerIf show
-      line + "[" + RSet(Str(sp),5," ") + "] " 
-   CompilerEndIf
+   
    If obj\code = #ljJMP Or obj\code = #ljJZ
       CompilerIf show
-         line + "  (" +Str(obj\i) + ") " + Str(pc+obj\i)
+         line + "  (" +Str(obj\i) + ") " + Str(i+obj\i)
       CompilerElse
          line + "  (" +Str(obj\i) + ") " + Str(ListIndex(obj)+obj\i)
       CompilerEndIf
    ElseIf obj\code = #ljCall
       CompilerIf show
-         line + "  (" +Str(obj\i) + ") " + Str(pc+obj\i) + " [nParams=" + Str(obj\j) + " nLocals=" + Str(obj\n) + "]"
+         line + "  (" +Str(obj\i) + ") " + Str(i+obj\i) + " [nParams=" + Str(obj\j) + " nLocals=" + Str(obj\n) + "]"
       CompilerElse
          line + "  (" +Str(obj\i) + ") " + Str(ListIndex(obj)+obj\i) + " [nParams=" + Str(obj\j) + " nLocals=" + Str(obj\n) + "]"
       CompilerEndIf
@@ -474,7 +590,7 @@ Macro          ASMLine(obj,show)
       flag + 1
    ElseIf obj\code = #ljPUSH Or obj\code = #ljFetch Or obj\code = #ljPUSHS Or obj\code = #ljPUSHF
       flag + 1
-      _ASMLineHelper1( show, obj\i )
+      _ASMLineHelper1( 0, obj\i )
       If gVarMeta( obj\i )\flags & #C2FLAG_IDENT
          line + "[" + gVarMeta( obj\i )\name + "] --> [sp]"
       ElseIf gVarMeta( obj\i )\flags & #C2FLAG_STR
@@ -488,26 +604,13 @@ Macro          ASMLine(obj,show)
       EndIf
    ElseIf obj\code = #ljPOP Or obj\code = #ljPOPS Or obj\code = #ljPOPF
       flag + 1
-      _ASMLineHelper1( show, obj\i )
+      _ASMLineHelper1( 0, obj\i )
       line + "[sp] --> [" + gVarMeta( obj\i )\name + "]"
    ElseIf obj\code = #ljNEGATE Or obj\code = #ljNOT 
       flag + 1
-      CompilerIf show
-         _ASMLineHelper2(sp - 1)
-         line  + "  op (" + temp + ")"
-      CompilerElse
-         line  + "  op (sp - 1)"
-      CompilerEndIf
-      
+      line  + "  op (sp - 1)"
    ElseIf obj\code <> #ljHALT And obj\code <> #ljreturn And obj\code <> #ljreturnF And obj\code <> #ljreturnS
-      CompilerIf show
-         _ASMLineHelper2(sp - 2)
-         line  + "   (" + temp + ") -- ("
-         _ASMLineHelper2(sp - 1)
-         line  + temp + ")"
-      CompilerElse
-         line  + "   (sp - 2) -- (sp - 1)"
-      CompilerEndIf
+      line  + "   (sp - 2) -- (sp - 1)"
    EndIf
    CompilerIf Not show
       If flag
@@ -528,7 +631,8 @@ Macro                   vm_ListToArray( ll, ar )
       ar( i )\j = ll()\j
       ar( i )\n = ll()\n
       ar( i )\ndx = ll()\ndx
-      ar( i )\flags = ll()\flags
+      ar( i )\funcid = ll()\funcid  ; V1.18.0: Copy funcid for CALL instruction (for gFuncLocalArraySlots lookup)
+      ar( i )\anchor = ll()\anchor  ; V1.020.070: Copy anchor for jump recalculation
       i + 1
    Next
 EndMacro
@@ -537,6 +641,9 @@ Macro                   CPC()
 EndMacro
 Macro                   _AR()
    arCode(pc)
+EndMacro
+Macro                   _LARRAY(offset)
+   (gStack(gStackDepth)\localSlotStart + offset)
 EndMacro
 ;- End of file
 
@@ -624,6 +731,10 @@ c2tokens:
    Data.i   0, 0
    Data.s   "FTOI"
    Data.i   0, 0
+   Data.s   "STOF"
+   Data.i   0, 0
+   Data.s   "STOI"
+   Data.i   0, 0
 
    Data.s   "OR"
    Data.i   0, 0
@@ -706,6 +817,8 @@ c2tokens:
    Data.s   "SemiColon"
    Data.i   0, 0
    Data.s   "Comma"
+   Data.i   0, 0
+   Data.s   "Backslash"
    Data.i   0, 0
    Data.s   "function"
    Data.i   0, 0
@@ -802,24 +915,42 @@ c2tokens:
    Data.s   "LDEC_VAR_POST"
    Data.i   0, 0
 
+   ; Pointer increment/decrement opcodes (V1.20.36)
+   Data.s   "PTRINC"
+   Data.i   0, 0
+   Data.s   "PTRDEC"
+   Data.i   0, 0
+   Data.s   "PTRINC_PRE"
+   Data.i   0, 0
+   Data.s   "PTRDEC_PRE"
+   Data.i   0, 0
+   Data.s   "PTRINC_POST"
+   Data.i   0, 0
+   Data.s   "PTRDEC_POST"
+   Data.i   0, 0
+
    ; In-place compound assignment opcodes
-   Data.s   "ADD_ASSIGN_VAR"
+   Data.s   "ADD_ASSVAR"
    Data.i   0, 0
-   Data.s   "SUB_ASSIGN_VAR"
+   Data.s   "SUB_ASSVAR"         ; ASS = ASSIGN
    Data.i   0, 0
-   Data.s   "MUL_ASSIGN_VAR"
+   Data.s   "MUL_ASSVAR"
    Data.i   0, 0
-   Data.s   "DIV_ASSIGN_VAR"
+   Data.s   "DIV_ASSVAR"
    Data.i   0, 0
-   Data.s   "MOD_ASSIGN_VAR"
+   Data.s   "MOD_ASSVAR"
    Data.i   0, 0
-   Data.s   "FLADD_ASSIGN_VAR"
+   Data.s   "FLADD_ASSVAR"
    Data.i   0, 0
-   Data.s   "FLSUB_ASSIGN_VAR"
+   Data.s   "FLSUB_ASSVAR"
    Data.i   0, 0
-   Data.s   "FLMUL_ASSIGN_VAR"
+   Data.s   "FLMUL_ASSVAR"
    Data.i   0, 0
-   Data.s   "FLDIV_ASSIGN_VAR"
+   Data.s   "FLDIV_ASSVAR"
+   Data.i   0, 0
+   Data.s   "PTRADD_ASSIGN"
+   Data.i   0, 0
+   Data.s   "PTRSUB_ASSIGN"
    Data.i   0, 0
 
    ; Built-in functions
@@ -843,95 +974,160 @@ c2tokens:
    Data.i   0, 0
    Data.s   "ARRFETCH"
    Data.i   #ljARRAYFETCH_INT, #ljARRAYFETCH_STR
-   Data.s   "ARRFETCH_INT"
+   Data.s   "IFETCHAR"
    Data.i   0, 0
-   Data.s   "ARRFETCH_FLT"
+   Data.s   "FFETCHAR"
    Data.i   0, 0
-   Data.s   "ARRFETCH_STR"
+   Data.s   "SFETCHAR"
    Data.i   0, 0
    Data.s   "ARRSTORE"
    Data.i   #ljARRAYSTORE_INT, #ljARRAYSTORE_STR
-   Data.s   "ARRSTORE_INT"
+   Data.s   "IARRSTORE"
    Data.i   0, 0
-   Data.s   "ARRSTORE_FLT"
+   Data.s   "FARRSTORE"
    Data.i   0, 0
-   Data.s   "ARRSTORE_STR"
+   Data.s   "SARRSTORE"
    Data.i   0, 0
 
    ; Specialized array fetch opcodes (no runtime branching)
-   Data.s   "ARRFETCH_INT_G_OPT"
+   Data.s   "GFETCHARINT_O"
    Data.i   0, 0
-   Data.s   "ARRFETCH_INT_G_STK"
+   Data.s   "GFETCHARINT_K"
    Data.i   0, 0
-   Data.s   "ARRFETCH_INT_L_OPT"
+   Data.s   "LFETCHARINT_O"
    Data.i   0, 0
-   Data.s   "ARRFETCH_INT_L_STK"
+   Data.s   "LFETCHARINT_K"
    Data.i   0, 0
-   Data.s   "ARRFETCH_FLT_G_OPT"
+   Data.s   "GFETCHARFLT_O"
    Data.i   0, 0
-   Data.s   "ARRFETCH_FLT_G_STK"
+   Data.s   "GFETCHARFLT_K"
    Data.i   0, 0
-   Data.s   "ARRFETCH_FLT_L_OPT"
+   Data.s   "LFETCHARFLT_O"
    Data.i   0, 0
-   Data.s   "ARRFETCH_FLT_L_STK"
+   Data.s   "LFETCHARFLT_K"
    Data.i   0, 0
-   Data.s   "ARRFETCH_STR_G_OPT"
+   Data.s   "GFETCHARSTR_O"
    Data.i   0, 0
-   Data.s   "ARRFETCH_STR_G_STK"
+   Data.s   "GFETCHARSTR_K"
    Data.i   0, 0
-   Data.s   "ARRFETCH_STR_L_OPT"
+   Data.s   "LFETCHARSTR_O"
    Data.i   0, 0
-   Data.s   "ARRFETCH_STR_L_STK"
+   Data.s   "LFETCHARSTR_K"
    Data.i   0, 0
 
    ; Specialized array store opcodes (no runtime branching)
-   Data.s   "ARSTORE_INT_G_O_O"
+   Data.s   "GISTOREAR_OO"
    Data.i   0, 0
-   Data.s   "ARSTORE_INT_G_O_S"
+   Data.s   "GISTOREAR_OS"
    Data.i   0, 0
-   Data.s   "ARSTORE_INT_G_S_O"
+   Data.s   "GISTOREAR_SO"
    Data.i   0, 0
-   Data.s   "ARSTORE_INT_G_S_S"
+   Data.s   "GISTOREAR_SS"
    Data.i   0, 0
-   Data.s   "ARSTORE_INT_L_O_O"
+   Data.s   "LISTOREAR_OO"
    Data.i   0, 0
-   Data.s   "ARSTORE_INT_L_O_S"
+   Data.s   "LISTOREAR_OS"
    Data.i   0, 0
-   Data.s   "ARSTORE_INT_L_S_O"
+   Data.s   "LISTOREAR_SO"
    Data.i   0, 0
-   Data.s   "ARSTORE_INT_L_S_S"
+   Data.s   "LISTOREAR_SS"
    Data.i   0, 0
-   Data.s   "ARSTORE_FLT_G_O_O"
+   Data.s   "GFSTOREAR_OO"
    Data.i   0, 0
-   Data.s   "ARSTORE_FLT_G_O_S"
+   Data.s   "GFSTOREAR_OS"
    Data.i   0, 0
-   Data.s   "ARSTORE_FLT_G_S_O"
+   Data.s   "GFSTOREAR_SO"
    Data.i   0, 0
-   Data.s   "ARSTORE_FLT_G_S_S"
+   Data.s   "GFSTOREAR_SS"
    Data.i   0, 0
-   Data.s   "ARSTORE_FLT_L_O_O"
+   Data.s   "LFSTOREAR_OO"
    Data.i   0, 0
-   Data.s   "ARSTORE_FLT_L_O_S"
+   Data.s   "LFSTOREAR_OS"
    Data.i   0, 0
-   Data.s   "ARSTORE_FLT_L_S_O"
+   Data.s   "LFSTOREAR_SO"
    Data.i   0, 0
-   Data.s   "ARSTORE_FLT_L_S_S"
+   Data.s   "LFSTOREAR_SS"
    Data.i   0, 0
-   Data.s   "ARSTORE_STR_G_O_O"
+   Data.s   "GSSTOREAR_OO"
    Data.i   0, 0
-   Data.s   "ARSTORE_STR_G_O_S"
+   Data.s   "GSSTOREAR_OS"
    Data.i   0, 0
-   Data.s   "ARSTORE_STR_G_S_O"
+   Data.s   "GSSTOREAR_SO"
    Data.i   0, 0
-   Data.s   "ARSTORE_STR_G_S_S"
+   Data.s   "GSSTOREAR_SS"
    Data.i   0, 0
-   Data.s   "ARSTORE_STR_L_O_O"
+   Data.s   "LSSTOREAR_OO"
    Data.i   0, 0
-   Data.s   "ARSTORE_STR_L_O_S"
+   Data.s   "LSSTOREAR_OS"
    Data.i   0, 0
-   Data.s   "ARSTORE_STR_L_S_O"
+   Data.s   "LSSTOREAR_SO"
    Data.i   0, 0
-   Data.s   "ARSTORE_STR_L_S_S"
+   Data.s   "LSSTOREAR_SS"
+   Data.i   0, 0
+
+   ; Pointer operations
+   Data.s   "GETADDR"
+   Data.i   0, 0
+   Data.s   "GETADDRF"
+   Data.i   0, 0
+   Data.s   "GETADDRS"
+   Data.i   0, 0
+   Data.s   "PTRFETCH"
+   Data.i   #ljPTRFETCH_FLOAT, #ljPTRFETCH_STR
+   Data.s   "IPTRFETCH"
+   Data.i   0, 0
+   Data.s   "FPTRFETCH"
+   Data.i   0, 0
+   Data.s   "SPTRFETCH"
+   Data.i   0, 0
+   Data.s   "PTRSTORE"
+   Data.i   #ljPTRSTORE_FLOAT, #ljPTRSTORE_STR
+   Data.s   "IPTRSTORE"
+   Data.i   0, 0
+   Data.s   "FPTRSTORE"
+   Data.i   0, 0
+   Data.s   "SPTRSTORE"
+   Data.i   0, 0
+   Data.s   "PTRFIELD_I"
+   Data.i   0, 0
+   Data.s   "PTRFIELD_F"
+   Data.i   0, 0
+   Data.s   "PTRFIELD_S"
+   Data.i   0, 0
+   Data.s   "PTRADD"
+   Data.i   0, 0
+   Data.s   "PTRSUB"
+   Data.i   0, 0
+   Data.s   "GETFUNCADDR"
+   Data.i   0, 0
+   Data.s   "CALLFUNCPTR"
+   Data.i   0, 0
+
+   ; Array pointer opcodes
+   Data.s   "GETARRAYADDR"
+   Data.i   0, 0
+   Data.s   "GETARRAYADDRF"
+   Data.i   0, 0
+   Data.s   "GETARRAYADDRS"
+   Data.i   0, 0
+
+   Data.s   "PRTPTR"
+   Data.i   0, 0
+
+   ; V1.20.27: Pointer-only opcodes (always copy metadata, no runtime checks)
+   Data.s   "PMOV"
+   Data.i   0, 0
+   Data.s   "PFETCH"
+   Data.i   0, 0
+   Data.s   "PSTORE"
+   Data.i   0, 0
+   Data.s   "PPOP"
+   Data.i   0, 0
+   Data.s   "PLFETCH"
+   Data.i   0, 0
+   Data.s   "PLSTORE"
+   Data.i   0, 0
+   Data.s   "PLMOV"
    Data.i   0, 0
 
    Data.s   "EOF"
@@ -940,8 +1136,8 @@ c2tokens:
 EndDataSection
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 299
-; FirstLine = 295
+; CursorPosition = 42
+; FirstLine = 33
 ; Folding = --
 ; Optimizer
 ; EnableAsm
@@ -950,6 +1146,6 @@ EndDataSection
 ; SharedUCRT
 ; CPU = 1
 ; EnablePurifier
-; EnableCompileCount = 23
+; EnableCompileCount = 24
 ; EnableBuildCount = 0
 ; EnableExeConstant

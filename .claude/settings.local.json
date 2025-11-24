@@ -1,21 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tac:*)",
-      "Bash(powershell -Command \"Get-Content ''d:\\OneDrive\\WIP\\Sources\\Intense.2020\\lj2\\c2-modules-V10.pb'' | Select-Object -Last 50\")",
+      "Bash(if not exist \"Examples.backup\" mkdir \"Examples.backup\")",
+      "Bash(xcopy:*)",
       "Bash(powershell -Command:*)",
-      "Bash(del \"D:\\OneDrive\\WIP\\Sources\\Intense.2020\\lj2\\Examples\\19 test quicksort.lj\")",
-      "Bash(cat:*)",
+      "Bash(del fix_escapes.ps1)",
+      "Bash(powershell -ExecutionPolicy Bypass -File fix_escape_sequences.ps1)",
       "Bash(nul)",
-      "Bash(git checkout:*)",
-      "Bash(powershell -ExecutionPolicy Bypass -File refactor-globals.ps1:*)",
-      "Bash(dir:*)",
-      "Bash(findstr:*)",
-      "Bash(powershell -ExecutionPolicy Bypass -File \"D:\\OneDrive\\WIP\\Sources\\Intense.2020\\lj2\\add-assert-prints.ps1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -File fix-stack.ps1:*)",
       "Bash(powershell:*)",
-      "Bash(del \"D:\\OneDrive\\WIP\\Sources\\Intense.2020\\lj2\\fix-semicolons.ps1\")",
-      "Bash(del \"D:\\OneDrive\\WIP\\Sources\\Intense.2020\\lj2\\remove-comment-semicolons.ps1\")"
+      "Bash(del \"D:\\OneDrive\\WIP\\Sources\\Intense.2020\\lj2\\fix_scanner.ps1\")",
+      "Bash(dir:*)",
+      "Bash(del backup_now.ps1)",
+      "Bash(findstr:*)",
+      "Bash(7z a:*)"
     ],
     "deny": [],
     "ask": []

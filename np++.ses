@@ -1,11 +1,17 @@
 <NotepadPlus>
     <Session activeView="0">
-        <mainView activeIndex="4">
-            <File firstVisibleLine="276" xOffset="0" scrollWidth="932" startPos="10570" endPos="10570" selMode="0" lang="Normal Text" encoding="-1" filename="D:\OneDrive\WIP\BOOKS\Abyss in the Knight\Marketing\_Query-AITK.txt" backupFilePath="" originalFileLastModifTimestamp="1762923316" />
+        <mainView activeIndex="10">
             <File firstVisibleLine="0" xOffset="0" scrollWidth="1324" startPos="547" endPos="535" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\ClientData\MCIT\vpn.txt" backupFilePath="D:\OneDrive\WIP\APPS\Notepad++\backup\vpn.txt@2025-11-08_120526" originalFileLastModifTimestamp="1760260624" />
-            <File firstVisibleLine="102" xOffset="0" scrollWidth="1288" startPos="2168" endPos="2168" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\Sources\Intense.2020\lj2\Examples\bug fix.lj" backupFilePath="" originalFileLastModifTimestamp="1762928664" />
-            <File firstVisibleLine="0" xOffset="0" scrollWidth="1288" startPos="1019" endPos="560" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\Sources\Intense.2020\lj2\Examples\temp.lj" backupFilePath="D:\OneDrive\WIP\APPS\Notepad++\backup\temp.lj@2025-11-12_072137" originalFileLastModifTimestamp="1762928475" />
-            <File firstVisibleLine="856" xOffset="0" scrollWidth="1288" startPos="22715" endPos="22715" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\Sources\Intense.2020\lj2\Examples\00 comprehensive test.lj" backupFilePath="" originalFileLastModifTimestamp="1762928697" />
+            <File firstVisibleLine="0" xOffset="0" scrollWidth="3857" startPos="3728" endPos="0" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\Sources\Intense.2020\lj2\Examples\22 array comprehensive.lj" backupFilePath="" originalFileLastModifTimestamp="1763031978" />
+            <File firstVisibleLine="0" xOffset="0" scrollWidth="3857" startPos="0" endPos="0" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\NOTES\jokes.txt" backupFilePath="" originalFileLastModifTimestamp="1746511408" />
+            <File firstVisibleLine="0" xOffset="0" scrollWidth="3857" startPos="422" endPos="257" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\Sources\Intense.2020\lj2\Examples\20 array sort stress test.lj" backupFilePath="" originalFileLastModifTimestamp="1763119290" />
+            <File firstVisibleLine="0" xOffset="0" scrollWidth="3857" startPos="686" endPos="686" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\NOTES\info-v7.txt" backupFilePath="D:\OneDrive\WIP\APPS\Notepad++\backup\info-v7.txt@2025-11-15_072711" originalFileLastModifTimestamp="1755338439" />
+            <File firstVisibleLine="0" xOffset="0" scrollWidth="3857" startPos="0" endPos="0" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\Sources\Intense.2020\lj2\Examples\07 Floats and Macros.lj" backupFilePath="" originalFileLastModifTimestamp="1763132668" />
+            <File firstVisibleLine="286" xOffset="0" scrollWidth="3857" startPos="10838" endPos="10838" selMode="0" lang="Normal Text" encoding="-1" filename="D:\OneDrive\WIP\BOOKS\Abyss in the Knight\Marketing\_Query-AITK.txt" backupFilePath="" originalFileLastModifTimestamp="1763106125" />
+            <File firstVisibleLine="0" xOffset="0" scrollWidth="3857" startPos="788" endPos="788" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\Sources\Intense.2020\lj2\CLAUDE.md" backupFilePath="" originalFileLastModifTimestamp="1763122357" />
+            <File firstVisibleLine="765" xOffset="0" scrollWidth="3857" startPos="23065" endPos="20188" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\Sources\Intense.2020\lj2\Examples\00 comprehensive test.lj" backupFilePath="" originalFileLastModifTimestamp="1763122477" />
+            <File firstVisibleLine="194" xOffset="0" scrollWidth="3857" startPos="6159" endPos="5344" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\Sources\Intense.2020\lj2\Examples\23 test increment operators.lj" backupFilePath="" originalFileLastModifTimestamp="1763190604" />
+            <File firstVisibleLine="0" xOffset="0" scrollWidth="3857" startPos="843" endPos="843" selMode="0" lang="Normal Text" encoding="-1" filename="D:\WIP\Sources\Intense.2020\lj2\Examples\bug fix2.lj" backupFilePath="" originalFileLastModifTimestamp="1763209597" />
         </mainView>
         <subView activeIndex="0" />
     </Session>

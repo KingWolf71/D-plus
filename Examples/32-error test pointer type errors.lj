@@ -1,0 +1,19 @@
+/* Pointer Type Error Test - V1.20.26+
+   This file contains INTENTIONAL ERRORS to demonstrate compile-time checking
+   It should FAIL to compile with clear error messages
+
+   To test: Try compiling this file and verify you get:
+   "Variable 'x' is not a pointer - cannot use pointer field access (\i, \f, \s)"
+*/
+
+#pragma appname "Pointer-Type-Errors"
+#pragma console on
+
+print("This should not compile!");
+
+// ERROR TEST 1: Using \i on a regular integer variable
+x.i = 42;
+print(x\i);  // ERROR: x is not a pointer!
+
+// If you got here, the type checking failed to catch the error
+print("ERROR: Type checking did not work!");

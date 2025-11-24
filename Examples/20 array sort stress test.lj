@@ -6,13 +6,15 @@
 #pragma appname 	"Quicksort test"
 #pragma consolesize	"420x320"
 #pragma decimals		 4
-#pragma version
+#pragma version on
 #pragma ListASM on
 #pragma floattolerance 0.00001
 #pragma FastPrint off
 #pragma RunThreaded on
 #pragma stackspace 2048
 #pragma stackdepth 24576
+#pragma PasteToClipboard on
+#pragma modulename on
 
 #define		ELEMENTS 50000
 
@@ -35,7 +37,7 @@ rnd.f = 0.0;
 while (i < ELEMENTS) {
 	rnd = (random(1000, 40000000) + 0.1 )/ random(500,257733);
     data[i] = rnd;
-    i = i + 1;
+    i++;
 }
 
 print("Array filled.");
@@ -69,17 +71,17 @@ function partition(arr_slot, left, right) {
     j = left;
     while (j < right) {
         if (data[j] <= pivot) {
-            i = i + 1;
+            i++;
             // Swap data[i] and data[j]
             temp.f = data[i];
             data[i] = data[j];
             data[j] = temp;
         }
-        j = j + 1;
+        j++;
     }
 
     // Place pivot in correct position
-    i = i + 1;
+    i++;
     temp.f = data[i];
     data[i] = data[right];
     data[right] = temp;

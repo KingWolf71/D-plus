@@ -7,13 +7,14 @@
 #pragma console on
 #pragma optimizecode on
 #pragma ListASM on
-#pragma version
+#pragma version on
 #pragma floattolerance 0.00001
 #pragma FastPrint on
 #pragma RunThreaded on
 #pragma consolesize	"520x820"
 #pragma stackspace 512
 #pragma stackdepth 3072
+#pragma PasteToClipboard on
 
 print("LJ2 COMPREHENSIVE FEATURE TEST SUITE");
 print("-------------------------------------");
@@ -278,7 +279,7 @@ print("Count up 1-5: ");
 counter = 1;
 while (counter <= 5) {
     print(counter, " ");
-    counter = counter + 1;
+    counter++;
 }
 
 // While with condition
@@ -286,7 +287,7 @@ print("Count down 10-7: ");
 countdown = 10;
 while (countdown >= 7) {
     print(countdown, " ");
-    countdown = countdown - 1;
+    countdown--;
 }
 
 // Nested while loops
@@ -297,9 +298,9 @@ while (i <= 3) {
     while (j <= 3) {
         product = i * j;
         print(product, " ");
-        j = j + 1;
+        j++;
     }
-    i = i + 1;
+    i++;
 }
 
 // While with break-like logic (sum until > 100)
@@ -307,8 +308,8 @@ print("Sum until > 100: ");
 sum = 0;
 num = 1;
 while (sum <= 100) {
-    sum = sum + num;
-    num = num + 1;
+    sum += num;
+    num++;
 }
 print(sum, " (first sum > 100)");
 
@@ -319,7 +320,7 @@ print("SECTION 7: Functions - Basic");
 print("----------------------------");
 
 // Function with no parameters
-func greet() {
+func greet.i() {
     return 42;
 }
 
@@ -329,7 +330,7 @@ print("Test: greeting = 42");
 assertEqual(42, greeting);
 
 // Function with one parameter
-func square(n) {
+func square.i(n.i) {
     return n * n;
 }
 
@@ -339,7 +340,7 @@ print("Test: sq5 = 25");
 assertEqual(25, sq5);
 
 // Function with two parameters
-func add(a, b) {
+func add.i(a.i, b.i) {
     return a + b;
 }
 
@@ -349,7 +350,7 @@ print("Test: sum12 = 12");
 assertEqual(12, sum12);
 
 // Function with three parameters
-func volume(length, width, height) {
+func volume.i(length.i, width.i, height.i) {
     return length * width * height;
 }
 
@@ -358,8 +359,8 @@ vol = volume(3, 4, 5);
 print("Test: vol = 60");
 assertEqual(60, vol);
 
-// Function returning float
-func divide(a, b) {
+// Function returning int (integer division)
+func divide.i(a.i, b.i) {
     return a / b;
 }
 
@@ -375,7 +376,7 @@ print("SECTION 8: Functions - Recursion");
 print("--------------------------------");
 
 // Factorial
-func factorial(n) {
+func factorial.i(n.i) {
     if (n <= 1) {
         return 1;
     }
@@ -391,7 +392,7 @@ print("Test: fact7 = 5040");
 assertEqual(5040, fact7);
 
 // Fibonacci
-func fibonacci(n) {
+func fibonacci.i(n.i) {
     if (n <= 1) {
         return n;
     }
@@ -407,7 +408,7 @@ print("Test: fib10 = 55");
 assertEqual(55, fib10);
 
 // Sum of digits (recursive)
-func sumDigits(n) {
+func sumDigits.i(n.i) {
     if (n < 10) {
         return n;
     }
@@ -424,11 +425,11 @@ assertEqual(15, digitSum);
 print("SECTION 9: Functions - Nested Calls");
 print("-----------------------------------");
 
-func double(n) {
+func double.i(n.i) {
     return n * 2;
 }
 
-func triple(n) {
+func triple.i(n.i) {
     return n * 3;
 }
 
@@ -448,7 +449,7 @@ print("Test: nested3 = 25");
 assertEqual(25, nested3);
 
 // Complex nesting
-func compute(a, b, c) {
+func compute.i(a.i, b.i, c.i) {
     return a * b + c;
 }
 
@@ -462,7 +463,7 @@ assertEqual(46, nested4);
 print("SECTION 10: Functions - Multiple Returns");
 print("----------------------------------------");
 
-func classify(n) {
+func classify.i(n.i) {
     if (n < 0) {
         return -1;
     }
@@ -485,13 +486,13 @@ print("Test: class3 = 1");
 assertEqual(1, class3);
 
 // Early return
-func findFirst(target) {
+func findFirst.i(target.i) {
     i = 0;
     while (i < 100) {
         if (i == target) {
             return i;
         }
-        i = i + 1;
+        i++;
     }
     return -1;
 }
@@ -554,7 +555,7 @@ print("---------------------------");
 
 globalX = 100;
 
-func testLocal() {
+func testLocal.i() {
     localX = 42;
     return localX;
 }
@@ -568,7 +569,7 @@ assertEqual(100, globalX);
 // Parameters are local
 globalA = 999;
 
-func testParam(globalA) {
+func testParam.i(globalA.i) {
     return globalA * 2;
 }
 
@@ -579,7 +580,7 @@ print("Test: globalA = 999");
 assertEqual(999, globalA);
 
 // Multiple local variables
-func multiLocal(a, b) {
+func multiLocal.i(a.i, b.i) {
     temp1 = a * 2;
     temp2 = b * 3;
     return temp1 + temp2;
@@ -642,7 +643,7 @@ print("Test: deepFact = 3628800");
 assertEqual(3628800, deepFact);
 
 // Many parameters
-func sixParams(a, b, c, d, e, f) {
+func sixParams.i(a.i, b.i, c.i, d.i, e.i, f.i) {
     return a + b + c + d + e + f;
 }
 
@@ -706,7 +707,7 @@ print("SECTION 17: Real-world Algorithms");
 print("---------------------------------");
 
 // GCD (Greatest Common Divisor)
-func gcd(a, b) {
+func gcd.i(a.i, b.i) {
     while (b != 0) {
         temp = b;
         b = a % b;
@@ -720,7 +721,7 @@ print("Test: gcdResult = 6");
 assertEqual(6, gcdResult);
 
 // Prime checker
-func isPrime(n) {
+func isPrime.i(n.i) {
     if (n <= 1) {
         return 0;
     }
@@ -732,7 +733,7 @@ func isPrime(n) {
         if (n % i == 0) {
             return 0;
         }
-        i = i + 1;
+        i++;
     }
     return 1;
 }
@@ -746,15 +747,15 @@ print("Test: prime18 = 0");
 assertEqual(0, prime18);
 
 // Power function
-func power(base, exp) {
+func power.i(base.i, exp.i) {
     if (exp == 0) {
         return 1;
     }
     result = 1;
     i = 0;
     while (i < exp) {
-        result = result * base;
-        i = i + 1;
+        result *= base;
+        i++;
     }
     return result;
 }
@@ -783,7 +784,7 @@ print("Float var: ", floatVar, " (expected: 3.14159)");
 print("String var: ", stringVar, " (expected: Hello)");
 
 // Typed function signatures
-func squareInt(num) {
+func squareInt.i(num.i) {
     return num * num;
 }
 
@@ -801,32 +802,32 @@ sqFloat.f = squareFloat(2.5);
 print("Test: sqFloat ~= 6.25 (float)");
 assertFloatEqual(6.25, sqFloat);
 
-// Automatic parameter type conversion: FLOAT -> INT
+// Parameter type conversion: FLOAT -> INT (explicit cast required)
 floatParam.f = 3.7;
-sqConverted = squareInt(floatParam);
-print("Test: sqConverted = 16");
-assertEqual(16, sqConverted);
+sqConverted = squareInt((int)floatParam);
+print("Test: sqConverted = 9");
+assertEqual(9, sqConverted);
 
-// Automatic parameter type conversion: INT -> FLOAT
+// Parameter type conversion: INT -> FLOAT (explicit cast required)
 intParam = 4;
-sqFloatConverted.f = squareFloat(intParam);
+sqFloatConverted.f = squareFloat((float)intParam);
 print("Test: sqFloatConverted ~= 16.0 (float)");
 assertFloatEqual(16.0, sqFloatConverted);
 
-// Automatic assignment type conversion: INT -> FLOAT
+// Assignment type conversion: INT -> FLOAT (explicit cast required)
 assignInt = 42;
-assignFloat.f = assignInt;
+assignFloat.f = (float)assignInt;
 print("Test: assignFloat ~= 42.0 (float)");
 assertFloatEqual(42.0, assignFloat);
 
-// Automatic assignment type conversion: FLOAT -> INT
+// Assignment type conversion: FLOAT -> INT (explicit cast required)
 assignFloatVal.f = 9.8;
-assignIntVal = assignFloatVal;
+assignIntVal = (int)assignFloatVal;
 print("Test: assignIntVal = 9");
 assertEqual(9, assignIntVal);
 
-// Automatic assignment type conversion: function return
-func returnInt() {
+// Function return type conversion (explicit casts in following tests)
+func returnInt.i() {
     return 100;
 }
 
@@ -834,23 +835,23 @@ func returnFloat.f() {
     return 2.718;
 }
 
-// INT function result to FLOAT variable
-floatFromInt.f = returnInt();
+// INT function result to FLOAT variable (explicit cast)
+floatFromInt.f = (float)returnInt();
 print("Test: floatFromInt ~= 100.0 (float)");
 assertFloatEqual(100.0, floatFromInt);
 
-// FLOAT function result to INT variable
-intFromFloat = returnFloat();
+// FLOAT function result to INT variable (explicit cast)
+intFromFloat = (int)returnFloat();
 print("Test: intFromFloat = 2");
 assertEqual(2, intFromFloat);
 
 // Automatic return type conversion
-func returnIntButGiveFloat() {
-    return 3.14159;
+func returnIntButGiveFloat.i() {
+    return (int)3.14159;  // Explicit cast in return
 }
 
 func returnFloatButGiveInt.f() {
-    return 42;
+    return (float)42;  // Explicit cast in return
 }
 
 piAsInt = returnIntButGiveFloat();
@@ -861,11 +862,11 @@ intAsFloat.f = returnFloatButGiveInt();
 print("Test: intAsFloat ~= 42.0 (float)");
 assertFloatEqual(42.0, intAsFloat);
 
-// Complex type conversion chain
-func complexChain.f(a.f, b) {
-    tempInt = a;           // FLOAT -> INT in assignment
-    tempFloat.f = b;       // INT -> FLOAT in assignment
-    return tempInt + tempFloat;
+// Complex type conversion chain (with explicit casts)
+func complexChain.f(a.f, b.i) {
+    tempInt = (int)a;           // FLOAT -> INT explicit cast
+    tempFloat.f = (float)b;     // INT -> FLOAT explicit cast
+    return (float)tempInt + tempFloat;
 }
 
 chainResult.f = complexChain(5.8, 3);
@@ -873,7 +874,7 @@ print("Test: chainResult ~= 8.0 (float)");
 assertFloatEqual(8.0, chainResult);
 
 // Nested calls with type conversion
-func addInts(a, b) {
+func addInts.i(a.i, b.i) {
     return a + b;
 }
 
@@ -881,8 +882,8 @@ func multiplyFloats.f(x.f, y.f) {
     return x * y;
 }
 
-// Pass float function result to int function
-nestedConv = addInts(multiplyFloats(2.5, 2.0), 10);
+// Pass float function result to int function (explicit cast)
+nestedConv = addInts((int)multiplyFloats(2.5, 2.0), 10);
 print("Test: nestedConv = 15");
 assertEqual(15, nestedConv);
 
@@ -949,7 +950,7 @@ print("Test: floatTern1 ~= 5.5 (float)");
 assertFloatEqual(5.5, floatTern1);
 
 // Ternary in function call
-func useResult(val) {
+func useResult.i(val.i) {
     return val * 2;
 }
 

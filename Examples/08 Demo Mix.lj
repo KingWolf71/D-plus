@@ -5,7 +5,8 @@
 #pragma "ListASM" "on"
 #pragma "version"
 
-print( "First line\n" );
+print( "First line" );
+print("");
 
 a = (-1 * ((-1 * (5 * 15)) / 10));
 print(a);
@@ -27,9 +28,11 @@ print(phoenix_number);
 
 /*** test printing, embedded \n and comments with lots of '*' ***/
 print(42);
-print ("\n");
-print("\nHello World\nGood Bye\nok");
-print("Print a slash n - \\n.");
+print("");
+print("");
+print("Hello World");
+print("Good Bye");
+print("ok");
 
 print(- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -+ + +5);
 print(((((((((3 + 2) * ((((((2))))))))))))));
@@ -47,7 +50,7 @@ while (i < n) {
     w = a + b;
     a = b;
     b = w;
-    i = i + 1;
+    i++;
 }
 print(w);
 
@@ -58,8 +61,8 @@ n = 12;
 result = 1;
 i = 1;
 while (i <= n) {
-    result = result * i;
-    i = i + 1;
+    result *= i;
+    i++;
 }
 print(result);
 
@@ -74,7 +77,8 @@ while (b != 0) {
     b     = a % b;
     a     = new_a;
 }
-print(a, "\n");
+print(a);
+print("");
  
  
 /* FizzBuzz */
@@ -88,11 +92,11 @@ while (i <= 25) {
         print("Buzz");
     else
         print(i);
- 
-    i = i + 1;
+
+    i++;
 }
 
-print( "\n" );
+print("");
 
 /*
  Simple prime number generator
@@ -110,7 +114,7 @@ while (n < limit) {
     }
     if (p) {
         print(n, " is prime");
-        count = count + 1;
+        count++;
     }
 }
 print("Total primes found: ", count); 

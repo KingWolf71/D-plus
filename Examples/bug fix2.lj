@@ -7,29 +7,27 @@
 #pragma consolesize "560x590"
 #pragma optimizecode on
 #pragma ListASM on
-#pragma version
 #pragma FastPrint on
 #pragma RunThreaded on
 #pragma ftoi "truncate"
+#pragma "version" on
+#pragma modulename on
+#pragma PasteToClipboard on
+#pragma floattolerance 0.001
+#pragma stackspace 2048
+#pragma stackdepth 1024
 
-/* =============================================================================
-   SECTION 7: COMPOUND ASSIGNMENT - FLOATS (+=, -=, *=, /=)
-   ============================================================================= */
-print("SECTION 7: Compound Assignment (Floats)");
-print("----------------------------------------");
+// Explicit type declarations
+intVar = 42;
+floatVar.f = 3.14159;
+stringVar.s = "Hello";
 
-
-print("Test: Chained float compound assignments");
-x.f = 5.0;
-x += 3.5;
-x *= 2.0;
-x -= 4.0;
-x /= 2.0;
-assertFloatEqual(6.5, x);
-
+print("Int var: ", intVar, " (expected: 42)");
+print("Float var: ", floatVar, " (expected: 3.14159)");
+print("String var: ", stringVar, " (expected: Hello)");
 
 // Typed function signatures
-func squareInt(num) {
+func squareInt.i(num.i) {
     return num * num;
 }
 
@@ -37,31 +35,117 @@ func squareFloat.f(num.f) {
     return num * num;
 }
 
-// Automatic assignment type conversion: FLOAT -> INT
+// Test INT function with INT param
+sqInt = squareInt(5);
+print("Test: sqInt = 25");
+assertEqual(25, sqInt);
+
+// Test FLOAT function with FLOAT param
+sqFloat.f = squareFloat(2.5);
+print("Test: sqFloat ~= 6.25 (float)");
+assertFloatEqual(6.25, sqFloat);
+
+// Automatic parameter type conversion: FLOAT -> INT
+floatParam.f = 3.7;
+sqConverted = squareInt(floatParam);
+print("Test: sqConverted = 9");
+assertEqual(9, sqConverted);
+
+// Automatic parameter type conversion: INT -> FLOAT
+intParam = 4;
+sqFloatConverted.f = squareFloat(intParam);
+print("Test: sqFloatConverted ~= 16.0 (float)");
+assertFloatEqual(16.0, sqFloatConverted);
+
+// Assignment type conversion: INT -> FLOAT (explicit cast required)
+assignInt = 42;
+assignFloat.f = (float)assignInt;
+print("Test: assignFloat ~= 42.0 (float)");
+assertFloatEqual(42.0, assignFloat);
+
+// Assignment type conversion: FLOAT -> INT (explicit cast required)
 assignFloatVal.f = 9.8;
-assignIntVal = assignFloatVal;
+assignIntVal = (int)assignFloatVal;
 print("Test: assignIntVal = 9");
 assertEqual(9, assignIntVal);
 
+// Function return type conversion (explicit casts in following tests)
+func returnInt.i() {
+    return 100;
+}
 
 func returnFloat.f() {
     return 2.718;
 }
 
+// INT function result to FLOAT variable (explicit cast)
+floatFromInt.f = (float)returnInt();
+print("Test: floatFromInt ~= 100.0 (float)");
+assertFloatEqual(100.0, floatFromInt);
 
-// FLOAT function result to INT variable
-intFromFloat = returnFloat();
+// FLOAT function result to INT variable (explicit cast)
+intFromFloat = (int)returnFloat();
 print("Test: intFromFloat = 2");
 assertEqual(2, intFromFloat);
 
-// Complex type conversion chain
-func complexChain.f(a.f, b) {
-    tempInt = a;           // FLOAT -> INT in assignment
-    tempFloat.f = b;       // INT -> FLOAT in assignment
-    return tempInt + tempFloat;
+// Automatic return type conversion
+func returnIntButGiveFloat.i() {
+    return (int)3.14159;  // Explicit cast in return
+}
+
+func returnFloatButGiveInt.f() {
+    return (float)42;  // Explicit cast in return
+}
+
+piAsInt = returnIntButGiveFloat();
+print("Test: piAsInt = 3");
+assertEqual(3, piAsInt);
+
+intAsFloat.f = returnFloatButGiveInt();
+print("Test: intAsFloat ~= 42.0 (float)");
+assertFloatEqual(42.0, intAsFloat);
+
+// Complex type conversion chain (with explicit casts)
+func complexChain.f(a.f, b.i) {
+    tempInt = (int)a;           // FLOAT -> INT explicit cast
+    tempFloat.f = (float)b;     // INT -> FLOAT explicit cast
+    return (float)tempInt + tempFloat;
 }
 
 chainResult.f = complexChain(5.8, 3);
 print("Test: chainResult ~= 8.0 (float)");
 assertFloatEqual(8.0, chainResult);
+
+// Nested calls with type conversion
+func addInts.i(a.i, b.i) {
+    return a + b;
+}
+
+func multiplyFloats.f(x.f, y.f) {
+    return x * y;
+}
+
+// Pass float function result to int function (explicit cast)
+nestedConv = addInts((int)multiplyFloats(2.5, 2.0), 10);
+print("Test: nestedConv = 15");
+assertEqual(15, nestedConv);
+
+/* 
+FizzBuzz 
+*/
+
+i = 1;
+while (i <= 25) {
+    if (!(i % 15))
+        print("FizzBuzz");
+    else if (!(i % 3))
+        print("Fizz");
+    else if (!(i % 5))
+        print("Buzz");
+    else
+        print(i);
+
+    i++;
+}
+
 

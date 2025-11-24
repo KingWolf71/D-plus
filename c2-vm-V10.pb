@@ -24,6 +24,7 @@ DeclareModule C2VM
 
    ; Batch mode output (always declared, only used when #C2_BATCH_MODE is enabled)
    Global            gBatchOutput.s
+   Global            gModulename.s
 EndDeclareModule
 
 Module C2VM
@@ -48,52 +49,65 @@ Module C2VM
       ss.s
       i.i
       f.d
-      *ptr              
+      *ptr
+      ptrtype.w         ; Pointer type tag (0=not pointer, 1=int, 2=float, 3=string, 4-6=array, 7=function)
    EndStructure
-   
+
    Structure stVTArray
-      size.l
-      desc.s
-      Array ar.stVTSimple(0)
+      size.l            ; Number of elements in array
+      desc.s            ; Array description (for debugging)
+      Array ar.stVTSimple(0)  ; Dynamic array of elements
    EndStructure
-   
+
    Structure stVT
       ss.s
       i.i
       f.d
-      *ptr              
+      *ptr
+      ptrtype.w         ; Pointer type tag (0=not pointer, 1=int, 2=float, 3=string, 4-6=array, 7=function)
       dta.stVTArray
    EndStructure
 
    Structure stStack
-      sp.l
-      pc.l
-      Array LocalInt.i(0)      ; Dynamic array for function's local integer variables (params + locals)
-      Array LocalFloat.d(0)    ; Dynamic array for function's local float variables (params + locals)
-      Array LocalString.s(0)   ; Dynamic array for function's local string variables (params + locals)
-      Array LocalArrays.stVT(0) ; Dynamic array for function's local array variables (each has its own ar())
+      sp.l                     ; Saved stack pointer
+      pc.l                     ; Saved program counter
+      localSlotStart.l         ; First gVar[] slot allocated for this call's locals
+      localSlotCount.l         ; Number of local variable slots allocated (params + locals)
+      ; REMOVED: LocalInt/Float/String/Arrays - now using unified gVar[] array
+      ; V1.18.0: All variables (global and local) use the same gVar[] array
    EndStructure
 
    ;- Globals
-   Global            sp                   = 0           ; stack pointer
-   Global            pc                   = 0           ; Process stack
-   Global            cy                   = 0
-   Global            cs                   = 0
-   Global            gFastPrint.b         = #False
-   Global            gRunThreaded.b       = #True
-   Global            gExitApplication
-   Global            cline.s
-   Global            gDecs                = 3
-   Global            gFloatTolerance.d    = 0.00001
-   Global            gFunctionDepth       = 0       ; Fast function depth counter (avoids ListSize)
-   Global            gStackDepth          = -1      ; Current stack frame index (-1 = no frames)
+   Global               sp                   = 0           ; stack pointer
+   Global               pc                   = 0           ; Process stack
+   Global               cy                   = 0
+   Global               cs                   = 0
+   Global               gFunctionDepth       = 0       ; Fast function depth counter (avoids ListSize)
+   Global               gStackDepth          = -1      ; Current stack frame index (-1 = no frames)
+   Global               gCurrentMaxLocal     = 0       ; Highest gVar[] slot currently used by locals (V1.18.0)   
+   Global               gDecs                = 3
+   Global               gExitApplication     = 0   
+   Global               gFunctionDepth       = 2048       ; Fast function depth counter (avoids ListSize)
+   Global               gMaxStackSpace       = 2048
+   Global               gMaxStackDepth       = 1024
+   Global               gWidth.i             = 640,
+                        gHeight.i            = 340   
+   
+   Global               gShowModulename      = #False
+   Global               gFastPrint.w         = #False
+   Global               gListASM.w           = #False
+   Global               gPasteToClipboard    = #False
+   Global               gShowversion         = #False
+   Global               gRunThreaded.w       = #True
+   Global               gConsole.w           = #True
+   
+   Global               gFloatTolerance.d    = 0.00001
+   Global               cline.s              = ""
+   Global               gszAppname.s         = "Unnamed"
 
-   ; gBatchOutput declared in DeclareModule, initialized here
-   gBatchOutput = ""
-
-   Global Dim        *ptrJumpTable(1)
-   Global Dim        gVar.stVT(#C2MAXCONSTANTS)
-   Global Dim        gStack.stStack(gMaxStackDepth - 1)
+   Global Dim           *ptrJumpTable(1)
+   Global Dim           gVar.stVT(#C2MAXCONSTANTS)
+   Global Dim           gStack.stStack(gMaxStackDepth - 1)
    
    ;- Macros
    Macro             vm_ConsoleOrGUI( mytext )
@@ -105,11 +119,29 @@ Module C2VM
    EndMacro
    Macro             vm_Comparators( operator )
       sp - 1
+      CompilerIf #DEBUG
+         Protected cmpLeft.i = gVar(sp-1)\i
+         Protected cmpRight.i = gVar(sp)\i
+         Protected cmpResult.i
+      CompilerEndIf
       If gVar(sp-1)\i operator gVar(sp)\i
          gVar(sp-1)\i = 1
+         CompilerIf #DEBUG
+            cmpResult = 1
+         CompilerEndIf
       Else
          gVar(sp-1)\i = 0
+         CompilerIf #DEBUG
+            cmpResult = 0
+         CompilerEndIf
       EndIf
+      CompilerIf #DEBUG
+         ; V1.020.090: Only debug when comparing with negative values
+         ; V1.020.093: Disabled to reduce output noise
+         ;If cmpLeft < 0 Or cmpRight < 0
+         ;   Debug "C2CMP: pc=" + Str(pc) + " left=" + Str(cmpLeft) + " right=" + Str(cmpRight) + " result=" + Str(cmpResult) + " sp=" + Str(sp) + " depth=" + Str(gStackDepth)
+         ;EndIf
+      CompilerEndIf
       pc + 1
    EndMacro
    Macro             vm_BitOperation( operand )
@@ -131,8 +163,26 @@ Module C2VM
       gVar(sp - 1)\f = gVar(sp - 1)\f operand gVar( sp )\f
       pc + 1
    EndMacro
+   Macro             vm_SetGlobalFromPragma(reverse, pragma, gvariable)
+      temp  = mapPragmas(pragma)       ; do I need an LCase here?
+      
+      CompilerIf reverse
+         If temp = "off" Or temp = "0" Or temp = "false"
+            gvariable = #False
+         Else
+            gvariable = #True
+         EndIf
+      CompilerElse
+         If temp = "on" Or temp = "1" Or temp = "true"
+            gvariable = #True
+         Else
+            gvariable = #False
+         EndIf
+      CompilerEndIf
+   EndMacro
   
-   XIncludeFile      "c2-vm-commands-v08.pb"
+   XIncludeFile      "c2-vm-commands-v09.pb"
+   XIncludeFile      "c2-pointers-v01.pbi"
 
    ;- Console GUI
    Procedure         MainWindow(name.s)
@@ -201,6 +251,13 @@ Module C2VM
       *ptrJumpTable( #ljLDEC_VAR_PRE )    = @C2LDEC_VAR_PRE()
       *ptrJumpTable( #ljLINC_VAR_POST )   = @C2LINC_VAR_POST()
       *ptrJumpTable( #ljLDEC_VAR_POST )   = @C2LDEC_VAR_POST()
+      ; Pointer increment/decrement opcodes (V1.20.36)
+      *ptrJumpTable( #ljPTRINC )          = @C2PTRINC()
+      *ptrJumpTable( #ljPTRDEC )          = @C2PTRDEC()
+      *ptrJumpTable( #ljPTRINC_PRE )      = @C2PTRINC_PRE()
+      *ptrJumpTable( #ljPTRDEC_PRE )      = @C2PTRDEC_PRE()
+      *ptrJumpTable( #ljPTRINC_POST )     = @C2PTRINC_POST()
+      *ptrJumpTable( #ljPTRDEC_POST )     = @C2PTRDEC_POST()
       ; In-place compound assignment opcodes
       *ptrJumpTable( #ljADD_ASSIGN_VAR )  = @C2ADD_ASSIGN_VAR()
       *ptrJumpTable( #ljSUB_ASSIGN_VAR )  = @C2SUB_ASSIGN_VAR()
@@ -211,6 +268,8 @@ Module C2VM
       *ptrJumpTable( #ljFLOATSUB_ASSIGN_VAR ) = @C2FLOATSUB_ASSIGN_VAR()
       *ptrJumpTable( #ljFLOATMUL_ASSIGN_VAR ) = @C2FLOATMUL_ASSIGN_VAR()
       *ptrJumpTable( #ljFLOATDIV_ASSIGN_VAR ) = @C2FLOATDIV_ASSIGN_VAR()
+      *ptrJumpTable( #ljPTRADD_ASSIGN )       = @C2PTRADD_ASSIGN()
+      *ptrJumpTable( #ljPTRSUB_ASSIGN )       = @C2PTRSUB_ASSIGN()
       ; Type conversion opcodes
       *ptrJumpTable( #ljITOF )            = @C2ITOF()
       ; Note: FTOI is set dynamically based on #pragma ftoi (see below)
@@ -239,7 +298,8 @@ Module C2VM
       *ptrJumpTable( #ljPRTC )            = @C2PRTC()
       *ptrJumpTable( #ljPRTI )            = @C2PRTI()
       *ptrJumpTable( #ljPRTF )            = @C2PRTF()
-      
+      *ptrJumpTable( #ljPRTPTR )          = @C2PRTPTR()
+
       *ptrJumpTable( #ljFLOATNEG )        = @C2FLOATNEGATE()
       *ptrJumpTable( #ljFLOATDIV )        = @C2FLOATDIVIDE()
       *ptrJumpTable( #ljFLOATADD )        = @C2FLOATADD()
@@ -256,6 +316,8 @@ Module C2VM
       *ptrJumpTable( #ljFTOS )            = @C2FTOS()
       *ptrJumpTable( #ljITOS )            = @C2ITOS()
       *ptrJumpTable( #ljITOF )            = @C2ITOF()
+      *ptrJumpTable( #ljSTOF )            = @C2STOF()
+      *ptrJumpTable( #ljSTOI )            = @C2STOI()
       ; FTOI is set dynamically in RunVM() based on #pragma ftoi
 
       *ptrJumpTable( #ljCall )            = @C2CALL()
@@ -322,10 +384,43 @@ Module C2VM
       *ptrJumpTable( #ljARRAYSTORE_STR_LOCAL_STACK_OPT )      = @C2ARRAYSTORE_STR_LOCAL_STACK_OPT()
       *ptrJumpTable( #ljARRAYSTORE_STR_LOCAL_STACK_STACK )    = @C2ARRAYSTORE_STR_LOCAL_STACK_STACK()
 
+      ; Pointer operations
+      *ptrJumpTable( #ljGETADDR )         = @C2GETADDR()
+      *ptrJumpTable( #ljGETADDRF )        = @C2GETADDRF()
+      *ptrJumpTable( #ljGETADDRS )        = @C2GETADDRS()
+      *ptrJumpTable( #ljPTRFETCH )        = @C2PTRFETCH()
+      *ptrJumpTable( #ljPTRFETCH_INT )    = @C2PTRFETCH_INT()
+      *ptrJumpTable( #ljPTRFETCH_FLOAT )  = @C2PTRFETCH_FLOAT()
+      *ptrJumpTable( #ljPTRFETCH_STR )    = @C2PTRFETCH_STR()
+      *ptrJumpTable( #ljPTRSTORE )        = @C2PTRSTORE()
+      *ptrJumpTable( #ljPTRSTORE_INT )    = @C2PTRSTORE_INT()
+      *ptrJumpTable( #ljPTRSTORE_FLOAT )  = @C2PTRSTORE_FLOAT()
+      *ptrJumpTable( #ljPTRSTORE_STR )    = @C2PTRSTORE_STR()
+      *ptrJumpTable( #ljPTRADD )          = @C2PTRADD()
+      *ptrJumpTable( #ljPTRSUB )          = @C2PTRSUB()
+      *ptrJumpTable( #ljGETFUNCADDR )     = @C2GETFUNCADDR()
+      *ptrJumpTable( #ljCALLFUNCPTR )     = @C2CALLFUNCPTR()
+      
+      *ptrJumpTable(#ljPMOV) = @C2PMOV()
+      *ptrJumpTable(#ljPFETCH) = @C2PFETCH()
+      *ptrJumpTable(#ljPSTORE) = @C2PSTORE()
+      *ptrJumpTable(#ljPPOP) = @C2PPOP()
+      *ptrJumpTable(#ljPLFETCH) = @C2PLFETCH()
+      *ptrJumpTable(#ljPLSTORE) = @C2PLSTORE()
+      *ptrJumpTable(#ljPLMOV) = @C2PLMOV()
+
+      ; Array pointer opcodes
+      *ptrJumpTable( #ljGETARRAYADDR )    = @C2GETARRAYADDR()
+      *ptrJumpTable( #ljGETARRAYADDRF )   = @C2GETARRAYADDRF()
+      *ptrJumpTable( #ljGETARRAYADDRS )   = @C2GETARRAYADDRS()
+
       *ptrJumpTable( #ljNOOP )            = @C2NOOP()
       *ptrJumpTable( #ljNOOPIF )          = @C2NOOP()
       *ptrJumpTable( #ljfunction )        = @C2NOOP()  ; Function marker - no-op at runtime
       *ptrJumpTable( #ljHALT )            = @C2HALT()
+
+      ; Initialize pointer function pointers for performance
+      InitPointerFunctions()
 
    EndProcedure
 
@@ -335,10 +430,21 @@ Module C2VM
       ; In the future, this will read from JSON/XML instead of gVarMeta
       Protected i
 
+      CompilerIf #DEBUG
+         Debug "=== vmTransferMetaToRuntime: Transferring " + Str(gnLastVariable) + " variables ==="
+      CompilerEndIf
+
       For i = 0 To gnLastVariable - 1
          gVar(i)\i = gVarMeta(i)\valueInt
          gVar(i)\f = gVarMeta(i)\valueFloat
          gVar(i)\ss = gVarMeta(i)\valueString
+
+         ; V1.020.064: Debug constant transfers
+         CompilerIf #DEBUG
+            If gVarMeta(i)\flags & #C2FLAG_CONST And i >= gnGlobalVariables
+               Debug "  Transfer constant [" + Str(i) + "]: i=" + Str(gVarMeta(i)\valueInt) + " f=" + StrD(gVarMeta(i)\valueFloat, 6) + " ss='" + gVarMeta(i)\valueString + "'"
+            EndIf
+         CompilerEndIf
 
          ; Allocate array storage if this is an array variable
          If gVarMeta(i)\flags & #C2FLAG_ARRAY And gVarMeta(i)\arraySize > 0
@@ -351,9 +457,10 @@ Module C2VM
    Procedure            vmClearRun()
       Protected         i
 
-      ; Clear runtime values but preserve compilation metadata
+      ; Clear runtime values but preserve compilation metadata AND constants
       ; IMPORTANT: Don't clear flags or paramOffset - they're set during compilation!
-      For i = 0 To ArraySize( gVar() )
+      ; V1.020.062: Only clear runtime globals (0 to gnGlobalVariables-1), NOT compile-time constants
+      For i = 0 To gnGlobalVariables - 1
          gVar( i )\f = 0
          gVar( i )\ss = ""
          gVar( i )\i = 0
@@ -362,6 +469,7 @@ Module C2VM
       ; Clear the call stack
       gStackDepth = -1
       gFunctionDepth = 0
+      gCurrentMaxLocal = gnLastVariable  ; V1.020.065: Reset to start after all compile-time allocations
 
       ; Stop any running code by resetting pc and putting HALT at start
       pc = 0
@@ -369,6 +477,20 @@ Module C2VM
       arCode(0)\i = 0
       arCode(0)\j = 0
 
+   EndProcedure
+   
+   Procedure         vmListCode()
+      Protected      i
+      Protected      flag
+      Protected.s    temp, line
+      
+      While arCode( i )\code <> #ljEOF
+         ASMLine( arCode( i ), 1 )
+         vm_ConsoleOrGUI( line )
+         i + 1
+      Wend
+      
+      vm_ConsoleOrGUI( "" )
    EndProcedure
    
    Procedure         vmExecute(*p = 0)
@@ -386,7 +508,8 @@ Module C2VM
       vmTransferMetaToRuntime()
 
       t     = ElapsedMilliseconds()
-      sp    = gnLastVariable
+      sp    = gnLastVariable  ; V1.020.065: Use gnLastVariable (all allocations) to prevent locals from overwriting constants in slots 64-75
+      gCurrentMaxLocal = gnLastVariable  ; V1.020.065: Start local allocator after all compile-time allocations
       cy    = 0
       pc    = 0
       ReDim arProfiler( gnTotalTokens )
@@ -422,9 +545,23 @@ Module C2VM
          opcode = CPC()
       Wend
       
-      endline  = "Runtime: " + FormatNumber( (ElapsedMilliseconds() - t ) / 1000 ) + " seconds. Stack=" + Str(sp - gnLastVariable)
-      
-      If mapPragmas("version")
+      endline  = "Runtime: " + FormatNumber( (ElapsedMilliseconds() - t ) / 1000 ) + " seconds. Stack=" + Str(sp - gnLastVariable) + " (sp=" + Str(sp) + " gnLastVariable=" + Str(gnLastVariable) + ")"
+
+      ; V1.020.065: Debug leaked stack values (stack should be empty: sp == gnLastVariable)
+      If sp <> gnLastVariable
+         CompilerIf #DEBUG
+            Debug "*** STACK IMBALANCE DETECTED ***"
+            Debug "Expected sp=" + Str(gnLastVariable) + ", actual sp=" + Str(sp)
+            If sp > gnLastVariable
+               Debug "Leaked values on stack:"
+               For i = gnLastVariable To sp - 1
+                  Debug "  stack[" + Str(i) + "]: i=" + Str(gVar(i)\i) + " f=" + StrD(gVar(i)\f, 6) + " ss='" + gVar(i)\ss + "'"
+               Next
+            EndIf
+         CompilerEndIf
+      EndIf
+
+      If gShowversion
          verFile = ReadFile(#PB_Any, "_lj2.ver")
          If verFile
             verString = ReadString(verFile)
@@ -439,9 +576,17 @@ Module C2VM
          line = ""
       EndIf
       
+      If gShowModulename
+         line + #CRLF$ + "Module: " + gModulename
+      EndIf
+      
       vm_ConsoleOrGUI( endline )
       vm_ConsoleOrGUI( line )
       vm_ConsoleOrGUI( "" )
+      
+      If gListASM
+         vmListCode()
+      EndIf
       
       CompilerIf #C2PROFILER > 0
          vm_ConsoleOrGUI( "====[Stats]=======================================" )
@@ -454,24 +599,26 @@ Module C2VM
          Next
          vm_ConsoleOrGUI( "==================================================" )
       CompilerEndIf
+      
+      
+      CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Executable
+         If gPasteToClipboard
+            vm_ConsoleOrGUI( "" )
+            SetClipboardText( GetGadgetText(#edConsole) )
+         EndIf
+      CompilerEndIf
    EndProcedure
    Procedure            vmPragmaSet()
       Protected.s       temp, name
       Protected         n
       
-      temp  = mapPragmas("runthreaded")
-      If temp = "off" Or temp = "0" Or temp = "false"
-         gRunThreaded = #False
-      Else
-         gRunThreaded = #True
-      EndIf
-      
-      temp  = mapPragmas("fastprint")
-      If temp = "on" Or temp = "1" Or temp = "true"
-         gFastPrint = #True
-      Else
-         gFastPrint = #False
-      EndIf
+      vm_SetGlobalFromPragma( 1, "runthreaded", gRunThreaded )
+      vm_SetGlobalFromPragma( 1, "console", gConsole )
+      vm_SetGlobalFromPragma( 0, "version", gShowversion )      
+      vm_SetGlobalFromPragma( 0, "fastprint", gFastPrint )
+      vm_SetGlobalFromPragma( 0, "listasm", gListASM )
+      vm_SetGlobalFromPragma( 0, "pastetoclipboard", gPasteToClipboard )      
+      vm_SetGlobalFromPragma( 0, "modulename", gShowModulename )
       
       temp  = mapPragmas("decimals")
       If temp <> ""
@@ -506,15 +653,8 @@ Module C2VM
          *ptrJumpTable( #ljFTOI ) = @C2FTOI_ROUND()  ; Default
       EndIf
 
-      gszAppName  = mapPragmas("appname")
-      temp        = mapPragmas("console")
-      temp        = LCase(temp)
-   
-      If temp = "on" Or temp = "1" Or temp = "true"
-         gConsole = #True
-      Else
-         gConsole = #False
-      EndIf
+      temp     = mapPragmas("appname")
+      If temp > "" : gszAppname = temp : EndIf
 
       temp     = mapPragmas("consolesize")
       
@@ -535,7 +675,6 @@ Module C2VM
       Protected         thRun
       Protected         verFile.i, verString.s
 
-      Debug "******** RunVM() called ********"
       vmInitVM()
       cs = ArraySize( ArCode() )      
       vmPragmaSet()
@@ -553,8 +692,10 @@ Module C2VM
 
          If win
             If gRunThreaded = #True
+               Debug " -- Running threaded."
                thRun = CreateThread(@vmExecute(), 0 )
             Else
+               Debug " -- Running full steam."
                vmExecute()
             EndIf
             
@@ -575,7 +716,6 @@ Module C2VM
                         If e = #BtnExit
                            gExitApplication = #True
                         ElseIf e = #BtnLoad
-                           Debug ">>>>>> BtnLoad clicked <<<<<<"
                            filename = OpenFileRequester( "Please choose source", ".\Examples\", "LJ Files|*.lj", 0 )
 
                            ; Always clear VM state before loading new file
@@ -586,16 +726,17 @@ Module C2VM
                            EndIf
 
                            If filename > ""
+                              DebugShowFilename()
+                              gModuleName = filename
+                           
                               If C2Lang::LoadLJ( filename )
                                  Debug "Error: " + C2Lang::Error( @err )
                               Else
                                  C2Lang::Compile()
-                                 ;C2Lang::ListCode()
                               EndIf
                            EndIf
 
                         ElseIf e = #BtnRun
-                           Debug ">>>>>> BtnRun clicked <<<<<<"
                            CloseWindow( #MainWindow )
                            C2VM::RunVM()
                         EndIf
@@ -620,10 +761,9 @@ Module C2VM
 EndModule
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 134
-; FirstLine = 130
+; CursorPosition = 526
+; FirstLine = 519
 ; Folding = ----
-; Markers = 14
 ; EnableAsm
 ; EnableThread
 ; EnableXP

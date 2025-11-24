@@ -1,0 +1,113 @@
+/* Bug Fix Test 1 - Combined diagnostics
+   Tests: integers, floats, and pointers together
+*/
+
+#pragma appname "Bug-Fix-1-Combined"
+#pragma console on
+#pragma optimizecode on
+#pragma ListASM on
+#pragma version on
+#pragma floattolerance 0.001
+#pragma FastPrint on
+#pragma RunThreaded on
+#pragma consolesize "640x480"
+#pragma stackspace 512
+#pragma stackdepth 1024
+#pragma PasteToClipboard on
+
+print("=== COMBINED BUG FIX TEST 1 ===");
+print("");
+
+// =============================================================================
+// TEST 1: Simple Integer Function
+// =============================================================================
+print("TEST 1: Simple Integer Function");
+print("--------------------------------");
+
+func addInt.i(a.i, b.i) {
+    result = a + b;
+    return result;
+}
+
+intResult = addInt(10, 20);
+print("  addInt(10, 20) = ", intResult, " (expected 30)");
+assertEqual(30, intResult);
+print("  PASS");
+print("");
+
+// =============================================================================
+// TEST 2: Float Function - Pure Floats
+// =============================================================================
+print("TEST 2: Float Function - Pure Floats");
+print("-------------------------------------");
+
+func addFloat.f(a.f, b.f) {
+    result = a + b;
+    return result;
+}
+
+floatResult1 = addFloat(1.5, 2.5);
+print("  addFloat(1.5, 2.5) = ", floatResult1, " (expected 4.0)");
+assertFloatEqual(4.0, floatResult1);
+print("  PASS");
+print("");
+
+// =============================================================================
+// TEST 3: Float Function - Int to Float Conversion
+// =============================================================================
+print("TEST 3: Float Function - Int to Float Conversion");
+print("-------------------------------------------------");
+
+floatResult2 = addFloat(10, 20);
+print("  addFloat(10, 20) = ", floatResult2, " (expected 30.0)");
+assertFloatEqual(30.0, floatResult2);
+print("  PASS");
+print("");
+
+// =============================================================================
+// TEST 4: Pointer Swap Function
+// =============================================================================
+print("TEST 4: Pointer Swap Function");
+print("------------------------------");
+
+func swap(a, b) {
+    temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+x = 100;
+y = 200;
+print("  Before swap: x=", x, ", y=", y, "");
+swap(&x, &y);
+print("  After swap: x=", x, ", y=", y, "");
+assertEqual(200, x);
+assertEqual(100, y);
+print("  PASS");
+print("");
+
+// =============================================================================
+// TEST 5: Float Function Again (after pointer test)
+// =============================================================================
+print("TEST 5: Float Function Again (after pointer test)");
+print("--------------------------------------------------");
+
+floatResult3 = addFloat(5, 10);
+print("  addFloat(5, 10) = ", floatResult3, " (expected 15.0)");
+assertFloatEqual(15.0, floatResult3);
+print("  PASS");
+print("");
+
+// =============================================================================
+// TEST 6: Integer Function Again (after all tests)
+// =============================================================================
+print("TEST 6: Integer Function Again (after all tests)");
+print("-------------------------------------------------");
+
+intResult2 = addInt(7, 8);
+print("  addInt(7, 8) = ", intResult2, " (expected 15)");
+assertEqual(15, intResult2);
+print("  PASS");
+print("");
+
+print("=== ALL TESTS COMPLETE ===");

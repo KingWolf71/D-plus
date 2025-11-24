@@ -13,3 +13,6 @@
 13. gVarMeta CANNOT be used in VM code as VM needs to work independently of compiler
 14. var1 + var2 is the same as var1 = var1 + var2 and va1 - var2 is the same as var1 = var1 - var2
 15. LJ Language is meant to be built for speed of execution
+16. Don't use intermidiate variables in VM code if possible for even faster execution
+17. create a 7z backup with version under backups\ at least 2 times a day and before any major version
+

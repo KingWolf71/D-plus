@@ -14,7 +14,7 @@ CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
 CompilerEndIf
 
 ; Include the LJ2 compiler and VM
-XIncludeFile "c2-modules-V14.pb"
+XIncludeFile "c2-modules-V16.pb"
 
 ; ============================================================================
 ; Structures
@@ -474,6 +474,22 @@ Procedure Main()
   PrintN("Failed:  " + Str(failCount))
   PrintN("Changed: " + Str(changedCount))
   PrintN("============================================================================")
+
+  ; Display failed tests if any
+  If failCount > 0
+    PrintN("")
+    PrintN("Failed Tests:")
+    PrintN("----------------------------------------------------------------------------")
+    ForEach gTests()
+      If gTests()\exitCode <> 0
+        PrintN("  " + gTests()\filename)
+        If gTests()\error <> ""
+          PrintN("    Error: " + gTests()\error)
+        EndIf
+      EndIf
+    Next
+    PrintN("============================================================================")
+  EndIf
   PrintN("")
 
   ; Save results
@@ -490,13 +506,13 @@ Main()
 ; ExecutableFormat = Console
 ; IDE Options = PureBasic 6.21 (Windows - x64)
 ; ExecutableFormat = Console
-; CursorPosition = 16
+; CursorPosition = 25
 ; FirstLine = 12
 ; Folding = --
 ; Optimizer
 ; EnableAsm
 ; EnableThread
 ; CPU = 1
-; EnableCompileCount = 39
+; EnableCompileCount = 49
 ; EnableBuildCount = 0
 ; EnableExeConstant

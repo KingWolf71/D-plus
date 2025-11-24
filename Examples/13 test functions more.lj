@@ -5,7 +5,11 @@
 #pragma appname "LJ2 Function Test Suite"
 #pragma console on
 #pragma optimizecode on
-#pragma version
+#pragma "version" on
+#pragma modulename on
+#pragma PasteToClipboard on
+#pragma ListASM on
+
 //--------------------------------------
 // Test 1: Simple integer functions
 //--------------------------------------

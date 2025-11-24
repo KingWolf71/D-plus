@@ -8,7 +8,9 @@
 #pragma "consolesize"  "760x690"
 #pragma "optimizecode" "on"
 #pragma "ListASM" "on"
-#pragma "version"
+#pragma "version" on
+#pragma modulename on
+#pragma PasteToClipboard on
 
 // Integer function
 func add(a, b) {
@@ -39,24 +41,40 @@ func factorial(n) {
 }
 
 // TESTS
-print("=== Integer Test ===\n");
+print("=== Integer Test ===");
+print("");
 r1 = add(10, 5);
-print("add(10,5) = ", r1, "\n");
+print("add(10,5) = ", r1);
+print("");
 
-print("\n=== Float Test ===\n");
+print("");
+print("=== Float Test ===");
+print("");
 r2.f = divide(100.0, 4.0);
-print("divide(100,4) = ", r2, "\n");
+print("divide(100,4) = ", r2);
+print("");
 
-print("\n=== String Test ===\n");
+print("");
+print("=== String Test ===");
+print("");
 s.s = greet("Bob");
-print(s, "\n");
+print(s);
+print("");
 
-print("\n=== Nested Test ===\n");
+print("");
+print("=== Nested Test ===");
+print("");
 r3 = addSquares(3, 4);
-print("3*3 + 4*4 = ", r3, "\n");
+print("3*3 + 4*4 = ", r3);
+print("");
 
-print("\n=== Recursion Test ===\n");
+print("");
+print("=== Recursion Test ===");
+print("");
 r4 = factorial(5);
-print("factorial(5) = ", r4, "\n");
+print("factorial(5) = ", r4);
+print("");
 
-print("\n=== Done ===\n");
+print("");
+print("=== Done ===");
+print("");

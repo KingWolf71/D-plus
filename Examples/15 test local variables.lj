@@ -7,76 +7,106 @@
 #pragma appname "Local Variable Test"
 #pragma console on
 
-print("Testing Local Variable Scoping\n");
+print("Testing Local Variable Scoping");
+print("");
 
 // Global variables
 globalVar = 100;
 x = 10;
 
-print("\n=== Test 1: Local variables ===\n");
-print("Before function: globalVar=", globalVar, " x=", x, "\n");
+print("");
+print("=== Test 1: Local variables ===");
+print("");
+print("Before function: globalVar=", globalVar, " x=", x);
+print("");
 
 func test1() {
     localVar = 42;      // Local to test1
     x = 999;            // Local x (shadows global x)
-    print("Inside test1: localVar=", localVar, " x=", x, "\n");
-    print("Inside test1: globalVar=", globalVar, " (reading global)\n");
+    print("Inside test1: localVar=", localVar, " x=", x);
+    print("");
+    print("Inside test1: globalVar=", globalVar, " (reading global)");
+    print("");
     return localVar;
 }
 
 result = test1();
-print("After function: result=", result, "\n");
-print("Global x unchanged: x=", x, "\n");
-print("Global globalVar: globalVar=", globalVar, "\n");
+print("After function: result=", result);
+print("");
+print("Global x unchanged: x=", x);
+print("");
+print("Global globalVar: globalVar=", globalVar);
+print("");
 
-print("\n=== Test 2: Different functions, same local names ===\n");
+print("");
+print("=== Test 2: Different functions, same local names ===");
+print("");
 
 func test2() {
     localVar = 111;     // Different localVar than test1
-    print("test2: localVar=", localVar, "\n");
+    print("test2: localVar=", localVar);
+    print("");
     return localVar;
 }
 
 func test3() {
     localVar = 222;     // Yet another localVar
-    print("test3: localVar=", localVar, "\n");
+    print("test3: localVar=", localVar);
+    print("");
     return localVar;
 }
 
 r1 = test2();
 r2 = test3();
-print("test2 returned: ", r1, "\n");
-print("test3 returned: ", r2, "\n");
+print("test2 returned: ", r1);
+print("");
+print("test3 returned: ", r2);
+print("");
 
-print("\n=== Test 3: Parameters are local ===\n");
+print("");
+print("=== Test 3: Parameters are local ===");
+print("");
 
 func testParams(a, b) {
     sum = a + b;        // sum is local
-    print("testParams: a=", a, " b=", b, " sum=", sum, "\n");
+    print("testParams: a=", a, " b=", b, " sum=", sum);
+    print("");
     return sum;
 }
 
 a = 5;  // Global a
 b = 7;  // Global b
 r3 = testParams(100, 200);
-print("After testParams:\n");
-print("  Global a=", a, " (unchanged)\n");
-print("  Global b=", b, " (unchanged)\n");
-print("  Result=", r3, "\n");
+print("After testParams:");
+print("");
+print("  Global a=", a, " (unchanged)");
+print("");
+print("  Global b=", b, " (unchanged)");
+print("");
+print("  Result=", r3);
+print("");
 
-print("\n=== Test 4: Reading and writing globals ===\n");
+print("");
+print("=== Test 4: Reading and writing globals ===");
+print("");
 
 counter = 0;  // Global counter
 
 func increment() {
     counter = counter + 1;  // First 'counter' is local (write), second is global (read)
-    print("Inside increment: counter=", counter, " (local copy)\n");
+    print("Inside increment: counter=", counter, " (local copy)");
+    print("");
     return counter;
 }
 
-print("Before: global counter=", counter, "\n");
+print("Before: global counter=", counter);
+print("");
 r4 = increment();
-print("After: global counter=", counter, " (unchanged)\n");
-print("Function returned: ", r4, "\n");
+print("After: global counter=", counter, " (unchanged)");
+print("");
+print("Function returned: ", r4);
+print("");
 
-print("\n=== All Tests Complete ===\n");
+print("");
+print("=== All Tests Complete ===");
+print("");

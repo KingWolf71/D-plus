@@ -1,6 +1,23 @@
 /*
  Simple prime number generator
  */
+ 
+#pragma appname "Primes"
+#pragma decimals 3
+#pragma console on
+#pragma consolesize "560x590"
+#pragma optimizecode on
+#pragma ListASM on
+#pragma FastPrint on
+#pragma RunThreaded on
+#pragma ftoi "truncate"
+#pragma "version" on
+#pragma modulename on
+#pragma PasteToClipboard on
+#pragma floattolerance 0.001
+#pragma stackspace 2048
+#pragma stackdepth 1024
+
 count = 1;
 n = 1;
 limit = 100;
@@ -14,7 +31,7 @@ while (n < limit) {
     }
     if (p) {
         print(n, " is prime");
-        count = count + 1;
+        count++;
     }
 }
 print("Total primes found: ", count ); 

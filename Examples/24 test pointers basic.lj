@@ -1,0 +1,112 @@
+/* Basic Pointer Test (V1.20.24+)
+   Tests fundamental pointer operations with explicit type syntax
+   Uses: ptr\i (integer), ptr\f (float), ptr\s (string)
+*/
+
+#pragma appname "Pointer-Basic-Test"
+#pragma console on
+#pragma optimizecode on
+#pragma ListASM on
+#pragma version on
+#pragma floattolerance 0.00001
+#pragma FastPrint on
+
+// Test 1: Basic integer pointer operations
+print("=== Test 1: Basic Integer Pointer Operations ===");
+
+x.i = 42;
+print("x = ", x);
+
+ptr = &x;              // Get address of x
+print("ptr\\i = ", ptr\i);    // Should print 42
+assertEqual(42, ptr\i);
+
+ptr\i = 100;           // Modify x through pointer
+print("After ptr\\i = 100:");
+
+print("x = ", x);             // Should print 100
+assertEqual(100, x);
+print("ptr\\i = ", ptr\i);    // Should print 100
+assertEqual(100, ptr\i);
+
+// Test 2: Multiple pointers to same variable
+print("");
+print("=== Test 2: Multiple Pointers ===");
+
+y.i = 9;
+p1 = &y;
+p2 = &y;
+
+print("y = ", y);
+assertEqual(9, y);
+
+p1\i = 20;
+print("After p1\\i = 20:");
+print("y = ", y, ", p2\\i = ", p2\i);  // Both should print 20
+assertEqual(20, y);
+assertEqual(20, p2\i);
+
+// Test 3: Pointer reassignment
+print("");
+print("=== Test 3: Pointer Reassignment ===");
+
+a.i = 10;
+b.i = 20;
+p = &a;
+
+print("a = ", a, ", b = ", b);
+print("p\\i = ", p\i, " (pointing to a)");  // Should print 10
+assertEqual(10, p\i);
+
+p = &b;             // Reassign pointer to b
+print("After p = &b:");
+print("p\\i = ", p\i, " (pointing to b)");  // Should print 20
+assertEqual(20, p\i);
+
+p\i = 99;
+print("After p\\i = 99:");
+print("a = ", a, ", b = ", b);  // a=10, b=99
+assertEqual(10, a);
+assertEqual(99, b);
+
+// Test 4: Float pointers
+print("");
+print("=== Test 4: Float Pointers ===");
+
+f.f = 3.14;
+fp = &f;
+
+print("f = ", f);
+print("fp\\f = ", fp\f);
+assertFloatEqual(3.14, fp\f);
+
+fp\f = 2.718;
+print("After fp\\f = 2.718:");
+print("f = ", f);
+assertFloatEqual(2.718, f);
+
+// Test 5: String pointers
+print("");
+print("=== Test 5: String Pointers ===");
+
+s.s = "Hello";
+sp = &s;
+
+print("s = ", s);
+print("sp\\s = ", sp\s);
+assertStringEqual("Hello", sp\s);
+
+sp\s = "World";
+print("After sp\\s = 'World':");
+print("sp\\s = ", sp\s);
+print("s = ", s);
+assertStringEqual("World", s);
+
+print("");
+print("=== All Basic Pointer Tests Complete ===");
+print("  - Integer pointers with ptr\\i: PASSED");
+print("  - Float pointers with ptr\\f: PASSED");
+print("  - String pointers with ptr\\s: PASSED");
+print("  - Pointer reassignment: PASSED");
+print("  - Multiple pointers: PASSED");
+print("");
