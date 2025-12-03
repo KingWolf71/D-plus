@@ -699,6 +699,29 @@ Procedure               C2EQUAL()
    vm_Comparators( = )
 EndProcedure
 
+; V1.023.30: String comparison - compare \ss string fields
+Procedure               C2STREQ()
+   vm_DebugFunctionName()
+   sp - 1
+   If gVar(sp-1)\ss = gVar(sp)\ss
+      gVar(sp-1)\i = 1
+   Else
+      gVar(sp-1)\i = 0
+   EndIf
+   pc + 1
+EndProcedure
+
+Procedure               C2STRNE()
+   vm_DebugFunctionName()
+   sp - 1
+   If gVar(sp-1)\ss <> gVar(sp)\ss
+      gVar(sp-1)\i = 1
+   Else
+      gVar(sp-1)\i = 0
+   EndIf
+   pc + 1
+EndProcedure
+
 Procedure               C2MULTIPLY()
    vm_DebugFunctionName()
    vm_BitOperation( * )
@@ -938,6 +961,8 @@ Procedure               C2CALL()
    Protected localSlotStart.l, arrayOffset.l, actualSlot.l, swapIdx.l
    ; V1.022.37: Temp storage for in-place swap (needed because localSlotStart == paramSp)
    Protected tempI.i, tempF.d, tempS.s, tempPtr, tempPtrType.w
+   ; V1.023.0: Variables for function template preloading
+   Protected templateCount.l, dstStart.l
 
    ; Read nParams, nLocals, and nLocalArrays from instruction fields
    nParams = _AR()\j
@@ -1013,6 +1038,28 @@ Procedure               C2CALL()
          Debug "  Params after swap: LOCAL[0]=" + Str(gVar(localSlotStart+0)\i) + " LOCAL[1]=" + Str(gVar(localSlotStart+1)\i) + " LOCAL[2]=" + Str(gVar(localSlotStart+2)\i) + " depth=" + Str(gStackDepth)
       EndIf
    CompilerEndIf
+
+   ; V1.023.0: Preload non-parameter locals from function template
+   ; Template covers LOCAL[nParams..totalVars-1] - the actual local variables
+   ; Parameters are at LOCAL[0..nParams-1], already set from caller's stack
+   ; Templates are indexed by funcId directly (wastes a few cells, but faster than subtraction)
+   If funcId >= 0 And funcId <= ArraySize(gFuncTemplates())
+      templateCount = gFuncTemplates(funcId)\localCount
+      If templateCount > 0
+         dstStart = localSlotStart + nParams
+         For i = 0 To templateCount - 1
+            ; Copy template values to local slots AFTER parameters
+            gVar(dstStart + i)\i = gFuncTemplates(funcId)\template(i)\i
+            gVar(dstStart + i)\f = gFuncTemplates(funcId)\template(i)\f
+            gVar(dstStart + i)\ss = gFuncTemplates(funcId)\template(i)\ss
+            gVar(dstStart + i)\ptr = gFuncTemplates(funcId)\template(i)\ptr
+            gVar(dstStart + i)\ptrtype = gFuncTemplates(funcId)\template(i)\ptrtype
+         Next
+         CompilerIf #DEBUG
+            Debug "  Preloaded " + Str(templateCount) + " locals from template for funcId=" + Str(funcId)
+         CompilerEndIf
+      EndIf
+   EndIf
 
    ; Allocate local arrays in their respective gVar[] slots
    If nLocalArrays > 0
@@ -1204,13 +1251,13 @@ Procedure               C2HALT()
 EndProcedure
 
 ;- Include Built-in Functions Module
-XIncludeFile "c2-builtins-v02.pbi"
+XIncludeFile "c2-builtins-v03.pbi"
 
 ;- Include Array Operations Module
-XIncludeFile "c2-arrays-v02.pbi"
+XIncludeFile "c2-arrays-v03.pbi"
 
 ;- Include Pointer Operations Module
-XIncludeFile "c2-pointers-v02.pbi"
+XIncludeFile "c2-pointers-v03.pbi"
 
 ;- End VM functions
 

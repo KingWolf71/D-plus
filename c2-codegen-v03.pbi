@@ -73,6 +73,27 @@
       ProcedureReturn #False
    EndProcedure
 
+   ; V1.023.0: Helper to mark variable for preloading when assigned from constant
+   ; This copies constant values to the destination's gVarMeta for template building
+   Procedure            MarkPreloadable(srcSlot.i, dstSlot.i)
+      ; Only mark if source is a constant and destination not already marked
+      If (gVarMeta(srcSlot)\flags & #C2FLAG_CONST) And Not (gVarMeta(dstSlot)\flags & #C2FLAG_PRELOAD)
+         ; Copy constant value to destination's gVarMeta
+         If gVarMeta(srcSlot)\flags & #C2FLAG_INT
+            gVarMeta(dstSlot)\valueInt = gVarMeta(srcSlot)\valueInt
+         ElseIf gVarMeta(srcSlot)\flags & #C2FLAG_FLOAT
+            gVarMeta(dstSlot)\valueFloat = gVarMeta(srcSlot)\valueFloat
+         ElseIf gVarMeta(srcSlot)\flags & #C2FLAG_STR
+            gVarMeta(dstSlot)\valueString = gVarMeta(srcSlot)\valueString
+         EndIf
+         ; Mark as preloadable
+         gVarMeta(dstSlot)\flags = gVarMeta(dstSlot)\flags | #C2FLAG_PRELOAD
+         CompilerIf #DEBUG
+            Debug "V1.023.0: Marked slot " + Str(dstSlot) + " (" + gVarMeta(dstSlot)\name + ") for preload from const slot " + Str(srcSlot)
+         CompilerEndIf
+      EndIf
+   EndProcedure
+
    Procedure            EmitInt( op.i, nVar.i = -1 )
       Protected         sourceFlags.w, destFlags.w
       Protected         isSourceLocal.b, isDestLocal.b
@@ -112,6 +133,9 @@
                      llObjects()\code = #ljSTORES
                   ElseIf destFlags & #C2FLAG_FLOAT
                      llObjects()\code = #ljSTOREF
+                  ElseIf destFlags & #C2FLAG_POINTER
+                     ; V1.023.16: Use PSTORE for pointer types to preserve ptr/ptrtype metadata
+                     llObjects()\code = #ljPSTORE
                   Else
                      llObjects()\code = #ljSTORE
                   EndIf
@@ -121,11 +145,16 @@
                      llObjects()\code = #ljLMOVS
                   ElseIf sourceFlags & #C2FLAG_FLOAT
                      llObjects()\code = #ljLMOVF
+                  ElseIf destFlags & #C2FLAG_POINTER
+                     ; V1.023.16: Use PLMOV for pointer types to preserve ptr/ptrtype metadata
+                     llObjects()\code = #ljPLMOV
                   Else
                      llObjects()\code = #ljLMOV
                   EndIf
                   llObjects()\j = savedSource  ; j = source varIndex
                   llObjects()\i = localOffset  ; i = destination paramOffset
+                  ; V1.023.0: Mark for preloading if assigning from constant
+                  MarkPreloadable(savedSource, nVar)
                EndIf
             Else
                ; Global destination - use regular MOV
@@ -136,11 +165,17 @@
                ElseIf sourceFlags & #C2FLAG_FLOAT
                   llObjects()\code = #ljMOVF
                   gVarMeta( nVar )\flags = (gVarMeta( nVar )\flags & #C2FLAG_STRUCT) | #C2FLAG_IDENT | #C2FLAG_FLOAT
+               ElseIf destFlags & #C2FLAG_POINTER
+                  ; V1.023.16: Use PMOV for pointer types to preserve ptr/ptrtype metadata
+                  llObjects()\code = #ljPMOV
                Else
                   llObjects()\code = #ljMOV
                   gVarMeta( nVar )\flags = (gVarMeta( nVar )\flags & #C2FLAG_STRUCT) | #C2FLAG_IDENT | #C2FLAG_INT
                EndIf
-               llObjects()\j = llObjects()\i
+               llObjects()\j = llObjects()\i  ; j = source slot
+               llObjects()\i = nVar           ; i = destination slot (V1.023.3: was missing!)
+               ; V1.023.0: Mark for preloading if assigning from constant
+               MarkPreloadable(llObjects()\j, nVar)
             EndIf
          Else
             ; One is a parameter - keep as PUSH+STORE but use local version if dest is local
@@ -154,6 +189,9 @@
                      llObjects()\code = #ljLSTORES
                   ElseIf destFlags & #C2FLAG_FLOAT
                      llObjects()\code = #ljLSTOREF
+                  ElseIf destFlags & #C2FLAG_POINTER
+                     ; V1.023.16: Use PLSTORE for pointer types to preserve ptr/ptrtype metadata
+                     llObjects()\code = #ljPLSTORE
                   Else
                      llObjects()\code = #ljLSTORE
                   EndIf
@@ -165,6 +203,9 @@
                      llObjects()\code = #ljSTORES
                   ElseIf destFlags & #C2FLAG_FLOAT
                      llObjects()\code = #ljSTOREF
+                  ElseIf destFlags & #C2FLAG_POINTER
+                     ; V1.023.16: Use PSTORE for pointer types to preserve ptr/ptrtype metadata
+                     llObjects()\code = #ljPSTORE
                   Else
                      llObjects()\code = #ljSTORE
                   EndIf
@@ -199,6 +240,9 @@
                      llObjects()\code = #ljSTORES
                   ElseIf destFlags2 & #C2FLAG_FLOAT
                      llObjects()\code = #ljSTOREF
+                  ElseIf destFlags2 & #C2FLAG_POINTER
+                     ; V1.023.16: Use PSTORE for pointer types to preserve ptr/ptrtype metadata
+                     llObjects()\code = #ljPSTORE
                   Else
                      llObjects()\code = #ljSTORE
                   EndIf
@@ -208,12 +252,17 @@
                      llObjects()\code = #ljLMOVS
                   ElseIf sourceFlags2 & #C2FLAG_FLOAT
                      llObjects()\code = #ljLMOVF
+                  ElseIf destFlags2 & #C2FLAG_POINTER
+                     ; V1.023.16: Use PLMOV for pointer types to preserve ptr/ptrtype metadata
+                     llObjects()\code = #ljPLMOV
                   Else
                      llObjects()\code = #ljLMOV
                   EndIf
                   savedSrc2 = llObjects()\i
                   llObjects()\i = localOffset2
                   llObjects()\j = savedSrc2
+                  ; V1.023.0: Mark for preloading if assigning from constant
+                  MarkPreloadable(savedSrc2, nVar)
                EndIf
             Else
                ; Use regular MOV for global destination
@@ -221,10 +270,15 @@
                   llObjects()\code = #ljMOVS
                ElseIf sourceFlags2 & #C2FLAG_FLOAT
                   llObjects()\code = #ljMOVF
+               ElseIf destFlags2 & #C2FLAG_POINTER
+                  ; V1.023.16: Use PMOV for pointer types to preserve ptr/ptrtype metadata
+                  llObjects()\code = #ljPMOV
                Else
                   llObjects()\code = #ljMOV
                EndIf
                llObjects()\j = llObjects()\i
+               ; V1.023.0: Mark for preloading if assigning from constant
+               MarkPreloadable(llObjects()\j, nVar)
             EndIf
          Else
             ; Keep as FETCH+STORE but use local version if appropriate
@@ -238,6 +292,9 @@
                      llObjects()\code = #ljLSTORES
                   ElseIf destFlags2 & #C2FLAG_FLOAT
                      llObjects()\code = #ljLSTOREF
+                  ElseIf destFlags2 & #C2FLAG_POINTER
+                     ; V1.023.16: Use PLSTORE for pointer types to preserve ptr/ptrtype metadata
+                     llObjects()\code = #ljPLSTORE
                   Else
                      llObjects()\code = #ljLSTORE
                   EndIf
@@ -249,6 +306,9 @@
                      llObjects()\code = #ljSTORES
                   ElseIf destFlags2 & #C2FLAG_FLOAT
                      llObjects()\code = #ljSTOREF
+                  ElseIf destFlags2 & #C2FLAG_POINTER
+                     ; V1.023.16: Use PSTORE for pointer types to preserve ptr/ptrtype metadata
+                     llObjects()\code = #ljPSTORE
                   Else
                      llObjects()\code = #ljSTORE
                   EndIf
@@ -281,11 +341,15 @@
                   Protected savedSourceF.i = llObjects()\i
                   llObjects()\j = savedSourceF
                   llObjects()\i = localOffsetF
+                  ; V1.023.0: Mark for preloading if assigning from constant
+                  MarkPreloadable(savedSourceF, nVar)
                EndIf
             Else
                ; Global destination - use MOVF
                llObjects()\code = #ljMOVF
                llObjects()\j = llObjects()\i
+               ; V1.023.0: Mark for preloading if assigning from constant
+               MarkPreloadable(llObjects()\j, nVar)
             EndIf
          Else
             ; Keep as PUSHF+STOREF
@@ -327,11 +391,15 @@
                   Protected savedSourceS.i = llObjects()\i
                   llObjects()\j = savedSourceS
                   llObjects()\i = localOffsetS
+                  ; V1.023.0: Mark for preloading if assigning from constant
+                  MarkPreloadable(savedSourceS, nVar)
                EndIf
             Else
                ; Global destination - use MOVS
                llObjects()\code = #ljMOVS
                llObjects()\j = llObjects()\i
+               ; V1.023.0: Mark for preloading if assigning from constant
+               MarkPreloadable(llObjects()\j, nVar)
             EndIf
          Else
             ; Keep as PUSHS+STORES
@@ -368,7 +436,13 @@
                   llObjects()\code = #ljLFETCHF
                   llObjects()\i = gVarMeta(nVar)\paramOffset
                Case #ljStore
-                  llObjects()\code = #ljLSTORE
+                  ; V1.023.21: Check if source is a pointer (previous opcode produces pointer)
+                  ; or destination has pointer flag - use PLSTORE to preserve ptr/ptrtype metadata
+                  If gEmitIntCmd = #ljGETSTRUCTADDR Or gEmitIntCmd = #ljGETADDR Or gEmitIntCmd = #ljGETADDRF Or gEmitIntCmd = #ljGETADDRS Or gEmitIntCmd = #ljGETARRAYADDR Or gEmitIntCmd = #ljGETARRAYADDRF Or gEmitIntCmd = #ljGETARRAYADDRS Or gVarMeta(nVar)\flags & #C2FLAG_POINTER
+                     llObjects()\code = #ljPLSTORE
+                  Else
+                     llObjects()\code = #ljLSTORE
+                  EndIf
                   llObjects()\i = gVarMeta(nVar)\paramOffset
                Case #ljSTORES
                   llObjects()\code = #ljLSTORES
@@ -387,12 +461,14 @@
       ; Only set llObjects()\i for variable-related opcodes
       ; Skip this for opcodes that don't operate on variables (CALL uses funcId, not varSlot)
       ; Note: For local opcodes (LFETCH, LSTORE, etc.), \i was already set in optimization paths above
-      If nVar > -1
+      ; V1.023.15: Changed from nVar > -1 to nVar <> -1 to allow negative encoded local pointers (e.g., -4 for PTRSTRUCTSTORE)
+      If nVar <> -1
          ; Check if this is an opcode that operates on variables
          currentCode = llObjects()\code
          Select currentCode
             ; Local opcodes - \i already set to paramOffset in optimization code above, don't touch
-            Case #ljLFETCH, #ljLFETCHS, #ljLFETCHF, #ljLSTORE, #ljLSTORES, #ljLSTOREF, #ljLMOV, #ljLMOVS, #ljLMOVF
+            ; V1.023.23: Added pointer-preserving local opcodes (PLSTORE, PLMOV, PLFETCH) - also use paramOffset
+            Case #ljLFETCH, #ljLFETCHS, #ljLFETCHF, #ljLSTORE, #ljLSTORES, #ljLSTOREF, #ljLMOV, #ljLMOVS, #ljLMOVF, #ljPLSTORE, #ljPLMOV, #ljPLFETCH
                ; Do nothing - \i already contains correct paramOffset from optimization paths
 
             ; Global opcodes - need to set \i to variable slot
@@ -454,8 +530,13 @@
             ProcedureReturn mapConstFloat()
          EndIf
       ElseIf syntheticType = #ljSTRING
+         ; V1.023.27: Debug - trace string constant lookup
+         Debug "FetchVarOffset: Looking up string '" + text + "' in mapConstStr"
          If FindMapElement(mapConstStr(), text)
+            Debug "  -> Found in mapConstStr, slot=" + Str(mapConstStr())
             ProcedureReturn mapConstStr()
+         Else
+            Debug "  -> NOT FOUND in mapConstStr!"
          EndIf
       EndIf
 
@@ -515,11 +596,17 @@
          ; Inside a function - first try to find as local variable (mangled)
          mangledName = gCurrentFunctionName + "_" + text
          searchName = mangledName
+         CompilerIf #DEBUG
+            Debug "FetchVarOffset: In function, mangling '" + text + "' -> '" + mangledName + "' (gCurrentFunctionName='" + gCurrentFunctionName + "')"
+         CompilerEndIf
 
          ; Check if mangled (local) version exists
          ; V1.022.30: Use case-insensitive comparison to handle any case variations
          For i = 0 To gnLastVariable - 1
             If LCase(gVarMeta(i)\name) = LCase(searchName)
+               CompilerIf #DEBUG
+                  Debug "FetchVarOffset: Found existing local '" + searchName + "' at slot " + Str(i)
+               CompilerEndIf
                ProcedureReturn i  ; Found local variable
             EndIf
          Next
@@ -534,6 +621,9 @@
             For i = 0 To gnLastVariable - 1
                If LCase(gVarMeta(i)\name) = LCase(text) And gVarMeta(i)\paramOffset = -1
                   ; Found as global - use it (intended behavior for var = expr)
+                  CompilerIf #DEBUG
+                     Debug "FetchVarOffset: Found global '" + text + "' at slot " + Str(i)
+                  CompilerEndIf
                   ProcedureReturn i
                EndIf
             Next
@@ -545,12 +635,28 @@
          EndIf
 
          ; Global not found (or assigning) - create as local
+         CompilerIf #DEBUG
+            Debug "FetchVarOffset: Creating new local '" + mangledName + "'"
+         CompilerEndIf
          text = mangledName
+      Else
+         CompilerIf #DEBUG
+            Debug "FetchVarOffset: Global scope or synthetic, text='" + text + "' gCurrentFunctionName='" + gCurrentFunctionName + "'"
+         CompilerEndIf
       EndIf
 
       ; Check if variable already exists (with final name after mangling)
       ; V1.022.30: Use case-insensitive comparison
+      ; V1.023.27: CRITICAL FIX - Skip variable lookup when looking for constants
+      ; Constants (syntheticType=#ljINT/#ljFLOAT/#ljSTRING) should never match variables
+      ; via case-insensitive lookup. String constant "A" must NOT match variable "a"!
+      If syntheticType <> #ljINT And syntheticType <> #ljFLOAT And syntheticType <> #ljSTRING
       For i = 0 To gnLastVariable - 1
+         ; V1.023.27: Skip constants when looking for variables (syntheticType=0)
+         ; This prevents variable "x" from matching string constant "X" via case-insensitive lookup
+         If (gVarMeta(i)\flags & #C2FLAG_CONST) And syntheticType = 0
+            Continue
+         EndIf
          If LCase(gVarMeta(i)\name) = LCase(text)
             ; Variable exists - check if it's a local variable that needs an offset assigned
             If gCurrentFunctionName <> "" And gCodeGenParamIndex < 0 And gCodeGenFunction > 0
@@ -575,6 +681,7 @@
             ProcedureReturn i
          EndIf
       Next
+      EndIf  ; V1.023.27: End of syntheticType check
 
       ; New variable - find token (unless it's a synthetic $ variable)
       i = -1
@@ -619,6 +726,9 @@
       EndIf
 
       gVarMeta(gnLastVariable)\name  = text
+      CompilerIf #DEBUG
+         Debug "FetchVarOffset: Registered new variable '" + text + "' at slot " + Str(gnLastVariable)
+      CompilerEndIf
       ; V1.022.29: Initialize paramOffset to -1 (global/not-yet-assigned)
       ; This prevents confusion with paramOffset=0 which is a valid local offset
       gVarMeta(gnLastVariable)\paramOffset = -1
@@ -711,7 +821,8 @@
       ; MUST be at global scope (gCodeGenFunction = 0)
       ; AND not a parameter (gCodeGenParamIndex < 0)
       ; AND not a local variable (Not isLocal)
-      If gCodeGenFunction = 0 And gCodeGenParamIndex < 0 And Not isLocal
+      ; V1.023.16: AND not a synthetic constant (syntheticType = 0) - constants go in separate section
+      If gCodeGenFunction = 0 And gCodeGenParamIndex < 0 And Not isLocal And syntheticType = 0
          gnGlobalVariables + 1
          CompilerIf #DEBUG
          Debug "[gnGlobalVariables=" + Str(gnGlobalVariables) + "] Counted: '" + text + "' (slot " + Str(gnLastVariable - 1) + ", gCodeGenFunction=" + Str(gCodeGenFunction) + ", gCodeGenParamIndex=" + Str(gCodeGenParamIndex) + ", isLocal=" + Str(isLocal) + ")"
@@ -776,6 +887,48 @@
             ProcedureReturn #C2FLAG_INT
 
          Case #ljIDENT
+            ; V1.023.35: Handle struct field access (e.g., "v1\x")
+            ; Need to look up field type from struct definition
+            Protected structFieldPos.i = FindString(*x\value, "\")
+            If structFieldPos > 0
+               Protected structVarName.s = Left(*x\value, structFieldPos - 1)
+               Protected fieldName.s = Mid(*x\value, structFieldPos + 1)
+               Protected structSlot.i = -1
+               Protected structTypeName.s = ""
+
+               ; Find the struct variable (try mangled name first for locals)
+               If gCurrentFunctionName <> ""
+                  Protected mangledStructName.s = gCurrentFunctionName + "_" + structVarName
+                  For n = 0 To gnLastVariable - 1
+                     If LCase(gVarMeta(n)\name) = LCase(mangledStructName) And (gVarMeta(n)\flags & #C2FLAG_STRUCT)
+                        structSlot = n
+                        structTypeName = gVarMeta(n)\structType
+                        Break
+                     EndIf
+                  Next
+               EndIf
+
+               ; Try global struct if not found as local
+               If structSlot < 0
+                  For n = 0 To gnLastVariable - 1
+                     If LCase(gVarMeta(n)\name) = LCase(structVarName) And (gVarMeta(n)\flags & #C2FLAG_STRUCT)
+                        structSlot = n
+                        structTypeName = gVarMeta(n)\structType
+                        Break
+                     EndIf
+                  Next
+               EndIf
+
+               ; Look up field type from struct definition
+               If structTypeName <> "" And FindMapElement(mapStructDefs(), structTypeName)
+                  ForEach mapStructDefs()\fields()
+                     If LCase(mapStructDefs()\fields()\name) = LCase(fieldName)
+                        ProcedureReturn mapStructDefs()\fields()\fieldType
+                     EndIf
+                  Next
+               EndIf
+            EndIf
+
             ; Check variable type - search existing variables
             ; Apply name mangling for local variables (same logic as FetchVarOffset)
             Protected searchName.s = *x\value
@@ -1012,7 +1165,10 @@
                funcId = Val(*funcNode\value)
                
                ; Check if it's a built-in function
-               If funcId >= #ljBUILTIN_RANDOM
+               ; V1.023.30: Check for type conversion opcodes first (str(), strf())
+               If funcId = #ljITOS Or funcId = #ljFTOS
+                  ProcedureReturn #C2FLAG_STR
+               ElseIf funcId >= #ljBUILTIN_RANDOM
                   ; Built-in functions - look up in mapBuiltins for return type
                   ForEach mapBuiltins()
                      If mapBuiltins()\opcode = funcId
@@ -1065,6 +1221,11 @@
          Case #ljGETARRAYADDRS
             ; &arr.s[index] returns string array element pointer
             ProcedureReturn #C2FLAG_POINTER | #C2FLAG_STR
+
+         ; V1.023.21: Struct address returns pointer type
+         Case #ljGETSTRUCTADDR
+            ; &structVar returns struct pointer
+            ProcedureReturn #C2FLAG_POINTER | #C2FLAG_INT
 
          Default
             ; Comparisons and other operations return INT
@@ -1342,7 +1503,13 @@
          gCodeGenRecursionDepth - 1
          ProcedureReturn
       EndIf
-   
+
+      ; V1.023.26: If error already occurred, stop generating code
+      If gLastError
+         gCodeGenRecursionDepth - 1
+         ProcedureReturn 1
+      EndIf
+
       ;Debug gszATR( *x\NodeType )\s + " --> " + *x\value
       
       Select *x\NodeType
@@ -1647,7 +1814,8 @@
             Protected psfActualNodeType.i = *x\NodeType
 
             ; Check if first field is numeric (resolved) or identifier (deferred)
-            If Val(psfField1) > 0 Or psfField1 = "0"
+            ; V1.023.13: Changed condition - slot "0" should use deferred path since slot 0 is reserved
+            If Val(psfField1) > 0
                ; Resolved format: "ptrVarSlot|fieldOffset"
                psfPtrSlot = Val(psfField1)
                psfFieldOffset = Val(psfField2)
@@ -1663,11 +1831,22 @@
                Protected psfIsLocalPtr.i = #False
                Protected psfMetaSlot.i = -1
                Protected psfMangledName.s = ""
+               Protected psfFuncName.s = gCurrentFunctionName
+
+               ; V1.023.11: Recover function context if gCurrentFunctionName is empty but we're in a function
+               If psfFuncName = "" And gCodeGenFunction >= #C2FUNCSTART
+                  ForEach mapModules()
+                     If mapModules()\function = gCodeGenFunction
+                        psfFuncName = MapKey(mapModules())
+                        Break
+                     EndIf
+                  Next
+               EndIf
 
                ; V1.022.123: First search for local (mangled) variable if inside a function
                ; Skip slot 0 (reserved for ?discard?)
-               If gCurrentFunctionName <> ""
-                  psfMangledName = gCurrentFunctionName + "_" + psfIdentName
+               If psfFuncName <> ""
+                  psfMangledName = psfFuncName + "_" + psfIdentName
                   For psfVarIdx = 1 To gnLastVariable - 1
                      If LCase(gVarMeta(psfVarIdx)\name) = LCase(psfMangledName)
                         psfPtrSlot = psfVarIdx
@@ -1796,7 +1975,8 @@
                Protected pssaStoreOp.i
 
                ; Check if first field is numeric (resolved) or identifier (deferred)
-               If Val(pssaField1) > 0 Or pssaField1 = "0"
+               ; V1.023.13: Changed condition - slot "0" should use deferred path since slot 0 is reserved
+               If Val(pssaField1) > 0
                   ; Resolved format: "ptrVarSlot|fieldOffset"
                   pssaPtrSlot = Val(pssaField1)
                   pssaFieldOffset = Val(pssaField2)
@@ -1821,11 +2001,23 @@
                   Protected pssaIsLocalPtr.i = #False
                   Protected pssaMetaSlot.i = -1
                   Protected pssaMangledName.s = ""
+                  Protected pssaFuncName.s = gCurrentFunctionName
+
+                  ; V1.023.11: Recover function context if gCurrentFunctionName is empty but we're in a function
+                  ; This can happen when function context wasn't properly propagated during codegen
+                  If pssaFuncName = "" And gCodeGenFunction >= #C2FUNCSTART
+                     ForEach mapModules()
+                        If mapModules()\function = gCodeGenFunction
+                           pssaFuncName = MapKey(mapModules())
+                           Break
+                        EndIf
+                     Next
+                  EndIf
 
                   ; V1.022.123: First search for local (mangled) variable if inside a function
                   ; Skip slot 0 (reserved for ?discard?)
-                  If gCurrentFunctionName <> ""
-                     pssaMangledName = gCurrentFunctionName + "_" + pssaIdentName
+                  If pssaFuncName <> ""
+                     pssaMangledName = pssaFuncName + "_" + pssaIdentName
                      For pssaVarIdx = 1 To gnLastVariable - 1
                         If LCase(gVarMeta(pssaVarIdx)\name) = LCase(pssaMangledName)
                            pssaPtrSlot = pssaVarIdx
@@ -1912,6 +2104,7 @@
                pssaValueSlot = GetExprSlotOrTemp(*x\right)
 
                ; Emit opcode: i=ptrVarSlot, n=fieldOffset, ndx=valueSlot
+               Debug "PTRSTRUCTSTORE EMIT: pssaStoreOp=" + Str(pssaStoreOp) + " pssaPtrSlot=" + Str(pssaPtrSlot) + " pssaFieldOffset=" + Str(pssaFieldOffset) + " pssaValueSlot=" + Str(pssaValueSlot)
                EmitInt(pssaStoreOp, pssaPtrSlot)
                llObjects()\n = pssaFieldOffset
                llObjects()\ndx = pssaValueSlot
@@ -2337,34 +2530,37 @@
                Else
                   ; SUBSEQUENT ASSIGNMENT - Type checking and conversion
 
-                  ; Check for explicit type suffix conflict with existing type
+                  ; V1.023.26: Strict type checking - variables cannot change type
                   If *x\left\TypeHint = #ljFLOAT And Not (gVarMeta(n)\flags & #C2FLAG_FLOAT)
-                     existingTypeName = ""
-                     If gVarMeta(n)\flags & #C2FLAG_INT
-                        existingTypeName = "int"
-                     ElseIf gVarMeta(n)\flags & #C2FLAG_STR
+                     existingTypeName = "int"
+                     If gVarMeta(n)\flags & #C2FLAG_STR
                         existingTypeName = "string"
+                     ElseIf gVarMeta(n)\flags & #C2FLAG_POINTER
+                        existingTypeName = "pointer"
+                     ElseIf gVarMeta(n)\flags & #C2FLAG_STRUCT
+                        existingTypeName = "struct"
                      EndIf
-                     s2 = "Variable '" + *x\left\value + "' is already declared as " + existingTypeName
-                     SetError( s2, #True )
+                     SetError("Variable '" + *x\left\value + "' already declared as " + existingTypeName + ", cannot re-declare as float", 10)
                   ElseIf *x\left\TypeHint = #ljSTRING And Not (gVarMeta(n)\flags & #C2FLAG_STR)
-                     existingTypeName = ""
-                     If gVarMeta(n)\flags & #C2FLAG_INT
-                        existingTypeName = "int"
-                     ElseIf gVarMeta(n)\flags & #C2FLAG_FLOAT
-                        existingTypeName = "float"
-                     EndIf
-                     s2 = "Variable '" + *x\left\value + "' is already declared as " + existingTypeName
-                     SetError( s2, #True )
-                  ElseIf *x\left\TypeHint = #ljINT And Not (gVarMeta(n)\flags & #C2FLAG_INT)
-                     existingTypeName = ""
+                     existingTypeName = "int"
                      If gVarMeta(n)\flags & #C2FLAG_FLOAT
                         existingTypeName = "float"
-                     ElseIf gVarMeta(n)\flags & #C2FLAG_STR
-                        existingTypeName = "string"
+                     ElseIf gVarMeta(n)\flags & #C2FLAG_POINTER
+                        existingTypeName = "pointer"
+                     ElseIf gVarMeta(n)\flags & #C2FLAG_STRUCT
+                        existingTypeName = "struct"
                      EndIf
-                     s2 = "Variable '" + *x\left\value + "' is already declared as " + existingTypeName
-                     SetError( s2, #True )
+                     SetError("Variable '" + *x\left\value + "' already declared as " + existingTypeName + ", cannot re-declare as string", 10)
+                  ElseIf *x\left\TypeHint = #ljINT And Not (gVarMeta(n)\flags & #C2FLAG_INT)
+                     existingTypeName = "float"
+                     If gVarMeta(n)\flags & #C2FLAG_STR
+                        existingTypeName = "string"
+                     ElseIf gVarMeta(n)\flags & #C2FLAG_POINTER
+                        existingTypeName = "pointer"
+                     ElseIf gVarMeta(n)\flags & #C2FLAG_STRUCT
+                        existingTypeName = "struct"
+                     EndIf
+                     SetError("Variable '" + *x\left\value + "' already declared as " + existingTypeName + ", cannot re-declare as int", 10)
                   EndIf
 
                   ; V1.18.42: Type conversion optimization - compile-time vs runtime
@@ -2685,17 +2881,18 @@
          Case #ljWHILE
             ; V1.18.54: Save JMP pointer explicitly to avoid LastElement() cursor issues in nested loops
             EmitInt( #ljNOOPIF )            ; Emit marker at loop start
-            p1 = llObjects()                ; Save pointer to NOOP marker (current element)
+            p1 = @llObjects()               ; V1.023.40: Use @ to get actual pointer for NOOP marker
             CodeGenerator( *x\left )        ; Generate condition
             EmitInt( #ljJZ)                 ; Jump if condition false
             p2 = Hole()                     ; Save JZ hole for fixing later
             CodeGenerator( *x\right )       ; Generate loop body
             EmitInt( #ljJMP)                ; Jump back to loop start
-            *pJmp = llObjects()             ; Save JMP pointer immediately after EmitInt
+            *pJmp = @llObjects()            ; V1.023.40: Use @ to get actual pointer for JMP
 
-            ; Manually create hole entry for backward JMP (mode 3) instead of calling fix()
+            ; Manually create hole entry for backward JMP instead of calling fix()
+            ; V1.023.42: Use LOOPBACK mode for while loop backward jumps
             AddElement( llHoles() )
-            llHoles()\mode = 3
+            llHoles()\mode = #C2HOLE_LOOPBACK
             llHoles()\location = *pJmp      ; Use saved pointer instead of LastElement()
             llHoles()\src = p1
 
@@ -2779,6 +2976,8 @@
          Case #ljFunction
             ; Emit function marker for postprocessor (implicit return insertion)
             EmitInt( #ljfunction )
+            ; V1.023.6: Store funcId in instruction for Pass 26 function tracking
+            llObjects()\i = Val( *x\value )
             ; V1.022.30: Reset function context before lookup to prevent stale values
             gCurrentFunctionName = ""
             gCodeGenParamIndex = -1
@@ -2894,6 +3093,16 @@
                      EmitInt( #ljPTRADD )
                   Else  ; #ljSUBTRACT
                      EmitInt( #ljPTRSUB )
+                  EndIf
+               ; V1.023.30: String comparison - both operands must be strings
+               ElseIf (leftType & #C2FLAG_STR) And (rightType & #C2FLAG_STR)
+                  If *x\NodeType = #ljEQUAL
+                     EmitInt( #ljSTREQ )
+                  ElseIf *x\NodeType = #ljNotEqual
+                     EmitInt( #ljSTRNE )
+                  Else
+                     ; Other comparisons not supported for strings - emit default
+                     EmitInt( *x\NodeType )
                   EndIf
                ElseIf opType & #C2FLAG_FLOAT And gszATR(*x\NodeType)\flttoken > 0
                   EmitInt( gszATR(*x\NodeType)\flttoken )
@@ -3086,8 +3295,9 @@
             EndIf
 
             ; Check if this is a built-in function (opcode >= #ljBUILTIN_RANDOM)
-            If funcId >= #ljBUILTIN_RANDOM
-               ; Built-in function - emit opcode directly
+            ; V1.023.29: Also check for type conversion opcodes (str(), strf())
+            If funcId >= #ljBUILTIN_RANDOM Or funcId = #ljITOS Or funcId = #ljFTOS
+               ; Built-in function or type conversion - emit opcode directly
                EmitInt( funcId )
                llObjects()\j = paramCount
             Else

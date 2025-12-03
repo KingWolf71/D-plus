@@ -56,12 +56,14 @@
 #C2FLAG_ARRAY     = 128
 #C2FLAG_POINTER   = 256  ; Variable is a pointer type
 #C2FLAG_STRUCT    = 512  ; Variable is a struct type (V1.021.0)
+#C2FLAG_PRELOAD   = 1024 ; V1.023.0: Variable has constant init, preload from template (skip MOV)
 
 Enumeration
    #C2HOLE_START
    #C2HOLE_DEFAULT
    #C2HOLE_PAIR
    #C2HOLE_BLIND
+   #C2HOLE_LOOPBACK  ; V1.023.42: While loop backward jump (target is NOOPIF at loop start)
 EndEnumeration
 
 Enumeration
@@ -129,7 +131,11 @@ Enumeration
    #ljFLOATGE
    #ljFLOATGR
    #ljFLOATLESS
-   
+
+   ; V1.023.30: String comparison opcodes
+   #ljSTREQ               ; String equals
+   #ljSTRNE               ; String not equals
+
    #ljMOV
    #ljFetch
    #ljPOP
@@ -549,6 +555,7 @@ Structure stJumpTracker
    targetPos.i          ; Target position when created
    offset.i             ; Current offset (adjusted as NOOPs created)
    type.i               ; Jump type: #ljJZ, #ljJMP, #ljTENIF, #ljTENELSE
+   holeMode.i           ; V1.023.43: Hole mode for offset adjustment (#C2HOLE_LOOPBACK needs -1)
 EndStructure
 
 ; Instruction flags
@@ -621,6 +628,30 @@ Structure stStructDef
    List fields.stFieldDef()  ; Field definitions
 EndStructure
 
+;- V1.023.0: Variable Preloading Templates
+;  Templates store initial values for variables, copied at VM init (globals)
+;  and function entry (locals). This eliminates MOV instructions for constants.
+
+;  Template value structure - mirrors stVT fields for direct field copy
+Structure stVarTemplate
+   ss.s              ; String value
+   i.i               ; Integer value
+   f.d               ; Float value
+   *ptr              ; Pointer value (for pointer variables)
+   ptrtype.w         ; Pointer type tag (0=not pointer, 1-7=pointer types)
+   arraySize.i       ; For arrays: number of elements (0 if not array)
+                     ; Note: actual array elements allocated at runtime via ReDim
+EndStructure
+
+;  Function template - stores initial values for a function's local variables
+;  Parameters (LOCAL[0..nParams-1]) are NOT in template - they come from caller
+;  Template covers LOCAL[nParams..totalVars-1] only
+Structure stFuncTemplate
+   funcId.i                      ; Function ID (index in gFuncTemplates)
+   localCount.i                  ; Number of non-param locals (template size)
+   Array template.stVarTemplate(0)  ; Pre-initialized values for locals
+EndStructure
+
 ;- Globals
 
 Global Dim           gszATR.stATR(#C2TOKENCOUNT)
@@ -634,6 +665,11 @@ Global NewMap        mapStructDefs.stStructDef()  ; V1.021.0: Structure type def
 Global NewMap        mapConstInt.i()      ; "value" -> slot (e.g., "100" -> 5)
 Global NewMap        mapConstFloat.i()    ; "value" -> slot (e.g., "3.14" -> 6)
 Global NewMap        mapConstStr.i()      ; "value" -> slot (e.g., "hello" -> 7)
+
+; V1.023.0: Variable preloading templates
+Global Dim           gGlobalTemplate.stVarTemplate(0)   ; Template for global variables (resized to gnGlobalVariables)
+Global Dim           gFuncTemplates.stFuncTemplate(0)   ; Templates for function locals (resized to function count)
+Global               gnFuncTemplateCount.i              ; Number of function templates
 
 Global               gnLastVariable.i
 Global               gnGlobalVariables.i  ; V1.020.057: Count of global variables only (for stack calculation)
@@ -694,15 +730,17 @@ Macro          ASMLine(obj,show)
    
    If obj\code = #ljJMP Or obj\code = #ljJZ
       CompilerIf show
-         line + "  (" +Str(obj\i) + ") " + Str(i+obj\i)
+         ; V1.023.20: Fix target display to be 1-indexed (matching line numbers)
+         line + "  (" +Str(obj\i) + ") " + Str(i+1+obj\i)
       CompilerElse
-         line + "  (" +Str(obj\i) + ") " + Str(ListIndex(obj)+obj\i)
+         line + "  (" +Str(obj\i) + ") " + Str(ListIndex(obj)+1+obj\i)
       CompilerEndIf
    ElseIf obj\code = #ljCall
       CompilerIf show
-         line + "  (" +Str(obj\i) + ") " + Str(i+obj\i) + " [nParams=" + Str(obj\j) + " nLocals=" + Str(obj\n) + " nArrays=" + Str(obj\ndx) + "]"
+         ; V1.023.20: Fix target display to be 1-indexed (matching line numbers)
+         line + "  (" +Str(obj\i) + ") " + Str(i+1+obj\i) + " [nParams=" + Str(obj\j) + " nLocals=" + Str(obj\n) + " nArrays=" + Str(obj\ndx) + "]"
       CompilerElse
-         line + "  (" +Str(obj\i) + ") " + Str(ListIndex(obj)+obj\i) + " [nParams=" + Str(obj\j) + " nLocals=" + Str(obj\n) + " nArrays=" + Str(obj\ndx) + "]"
+         line + "  (" +Str(obj\i) + ") " + Str(ListIndex(obj)+1+obj\i) + " [nParams=" + Str(obj\j) + " nLocals=" + Str(obj\n) + " nArrays=" + Str(obj\ndx) + "]"
       CompilerEndIf
    ; Specialized array operations (no runtime branching) - opcode name encodes all info
    ElseIf obj\code = #ljARRAYFETCH_INT_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_INT_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_INT_LOCAL_OPT Or obj\code = #ljARRAYFETCH_INT_LOCAL_STACK Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_OPT Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_STACK Or obj\code = #ljARRAYFETCH_STR_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_STR_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_STR_LOCAL_OPT Or obj\code = #ljARRAYFETCH_STR_LOCAL_STACK Or obj\code = #ljARRAYSTORE_INT_GLOBAL_OPT_OPT Or obj\code = #ljARRAYSTORE_INT_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_INT_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_INT_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_OPT_OPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_OPT_OPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_OPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_OPT_OPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_OPT_OPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_STACK_STACK
@@ -778,13 +816,14 @@ Macro          ASMLine(obj,show)
       line + "[" + gVarMeta( obj\j )\name + temp + "] --> [" + gVarMeta( obj\i )\name + "] (src=" + Str(obj\j) + " dst=" + Str(obj\i) + ")"
       flag + 1
    ElseIf obj\code = #ljSTORE Or obj\code = #ljSTORES Or obj\code = #ljSTOREF
-      _ASMLineHelper1( show, sp - 1 )
-      line + "[sp" + temp + "] --> [" + gVarMeta( obj\i )\name + "] (slot=" + Str(obj\i) + ")"
+      ; V1.023.31: Don't use sp-1 for value display - sp is runtime, not compile-time
+      line + "[sp] --> [" + gVarMeta( obj\i )\name + "] (slot=" + Str(obj\i) + ")"
       flag + 1
    ; Local variable STORE operations - show paramOffset
-   ElseIf obj\code = #ljLSTORE Or obj\code = #ljLSTORES Or obj\code = #ljLSTOREF
-      _ASMLineHelper1( show, sp - 1 )
-      line + "[sp" + temp + "] --> [LOCAL[" + Str(obj\i) + "]]"
+   ; V1.023.21: Added PLSTORE to display
+   ElseIf obj\code = #ljLSTORE Or obj\code = #ljLSTORES Or obj\code = #ljLSTOREF Or obj\code = #ljPLSTORE
+      ; V1.023.31: Don't use sp-1 for value display - sp is runtime, not compile-time
+      line + "[sp] --> [LOCAL[" + Str(obj\i) + "]]"
       flag + 1
    ; Local variable FETCH operations - show paramOffset
    ElseIf obj\code = #ljLFETCH Or obj\code = #ljLFETCHS Or obj\code = #ljLFETCHF
@@ -803,14 +842,15 @@ Macro          ASMLine(obj,show)
       flag + 1
    ; In-place compound assignment operations
    ElseIf obj\code = #ljADD_ASSIGN_VAR Or obj\code = #ljSUB_ASSIGN_VAR Or obj\code = #ljMUL_ASSIGN_VAR Or obj\code = #ljDIV_ASSIGN_VAR Or obj\code = #ljMOD_ASSIGN_VAR Or obj\code = #ljFLOATADD_ASSIGN_VAR Or obj\code = #ljFLOATSUB_ASSIGN_VAR Or obj\code = #ljFLOATMUL_ASSIGN_VAR Or obj\code = #ljFLOATDIV_ASSIGN_VAR
-      _ASMLineHelper1( show, sp - 1 )
-      line + "[" + gVarMeta(obj\i)\name + " OP= sp" + temp + "]"
+      ; V1.023.31: Don't use sp-1 for value display - sp is runtime, not compile-time
+      line + "[" + gVarMeta(obj\i)\name + " OP= sp]"
       flag + 1
    ElseIf obj\code = #ljPUSH Or obj\code = #ljFetch Or obj\code = #ljPUSHS Or obj\code = #ljPUSHF
       flag + 1
       _ASMLineHelper1( 0, obj\i )
       If gVarMeta( obj\i )\flags & #C2FLAG_IDENT
-         line + "[" + gVarMeta( obj\i )\name + "] --> [sp]"
+         ; V1.023.21: Show slot number for IDENT to help debug
+         line + "[" + gVarMeta( obj\i )\name + " (slot=" + Str(obj\i) + ")] --> [sp]"
       ElseIf gVarMeta( obj\i )\flags & #C2FLAG_STR
          line + "[" + gVarMeta( obj\i )\valueString + "] --> [sp]"
       ElseIf gVarMeta( obj\i )\flags & #C2FLAG_INT
@@ -978,7 +1018,7 @@ c2tokens:
    Data.s   "GT"
    Data.i   #ljFLOATGR, 0
    Data.s   "LT"
-   Data.i   #ljFLOATLE, 0
+   Data.i   #ljFLOATLESS, 0
    Data.s   "FLEQ"
    Data.i   0, 0
    Data.s   "FLNE"
@@ -991,7 +1031,13 @@ c2tokens:
    Data.i   0, 0
    Data.s   "FLLT"
    Data.i   0, 0
-   
+
+   ; V1.023.30: String comparison opcodes
+   Data.s   "STREQ"
+   Data.i   0, 0
+   Data.s   "STRNE"
+   Data.i   0, 0
+
    Data.s   "MOV"
    Data.i   #ljMOVF, #ljMOVS
    Data.s   "FETCH"

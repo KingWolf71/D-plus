@@ -1,5 +1,21 @@
-# Ignore the Backups folder
-Backups/
-.claude/
+# Local settings
+.claude/settings.local.json
+
+# Backups
+backups/
+
+# Accidental Windows files
+nul
+
+# PureBasic compiled output
+*.exe
+*.dll
+*.obj
+
+# Editor temp files
+*.bak
+*~
+
+# Temporary folders and files
 TEMP/
 test_results.json

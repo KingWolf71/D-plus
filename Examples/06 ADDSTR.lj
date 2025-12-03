@@ -35,4 +35,8 @@ print("Result: ", bstr2);
 calc.s = "22/7 = " + 22.0/7.0;
 print(calc);
 
-
+s1.s = "W";
+print("s1 = ", s1);
+s2.s = "W" + "X";
+print("s2 = ", s2);
+print("Done");

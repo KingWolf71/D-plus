@@ -148,6 +148,37 @@ Procedure            InitJumpTracker()
             CompilerIf #DEBUG
                Debug "InitJumpTracker: BLIND jump at srcPos=" + Str(srcPos) + " targetPos=" + Str(pos) + " offset=" + Str(offset)
             CompilerEndIf
+
+         ElseIf llHoles()\mode = #C2HOLE_LOOPBACK
+            ; V1.023.42: While loop backward jump - target is NOOPIF at loop start
+            ; Must skip past NOOPIF to actual target so pointer stays valid after deletion
+            llHoles()\mode = #C2HOLE_PAIR
+            ChangeCurrentElement( llObjects(), llHoles()\src )
+            ; Skip past NOOPIF/NOOP to actual target instruction
+            While llObjects()\code = #ljNOOPIF Or llObjects()\code = #ljNOOP
+               If Not NextElement(llObjects())
+                  Break
+               EndIf
+            Wend
+            pos = ListIndex( llObjects() )
+            *targetInstr = @llObjects()  ; Store pointer to instruction AFTER NOOPIF
+            ChangeCurrentElement( llObjects(), llHoles()\location )
+            srcPos = ListIndex( llObjects() )
+            offset = (pos - srcPos)
+            llObjects()\i = offset
+
+            AddElement(llJumpTracker())
+            llJumpTracker()\instruction = @llObjects()
+            llJumpTracker()\target = *targetInstr
+            llJumpTracker()\srcPos = srcPos
+            llJumpTracker()\targetPos = pos
+            llJumpTracker()\offset = offset
+            llJumpTracker()\type = llObjects()\code
+            llJumpTracker()\holeMode = #C2HOLE_LOOPBACK  ; V1.023.43: Mark for -1 adjustment in Pass 26
+
+            CompilerIf #DEBUG
+               Debug "InitJumpTracker: LOOPBACK jump at srcPos=" + Str(srcPos) + " targetPos=" + Str(pos) + " offset=" + Str(offset) + " (while loop backward JMP, will get -1 in Pass26)"
+            CompilerEndIf
          EndIf
       Next
 
@@ -294,9 +325,34 @@ Procedure            FixJMP()
 
       CompilerIf #True  ; V1.020.094: Re-enabled after fixing incremental adjustment bug
       noopCount = 0
+      Protected *currentNoop, *nextInstr
       ForEach llObjects()
-         ; V1.022.110: Also delete #ljNOOPIF markers (those not converted to RETURN)
+         ; V1.023.42: Delete both NOOP and NOOPIF (LOOPBACK mode handles backward jumps)
          If llObjects()\code = #ljNOOP Or llObjects()\code = #ljNOOPIF
+            ; V1.023.38: CRITICAL FIX - Before deleting, update any jump tracker targets
+            ; that point to this NOOP to point to the next instruction instead
+            *currentNoop = @llObjects()
+            *nextInstr = #Null
+            PushListPosition(llObjects())
+            If NextElement(llObjects())
+               *nextInstr = @llObjects()
+            EndIf
+            PopListPosition(llObjects())
+            ; Update any jump tracker entries that target this NOOP
+            If *nextInstr
+               PushListPosition(llJumpTracker())
+               ForEach llJumpTracker()
+                  If llJumpTracker()\target = *currentNoop
+                     llJumpTracker()\target = *nextInstr
+                     CompilerIf #DEBUG
+                        Debug "Pass25: Redirected jump target from deleted NOOP to next instruction"
+                     CompilerEndIf
+                     Break  ; Found it, no need to continue
+                  EndIf
+               Next
+               PopListPosition(llJumpTracker())
+            EndIf
+            ; Now safe to delete - llObjects() is still at *currentNoop
             noopCount + 1
             DeleteElement(llObjects())
          EndIf
@@ -319,13 +375,22 @@ Procedure            FixJMP()
                targetPos = ListIndex(llObjects())
 
                ; Recalculate offset based on post-NOOP positions
+               ; V1.023.47: VM uses PC+offset directly, no -1 adjustment needed
+               ; LOOPBACK mode stores pointer to instruction AFTER NOOPIF,
+               ; so after NOOP deletion the target position is correct
                offset = targetPos - srcPos
                llJumpTracker()\instruction\i = offset
                CompilerIf #DEBUG
-                  ; V1.020.096: Enhanced debug to show instruction types
+                  ; V1.020.096: Enhanced debug to show instruction types and hole mode
                   Protected srcInstrName.s = gszATR(llJumpTracker()\instruction\code)\s
                   Protected tgtInstrName.s = gszATR(llObjects()\code)\s
-                  Debug "Pass26: " + srcInstrName + " at pos=" + Str(srcPos) + " → " + tgtInstrName + " at pos=" + Str(targetPos) + " offset=" + Str(offset) + " (was " + Str(llJumpTracker()\offset) + ")"
+                  Protected modeStr.s = ""
+                  Select llJumpTracker()\holeMode
+                     Case #C2HOLE_LOOPBACK : modeStr = "LOOPBACK"
+                     Case #C2HOLE_BLIND : modeStr = "BLIND"
+                     Default : modeStr = "DEFAULT"
+                  EndSelect
+                  Debug "Pass26: " + srcInstrName + " at pos=" + Str(srcPos) + " → " + tgtInstrName + " at pos=" + Str(targetPos) + " offset=" + Str(offset) + " (was " + Str(llJumpTracker()\offset) + ") mode=" + modeStr
                CompilerEndIf
             Else
                CompilerIf #DEBUG
@@ -498,6 +563,19 @@ Procedure            PostProcessor()
       Protected flags.s
       Protected localOffset
       Protected arrayStoreIdx, valueInstrIdx  ; V1.022.89: For Pass 11 NOOP skipping
+      ; V1.023.0: Variables for template building
+      Protected maxFuncId.i
+      Protected funcName.s
+      Protected funcPrefix.s
+      Protected nParams.i
+      Protected localCount.i
+      Protected templateIdx.i
+      Protected removedMovCount.i
+      ; V1.023.1: Variables for local variable name lookup
+      Protected localParamOffset.i
+      Protected localVarName.s
+      ; V1.023.9: Key for tracking removed local inits
+      Protected localKey.s
 
       CompilerIf #DEBUG
          Debug "    Pass 1: Pointer type tracking (mark variables assigned from pointer sources)"
@@ -1936,6 +2014,7 @@ Procedure            PostProcessor()
 
             ; V1.022.117/119: PTRSTRUCTSTORE - check both pointer and value
             Case #ljPTRSTRUCTSTORE_INT
+               Debug "[Pass12b] PTRSTRUCTSTORE_INT: i=" + Str(llObjects()\i) + " ndx=" + Str(llObjects()\ndx)
                If llObjects()\i < -1 And llObjects()\ndx < -1  ; Both local
                   llObjects()\i = -(llObjects()\i + 2)
                   llObjects()\ndx = -(llObjects()\ndx + 2)
@@ -2837,6 +2916,248 @@ Procedure            PostProcessor()
       CompilerEndIf
       EndIf  ; optimizationsEnabled
 
+      ;- V1.023.0: Build variable preloading templates
+      ; This builds gGlobalTemplate and gFuncTemplates from gVarMeta values
+      ; Variables marked with #C2FLAG_PRELOAD have their constant init values stored
+      CompilerIf #DEBUG
+         Debug "    Building variable preloading templates..."
+      CompilerEndIf
+
+      ; V1.023.17: Build global template - resize to gnLastVariable (not gnGlobalVariables)
+      ; Slots aren't allocated in order - constants come before variables
+      ; So we need to cover all slots and check flags to identify preloadable globals
+      If gnLastVariable > 0
+         ReDim gGlobalTemplate.stVarTemplate(gnLastVariable - 1)
+         Protected preloadCount.i = 0
+         For i = 0 To gnLastVariable - 1
+            ; V1.023.17: Only populate template for global variables (not constants)
+            ; Global vars have: paramOffset=-1, no CONST flag
+            If gVarMeta(i)\paramOffset = -1 And Not (gVarMeta(i)\flags & #C2FLAG_CONST)
+               ; Copy metadata to template for this global variable
+               If gVarMeta(i)\flags & #C2FLAG_INT
+                  gGlobalTemplate(i)\i = gVarMeta(i)\valueInt
+               ElseIf gVarMeta(i)\flags & #C2FLAG_FLOAT
+                  gGlobalTemplate(i)\f = gVarMeta(i)\valueFloat
+               ElseIf gVarMeta(i)\flags & #C2FLAG_STR
+                  gGlobalTemplate(i)\ss = gVarMeta(i)\valueString
+               EndIf
+               ; Copy array size if applicable
+               gGlobalTemplate(i)\arraySize = gVarMeta(i)\arraySize
+               If gVarMeta(i)\flags & #C2FLAG_PRELOAD
+                  preloadCount + 1
+               EndIf
+            EndIf
+         Next
+         CompilerIf #DEBUG
+            Debug "      Built global template: " + Str(gnLastVariable) + " slots, " + Str(preloadCount) + " preloadable"
+         CompilerEndIf
+      EndIf
+
+      ; Build function templates - one per function
+      ; First, count functions and their locals
+      ; V1.023.0: Index by funcId directly (wastes slots 0..#C2FUNCSTART-1, but faster VM access)
+      maxFuncId = 0
+      ForEach mapModules()
+         If mapModules()\function >= #C2FUNCSTART
+            If mapModules()\function > maxFuncId
+               maxFuncId = mapModules()\function
+            EndIf
+         EndIf
+      Next
+
+      If maxFuncId >= #C2FUNCSTART
+         gnFuncTemplateCount = maxFuncId + 1  ; Size array to hold funcId directly
+         ReDim gFuncTemplates.stFuncTemplate(maxFuncId)  ; Index 0..maxFuncId
+
+         ; For each function, find its non-param locals and build template
+         ForEach mapModules()
+            If mapModules()\function >= #C2FUNCSTART
+               funcId = mapModules()\function  ; Use funcId directly (no subtraction)
+               funcName = MapKey(mapModules())
+               funcPrefix = funcName + "_"
+               nParams = mapModules()\nParams
+               localCount = 0
+
+               ; Count non-param locals for this function
+               For i = 0 To gnLastVariable - 1
+                  If gVarMeta(i)\paramOffset >= nParams  ; Skip params (0..nParams-1)
+                     If Left(LCase(gVarMeta(i)\name), Len(funcPrefix)) = LCase(funcPrefix)
+                        localCount + 1
+                     EndIf
+                  EndIf
+               Next
+
+               ; Build template for this function (indexed by funcId directly)
+               gFuncTemplates(funcId)\funcId = funcId
+               gFuncTemplates(funcId)\localCount = localCount
+
+               If localCount > 0
+                  ReDim gFuncTemplates(funcId)\template.stVarTemplate(localCount - 1)
+
+                  ; V1.023.5: Index template by (paramOffset - nParams) to match C2CALL expectations
+                  ; C2CALL applies template[i] to LOCAL[nParams + i], so template index must equal
+                  ; (variable's paramOffset - nParams) for correct value placement
+                  For i = 0 To gnLastVariable - 1
+                     If gVarMeta(i)\paramOffset >= nParams
+                        If Left(LCase(gVarMeta(i)\name), Len(funcPrefix)) = LCase(funcPrefix)
+                           ; Calculate template index from paramOffset
+                           templateIdx = gVarMeta(i)\paramOffset - nParams
+                           If templateIdx >= 0 And templateIdx < localCount
+                              ; Copy values to template at correct position
+                              If gVarMeta(i)\flags & #C2FLAG_INT
+                                 gFuncTemplates(funcId)\template(templateIdx)\i = gVarMeta(i)\valueInt
+                              ElseIf gVarMeta(i)\flags & #C2FLAG_FLOAT
+                                 gFuncTemplates(funcId)\template(templateIdx)\f = gVarMeta(i)\valueFloat
+                              ElseIf gVarMeta(i)\flags & #C2FLAG_STR
+                                 gFuncTemplates(funcId)\template(templateIdx)\ss = gVarMeta(i)\valueString
+                              EndIf
+                              gFuncTemplates(funcId)\template(templateIdx)\arraySize = gVarMeta(i)\arraySize
+                           EndIf
+                        EndIf
+                     EndIf
+                  Next
+               EndIf
+
+               CompilerIf #DEBUG
+                  Debug "      Function '" + funcName + "' (funcId=" + Str(funcId) + "): " + Str(localCount) + " local template slots"
+               CompilerEndIf
+            EndIf
+         Next
+      EndIf
+
+      ;- V1.023.0: Convert MOV/LMOV to NOOP for preloadable variables
+      ; Variables with #C2FLAG_PRELOAD get their values from templates at VM init/function entry
+      ; IMPORTANT: Only remove the FIRST MOV for each variable (the initialization)
+      ; Subsequent runtime assignments must still execute, even if assigning a constant
+      CompilerIf #DEBUG
+         Debug "    Pass 26: Remove MOV instructions for preloadable variables"
+      CompilerEndIf
+
+      ; Track which global variables have had their init MOV removed
+      NewMap removedGlobalInits.i()
+
+      ; V1.023.1: Track current function for local variable name lookup
+      currentFunctionName = ""
+
+      ; V1.023.9: Track which local variables have had their init LMOV removed (per function)
+      ; Key = paramOffset, cleared on each new function
+      NewMap removedLocalInits.i()
+
+      ; V1.023.10: Only optimize LMOVs in straight-line code at function entry
+      ; Once we hit a control flow instruction (loop/if), stop optimizing to avoid
+      ; breaking loop variable re-initialization like "op2 = 0" inside "while op1 < 4"
+      Protected localOptimizationEnabled.b = #False
+
+      ; V1.023.18: Same for global MOVs - only optimize before first control flow
+      Protected globalOptimizationEnabled.b = #True
+
+      removedMovCount = 0
+      ForEach llObjects()
+         ; Track function boundaries for local variable name lookup
+         If llObjects()\code = #ljFUNCTION
+            funcId = llObjects()\i
+            currentFunctionName = ""
+            ForEach mapModules()
+               If mapModules()\function = funcId
+                  currentFunctionName = MapKey(mapModules())
+                  Break
+               EndIf
+            Next
+            ; V1.023.9: Clear local init tracking for new function
+            ClearMap(removedLocalInits())
+            ; V1.023.10: Re-enable optimization at function entry
+            localOptimizationEnabled = #True
+         EndIf
+
+         ; V1.023.10: Disable local optimization once we see control flow
+         ; V1.023.18: Also disable global optimization
+         ; This ensures we don't optimize away loop variable re-initializations
+         Select llObjects()\code
+            Case #ljJMP, #ljJZ, #ljCall, #ljreturn, #ljreturnF, #ljreturnS
+               localOptimizationEnabled = #False
+               globalOptimizationEnabled = #False
+         EndSelect
+
+         Select llObjects()\code
+            ; Global MOV: i = destination slot, j = source slot
+            Case #ljMOV, #ljMOVF, #ljMOVS
+               ; V1.023.18: Only optimize in straight-line code before control flow
+               If globalOptimizationEnabled
+                  ; Check if destination is preloadable and source is constant
+                  ; V1.023.17: Don't use slot range check - slots aren't allocated in order
+                  ; Instead check: dst has PRELOAD flag, src is CONST, dst is global var (not const)
+                  dstVar = llObjects()\i
+                  srcVar = llObjects()\j
+                  If dstVar >= 0 And dstVar < gnLastVariable
+                     ; V1.023.17: Check dst is a global variable (paramOffset=-1, not a constant)
+                     If (gVarMeta(dstVar)\flags & #C2FLAG_PRELOAD) And (gVarMeta(srcVar)\flags & #C2FLAG_CONST) And Not (gVarMeta(dstVar)\flags & #C2FLAG_CONST) And gVarMeta(dstVar)\paramOffset = -1
+                        ; Only remove the FIRST MOV for each variable
+                        If Not removedGlobalInits(Str(dstVar))
+                           llObjects()\code = #ljNOOP
+                           removedGlobalInits(Str(dstVar)) = #True
+                           removedMovCount + 1
+                           ; V1.023.0: Report global variable preloading
+                           SetInfo("Global '" + gVarMeta(dstVar)\name + "' preloaded from template")
+                        EndIf
+                     EndIf
+                  EndIf
+               EndIf
+
+            ; Local LMOV: i = destination paramOffset, j = source slot
+            ; V1.023.10: Only optimize in straight-line code before any control flow
+            ; Variables initialized inside loops/conditionals must keep their LMOV
+            Case #ljLMOV, #ljLMOVF, #ljLMOVS
+               If localOptimizationEnabled
+                  srcVar = llObjects()\j
+                  localParamOffset = llObjects()\i
+                  If srcVar >= 0 And srcVar < gnLastVariable
+                     If gVarMeta(srcVar)\flags & #C2FLAG_CONST
+                        ; Source is constant and we're in straight-line init code
+                        localKey = Str(localParamOffset)
+                        If Not removedLocalInits(localKey)
+                           ; First LMOV for this local - template handles the init
+                           llObjects()\code = #ljNOOP
+                           removedLocalInits(localKey) = #True
+                           removedMovCount + 1
+                           ; V1.023.1: Look up actual local variable name by paramOffset and function
+                           localVarName = ""
+                           If currentFunctionName <> ""
+                              funcPrefix = currentFunctionName + "_"
+                              For varIdx = 0 To gnLastVariable - 1
+                                 If gVarMeta(varIdx)\paramOffset = localParamOffset
+                                    varName = gVarMeta(varIdx)\name
+                                    If Left(LCase(varName), Len(funcPrefix)) = LCase(funcPrefix)
+                                       ; Extract just the variable name (after function prefix)
+                                       localVarName = Mid(varName, Len(funcPrefix) + 1)
+                                       Break
+                                    EndIf
+                                 EndIf
+                              Next
+                           EndIf
+                           If localVarName <> ""
+                              SetInfo("Local '" + localVarName + "' in " + currentFunctionName + "() preloaded from template")
+                           Else
+                              SetInfo("Local [slot " + Str(localParamOffset) + "] in " + currentFunctionName + "() preloaded from template")
+                           EndIf
+                        EndIf
+                     EndIf
+                  EndIf
+               EndIf
+         EndSelect
+      Next
+
+      FreeMap(removedGlobalInits())
+      FreeMap(removedLocalInits())
+
+      ; V1.023.0: Summary info message
+      If removedMovCount > 0
+         SetInfo("Preload optimization: " + Str(removedMovCount) + " MOV/LMOV instructions replaced by templates")
+      EndIf
+
+      CompilerIf #DEBUG
+         Debug "      Removed " + Str(removedMovCount) + " MOV/LMOV instructions (replaced with templates)"
+      CompilerEndIf
+
       ; V1.020.057: Debug output for Stack=-11 investigation
       CompilerIf #DEBUG
       Debug "=== VARIABLE ALLOCATION DEBUG ==="
@@ -2853,6 +3174,7 @@ Procedure            PostProcessor()
          If gVarMeta(i)\flags & #C2FLAG_STR : flags + "STR " : EndIf
          If gVarMeta(i)\flags & #C2FLAG_PARAM : flags + "PARAM " : EndIf
          If gVarMeta(i)\flags & #C2FLAG_ARRAY : flags + "ARRAY " : EndIf
+         If gVarMeta(i)\flags & #C2FLAG_PRELOAD : flags + "PRELOAD " : EndIf
          Debug "  [" + RSet(Str(i), 3) + "] " + LSet(gVarMeta(i)\name, 25) + " " + flags
       Next
       Debug "========================================="

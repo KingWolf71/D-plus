@@ -22,7 +22,7 @@ EnableDebugger
 DeclareModule C2Common
 
    ;#DEBUG = 0
-   XIncludeFile         "c2-inc-v13.pbi"
+   XIncludeFile         "c2-inc-v14.pbi"
 EndDeclareModule
 
 Module C2Common
@@ -39,6 +39,7 @@ DeclareModule C2Lang
    Global               gExit
    Global               gszlastError.s
    Global NewList       gWarnings.s()       ; List to store all warnings during compilation
+   Global NewList       gInfos.s()          ; V1.023.0: List for informational messages (preload optimizations)
 
    Structure stTree
       NodeType.i
@@ -55,7 +56,7 @@ DeclareModule C2Lang
    Declare              LoadLJ( file.s )
 EndDeclareModule
 
-XIncludeFile            "c2-vm-V11.pb"
+XIncludeFile            "c2-vm-V12.pb"
 
 Module C2Lang
    EnableExplicit
@@ -182,10 +183,17 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
    CompilerEndIf
       
    Global               gszFloating.s = "^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$"
+
+   ; V1.023.0: Info messages macro (defined early for postprocessor access)
+   Macro                SetInfo( text )
+      AddElement( gInfos() )
+      gInfos() = "Info: " + text
+   EndMacro
+
    ;- =====================================
    ;- Add compiler parts
    ;- =====================================
-   XIncludeFile         "c2-postprocessor-V04.pbi"
+   XIncludeFile         "c2-postprocessor-V05.pbi"
 
    CreateRegularExpression( #C2REG_FLOATS, gszFloating )
    
@@ -337,6 +345,9 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       InstallBuiltin( "sqrt",              #ljBUILTIN_SQRT,         1, 1, #C2FLAG_FLOAT )
       InstallBuiltin( "pow",               #ljBUILTIN_POW,          2, 2, #C2FLAG_FLOAT )
       InstallBuiltin( "len",               #ljBUILTIN_LEN,          1, 1, #C2FLAG_INT )
+      ; V1.023.29: Add str() and strf() conversion functions
+      InstallBuiltin( "str",               #ljITOS,                 1, 1, #C2FLAG_STR )
+      InstallBuiltin( "strf",              #ljFTOS,                 1, 1, #C2FLAG_STR )
    EndProcedure
    CompilerEndIf
 
@@ -461,6 +472,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       ClearList( llHoles() )
       ClearList( llJumpTracker() )  ; V1.020.073: Clear jump tracker
       ClearList( gWarnings() )
+      ClearList( gInfos() )        ; V1.023.0: Clear info messages
       ClearMap( mapPragmas() )
       ClearMap( mapMacros() )
       ClearMap( mapModules() )
@@ -572,9 +584,9 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       SetError( "Invalid file", #C2ERR_INVALID_FILE )
    EndProcedure
 
-   XIncludeFile         "c2-scanner-v02.pbi"
-   XIncludeFile         "c2-ast-v02.pbi"
-   XIncludeFile         "c2-codegen-v02.pbi"
+   XIncludeFile         "c2-scanner-v03.pbi"
+   XIncludeFile         "c2-ast-v03.pbi"
+   XIncludeFile         "c2-codegen-v03.pbi"
 
    ;- =====================================
    ;- Preprocessors
@@ -1162,6 +1174,8 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       ClearMap(mapConstStr())
 
       ; Scan all tokens for constants
+      ; V1.023.27: Debug - show all string tokens being processed
+      Debug "ExtractConstants: Scanning " + Str(ListSize(TOKEN())) + " tokens..."
       ForEach TOKEN()
          Select TOKEN()\TokenType
             Case #ljINT
@@ -1195,6 +1209,8 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
 
             Case #ljSTRING
                constValue = TOKEN()\value
+               ; V1.023.27: Debug - trace string constant extraction
+               Debug "ExtractConstants: Found string token '" + constValue + "'"
                If Not FindMapElement(mapConstStr(), constValue)
                   slot = gnLastVariable
                   gVarMeta(slot)\name = constValue
@@ -1204,6 +1220,9 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
                   gnLastVariable + 1
                   mapConstStr(constValue) = slot
                   constCount + 1
+                  Debug "  -> Added to mapConstStr, slot=" + Str(slot)
+               Else
+                  Debug "  -> Already in mapConstStr, slot=" + Str(mapConstStr())
                EndIf
          EndSelect
       Next
@@ -1257,6 +1276,14 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          Debug " -- Code generator pass: Generating bytecode from AST..."
          CodeGenerator( *p )
 
+         ; V1.023.26: Check for errors after code generation (e.g., type conflicts)
+         If gLastError
+            Debug "CodeGen Error > " + gszlastError
+            gExit = -1
+         EndIf
+      EndIf
+
+      If gExit >= 0
          ; V1.020.077: Initialize jump tracker BEFORE optimization passes
          ; This allows PostProcessor to call AdjustJumpsForNOOP() with populated tracker
          Debug " -- InitJumpTracker: Calculating initial jump offsets..."
@@ -1295,6 +1322,15 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
             Debug "=== End of Warnings ==="
          EndIf
 
+         ; V1.023.0: Display any info messages (preload optimizations)
+         If ListSize(gInfos()) > 0
+            Debug "=== Optimization Info ==="
+            ForEach gInfos()
+               Debug gInfos()
+            Next
+            Debug "=== End of Info ==="
+         EndIf
+
          ; Successful compilation - reset gExit to 0
          gExit = 0
       Else
@@ -1315,11 +1351,12 @@ CompilerIf #PB_Compiler_IsMainFile
    ;filename = ".\Examples\07 floats and macros.lj"
    ;filename = ".\Examples\00 comprehensive test.lj"
    ;filename = ".\Examples\20 array sort stress test.lj"
+   ;filename = ".\Examples\22 array comprehensive.lj"
+   filename = ".\Examples\50 full test suite.lj"
    
-   filename = ".\Examples\22 array comprehensive.lj"
    ;filename = ".\Examples\23 test increment operators.lj"
    ;filename = ".\Examples\29 test type inference comprehensive.lj"
-   ;filename = ".\Examples\31 test advanced pointers.lj"
+   ;filename = ".\Examples\31 test advanced pointers.lj":n
    ;filename = ".\Examples\32 test advanced pointers working.lj"
    ;filename = ".\Examples\33 test mixed type pointers.lj"
    ;filename = ".\Examples\28 test pointers comprehensive.lj"
@@ -1327,7 +1364,7 @@ CompilerIf #PB_Compiler_IsMainFile
    ;filename = ".\Examples\38 test struct arrays.lj"
    
    ;filename = ".\Examples\03 Simple while.lj"
-   ;filename = ".\Examples\bug fix.lj"
+   filename = ".\Examples\bug fix2.lj"
    ;filename = OpenFileRequester( "Please choose source", ".\Examples\", "LJ Files|*.lj", 0 )
 
    If filename > ""
@@ -1339,9 +1376,13 @@ CompilerIf #PB_Compiler_IsMainFile
          Debug "Error: " + C2Lang::Error( @err )
       Else
          C2VM::gModuleName = filename
-         C2Lang::Compile()
-         C2VM::RunVM()  ; Auto-run after compilation
-
+         ; V1.023.26: Only run VM if compilation succeeds (returns 0)
+         ; Compile returns: 0=success, 1=scanner error, -1=AST/CodeGen error
+         If C2Lang::Compile() = 0
+            C2VM::RunVM()
+         Else
+            Debug "Compilation failed - VM not started"
+         EndIf
       EndIf
    EndIf
 
@@ -1349,15 +1390,15 @@ CompilerEndIf
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1319
-; FirstLine = 1308
-; Folding = ------
+; CursorPosition = 1377
+; FirstLine = 1353
+; Folding = -------
 ; Markers = 570,719
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; CPU = 1
-; EnableCompileCount = 1714
+; EnableCompileCount = 1828
 ; EnableBuildCount = 0
 ; EnableExeConstant
 ; IncludeVersionInfo

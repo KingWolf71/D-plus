@@ -92,7 +92,7 @@
             EndIf
          Next
       Else
-         ; In global scope
+         ; At global scope - clear function name
          gCurrentFunctionName = ""
       EndIf
 
@@ -642,19 +642,26 @@
                         Protected ptrStructTypeName.s = ""
                         Protected mangledPtrName.s = ""
 
+                        ; V1.023.14: Debug output for struct pointer parsing
+                        Debug "AST PTRSTRUCTFETCH: identName='" + identName + "' fieldName='" + structFieldName + "' gCurrentFunctionName='" + gCurrentFunctionName + "'"
+
                         ; V1.022.121: Inside functions, ALWAYS use deferred format
                         ; Local pointer variables won't exist in gVarMeta during AST building
                         ; (they're only created during codegen). Searching here can match
                         ; wrong slots due to uninitialized data. Codegen will resolve correctly.
                         If gCurrentFunctionName = ""
                            ; Global scope: search for GLOBAL pointer variables only
+                           Debug "AST PTRSTRUCTFETCH: At global scope, searching for '" + identName + "' in gVarMeta..."
                            For structVarIdx = 1 To gnLastVariable - 1  ; Skip slot 0 (reserved)
                               If LCase(gVarMeta(structVarIdx)\name) = LCase(identName) And gVarMeta(structVarIdx)\pointsToStructType <> ""
                                  ptrVarSlot = structVarIdx
                                  ptrStructTypeName = gVarMeta(structVarIdx)\pointsToStructType
+                                 Debug "AST PTRSTRUCTFETCH: Found global pointer at slot " + Str(ptrVarSlot) + " type=" + ptrStructTypeName
                                  Break
                               EndIf
                            Next
+                        Else
+                           Debug "AST PTRSTRUCTFETCH: Inside function, using deferred format"
                         EndIf
                         ; Inside functions: ptrVarSlot stays -1, forcing deferred path
 
@@ -686,6 +693,7 @@
                                  EndIf
 
                                  ; Create node: value = "ptrVarSlot|fieldOffset"
+                                 Debug "AST PTRSTRUCTFETCH: Creating RESOLVED node '" + Str(ptrVarSlot) + "|" + Str(ptrFieldOffset) + "'"
                                  *p = Makeleaf(ptrFetchNodeType, Str(ptrVarSlot) + "|" + Str(ptrFieldOffset))
 
                                  ; Set type hint based on field type
@@ -712,6 +720,7 @@
                            NextToken()  ; Move past field name
 
                            ; Create a deferred struct pointer fetch node (use INT as default, codegen will fix)
+                           Debug "AST PTRSTRUCTFETCH: Creating DEFERRED node '" + identName + "|" + structFieldName + "'"
                            *p = Makeleaf(#ljPTRSTRUCTFETCH_INT, identName + "|" + structFieldName)
                            *p\TypeHint = #ljINT  ; Default, codegen will determine actual type
                         EndIf
@@ -1057,7 +1066,7 @@
             EndIf
          Next
       Else
-         ; In global scope
+         ; At global scope - clear function name
          gCurrentFunctionName = ""
       EndIf
 
@@ -1854,14 +1863,61 @@
                      ; Set flag to skip rest of identifier handling
                      autoDeclarredStruct = #True
                   ElseIf TOKEN()\TokenExtra = #ljASSIGN
-                     ; Traditional: varName.StructType = {...}
+                     ; Traditional: varName.StructType = {...} or struct copy: varName.StructType = srcStruct
                      NextToken()
 
-                     If TOKEN()\TokenType <> #ljLeftBrace
-                        SetError("Expected '{' for struct initialization", #C2ERR_EXPECTED_STATEMENT)
+                     ; V1.023.24: Support struct copy syntax: v2.StructType = v1
+                     If TOKEN()\TokenType = #ljIDENT
+                        ; Struct copy: varName.StructType = srcStruct
+                        Protected copyStructSrcName.s = TOKEN()\value
+                        NextToken()
+
+                        ; Allocate base slot for destination struct
+                        Protected copyStructDestSlot.i = FetchVarOffset(structVarName, 0, 0)
+
+                        ; V1.023.24: Get first field's type for the base slot
+                        ; Base slot needs both STRUCT flag and first field's type flag for field access
+                        Protected copyFirstFieldType.w = #C2FLAG_INT  ; Default
+                        ResetList(structDef\fields())
+                        If FirstElement(structDef\fields())
+                           copyFirstFieldType = structDef\fields()\fieldType
+                        EndIf
+
+                        gVarMeta(copyStructDestSlot)\flags = #C2FLAG_STRUCT | #C2FLAG_IDENT | copyFirstFieldType
+                        gVarMeta(copyStructDestSlot)\structType = structTypeName
+                        gVarMeta(copyStructDestSlot)\elementSize = structDef\totalSize
+
+                        ; V1.023.24: Set up field metadata for remaining struct fields
+                        ; This is needed so field access knows the correct types
+                        Protected copyFieldOffset.i = 0
+                        ForEach structDef\fields()
+                           Protected copyFieldSlot.i = copyStructDestSlot + copyFieldOffset
+                           Protected copyFieldName.s = structVarName + "\" + structDef\fields()\name
+
+                           ; Only set metadata for non-base slots (base slot already set above)
+                           If copyFieldOffset > 0
+                              gVarMeta(copyFieldSlot)\name = copyFieldName
+                              gVarMeta(copyFieldSlot)\flags = structDef\fields()\fieldType | #C2FLAG_IDENT
+                              gVarMeta(copyFieldSlot)\paramOffset = -1
+                              gnLastVariable + 1
+                           EndIf
+
+                           copyFieldOffset + 1
+                        Next
+
+                        ; Create assignment node: destStruct = srcStruct
+                        ; Codegen will detect this is struct-to-struct and emit STRUCTCOPY
+                        Protected *copyStructDest.stTree = Makeleaf(#ljIDENT, structVarName)
+                        Protected *copyStructSrc.stTree = Makeleaf(#ljIDENT, copyStructSrcName)
+                        *p = MakeNode(#ljASSIGN, *copyStructDest, *copyStructSrc)
+
+                        Expect("struct copy", #ljSemi)
+                        autoDeclarredStruct = #True
+                     ElseIf TOKEN()\TokenType <> #ljLeftBrace
+                        SetError("Expected '{' for struct initialization or identifier for struct copy", #C2ERR_EXPECTED_STATEMENT)
                         gStack - 1
                         ProcedureReturn 0
-                     EndIf
+                     Else
                      NextToken()
 
                      ; Allocate base slot for struct
@@ -2014,6 +2070,7 @@
                   CompilerIf #DEBUG
                      Debug "Struct variable: " + structVarName + " of type " + structTypeName + " at slot " + Str(structBaseSlot)
                   CompilerEndIf
+                     EndIf  ; End of If IDENT / ElseIf not LeftBrace / Else LeftBrace
                   Else
                      ; V1.022.48: Neither backslash nor assignment - error
                      SetError("Expected '\\' for field access or '=' for initialization after '" + structVarName + "." + structTypeName + "'", #C2ERR_EXPECTED_STATEMENT)

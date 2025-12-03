@@ -14,7 +14,7 @@ CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
 CompilerEndIf
 
 ; Include the LJ2 compiler and VM
-XIncludeFile "c2-modules-V17.pb"
+XIncludeFile "c2-modules-V18.pb"
 
 ; ============================================================================
 ; Structures

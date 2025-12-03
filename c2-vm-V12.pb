@@ -192,8 +192,8 @@ Module C2VM
       CompilerEndIf
    EndMacro
   
-   XIncludeFile      "c2-vm-commands-v10.pb"
-   XIncludeFile      "c2-pointers-v02.pbi"
+   XIncludeFile      "c2-vm-commands-v11.pb"
+   XIncludeFile      "c2-pointers-v03.pbi"
 
    ;- Console GUI
    Procedure         MainWindow(name.s)
@@ -304,6 +304,9 @@ Module C2VM
       *ptrJumpTable( #ljGreaterEqual )    = @C2GREATEREQUAL()
       *ptrJumpTable( #ljNotEqual )        = @C2NOTEQUAL()
       *ptrJumpTable( #ljEQUAL )           = @C2EQUAL()
+      ; V1.023.30: String comparison opcodes
+      *ptrJumpTable( #ljSTREQ )           = @C2STREQ()
+      *ptrJumpTable( #ljSTRNE )           = @C2STRNE()
       *ptrJumpTable( #ljMULTIPLY )        = @C2MULTIPLY()
       *ptrJumpTable( #ljAND )             = @C2AND()
       *ptrJumpTable( #ljOr )              = @C2OR()
@@ -545,26 +548,43 @@ Module C2VM
    EndProcedure
 
    Procedure            vmTransferMetaToRuntime()
-      ; Transfer gVarMeta (compile-time) to gVar (runtime)
-      ; This allows compiler and VM to be separate in the future
-      ; In the future, this will read from JSON/XML instead of gVarMeta
+      ; V1.023.0: Transfer compile-time data to runtime using templates
+      ; Global variables: use gGlobalTemplate (preloaded values)
+      ; Constants: still transfer from gVarMeta
+      ; Arrays: still need ReDim for element allocation
       Protected i
 
       CompilerIf #DEBUG
          Debug "=== vmTransferMetaToRuntime: Transferring " + Str(gnLastVariable) + " variables ==="
+         Debug "  gnGlobalVariables=" + Str(gnGlobalVariables) + " gnLastVariable=" + Str(gnLastVariable)
       CompilerEndIf
 
+      ; V1.023.17: Single loop through all slots - check flags to determine source
+      ; Slots aren't allocated in order (constants before variables)
       For i = 0 To gnLastVariable - 1
-         gVar(i)\i = gVarMeta(i)\valueInt
-         gVar(i)\f = gVarMeta(i)\valueFloat
-         gVar(i)\ss = gVarMeta(i)\valueString
+         If gVarMeta(i)\flags & #C2FLAG_CONST
+            ; This is a constant - transfer from gVarMeta
+            gVar(i)\i = gVarMeta(i)\valueInt
+            gVar(i)\f = gVarMeta(i)\valueFloat
+            gVar(i)\ss = gVarMeta(i)\valueString
 
-         ; V1.020.064: Debug constant transfers
-         CompilerIf #DEBUG
-            If gVarMeta(i)\flags & #C2FLAG_CONST And i >= gnGlobalVariables
+            CompilerIf #DEBUG
                Debug "  Transfer constant [" + Str(i) + "]: i=" + Str(gVarMeta(i)\valueInt) + " f=" + StrD(gVarMeta(i)\valueFloat, 6) + " ss='" + gVarMeta(i)\valueString + "'"
-            EndIf
-         CompilerEndIf
+            CompilerEndIf
+         Else
+            ; This is a variable - use gGlobalTemplate (preloaded values)
+            gVar(i)\i = gGlobalTemplate(i)\i
+            gVar(i)\f = gGlobalTemplate(i)\f
+            gVar(i)\ss = gGlobalTemplate(i)\ss
+            gVar(i)\ptr = gGlobalTemplate(i)\ptr
+            gVar(i)\ptrtype = gGlobalTemplate(i)\ptrtype
+
+            CompilerIf #DEBUG
+               If gGlobalTemplate(i)\i <> 0 Or gGlobalTemplate(i)\f <> 0 Or gGlobalTemplate(i)\ss <> ""
+                  Debug "  Preload global [" + Str(i) + "]: i=" + Str(gGlobalTemplate(i)\i) + " f=" + StrD(gGlobalTemplate(i)\f, 6) + " ss='" + gGlobalTemplate(i)\ss + "'"
+               EndIf
+            CompilerEndIf
+         EndIf
 
          ; Allocate array storage if this is an array variable
          If gVarMeta(i)\flags & #C2FLAG_ARRAY And gVarMeta(i)\arraySize > 0
