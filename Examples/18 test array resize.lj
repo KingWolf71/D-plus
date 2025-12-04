@@ -1,5 +1,5 @@
 // Test Array Resize (V1.022.64) - Simplified
-// Syntax: array arr[newSize] - resize existing array
+// Syntax: array data[newSize] - resize existing array
 
 #pragma appname "Array-Resize-Test"
 #pragma decimals 3
@@ -25,17 +25,17 @@ print("");
 print("TEST 1: Create and populate small array");
 print("---------------------------------------");
 
-array arr.i[3];
-arr[0] = 100;
-arr[1] = 200;
-arr[2] = 300;
+array data.i[3];
+data[0] = 100;
+data[1] = 200;
+data[2] = 300;
 
-print("  arr[0] = ", arr[0], " (expected 100)");
-print("  arr[1] = ", arr[1], " (expected 200)");
-print("  arr[2] = ", arr[2], " (expected 300)");
-assertEqual(100, arr[0]);
-assertEqual(200, arr[1]);
-assertEqual(300, arr[2]);
+print("  data[0] = ", data[0], " (expected 100)");
+print("  data[1] = ", data[1], " (expected 200)");
+print("  data[2] = ", data[2], " (expected 300)");
+assertEqual(100, data[0]);
+assertEqual(200, data[1]);
+assertEqual(300, data[2]);
 print("  Initial array works!");
 print("");
 
@@ -43,29 +43,29 @@ print("");
 print("TEST 2: Resize array from 3 to 6");
 print("--------------------------------");
 
-array arr.i[6];
+array data.i[6];
 
 print("  Array resized to 6 elements");
 
 // Check original elements still there
-print("  arr[0] = ", arr[0], " (expected 100)");
-assertEqual(100, arr[0]);
-print("  arr[1] = ", arr[1], " (expected 200)");
-assertEqual(200, arr[1]);
-print("  arr[2] = ", arr[2], " (expected 300)");
-assertEqual(300, arr[2]);
+print("  data[0] = ", data[0], " (expected 100)");
+assertEqual(100, data[0]);
+print("  data[1] = ", data[1], " (expected 200)");
+assertEqual(200, data[1]);
+print("  data[2] = ", data[2], " (expected 300)");
+assertEqual(300, data[2]);
 print("  Original elements preserved!");
 
 // Try to use new elements
-print("  Setting arr[3] = 400...");
-arr[3] = 400;
-print("  arr[3] = ", arr[3], " (expected 400)");
-assertEqual(400, arr[3]);
+print("  Setting data[3] = 400...");
+data[3] = 400;
+print("  data[3] = ", data[3], " (expected 400)");
+assertEqual(400, data[3]);
 
-print("  Setting arr[5] = 600...");
-arr[5] = 600;
-print("  arr[5] = ", arr[5], " (expected 600)");
-assertEqual(600, arr[5]);
+print("  Setting data[5] = 600...");
+data[5] = 600;
+print("  data[5] = ", data[5], " (expected 600)");
+assertEqual(600, data[5]);
 
 print("");
 print("=== ARRAY RESIZE TEST PASSED ===");

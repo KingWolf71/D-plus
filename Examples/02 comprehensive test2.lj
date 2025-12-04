@@ -412,35 +412,35 @@ print("(fibonacci test skipped - heavy recursion)");
 print("");
 print("=== SECTION 13: Arrays ===");
 
-array arr.i[5];
-arr[0] = 10;
-arr[1] = 20;
-arr[2] = 30;
-arr[3] = 40;
-arr[4] = 50;
+array nums.i[5];
+nums[0] = 10;
+nums[1] = 20;
+nums[2] = 30;
+nums[3] = 40;
+nums[4] = 50;
 
 testnum++;
-if arr[0] == 10 { print("[ ", testnum, " ] -- PASS: arr[0]=10"); passed++; }
-else { print("[ ", testnum, " ] -- FAIL: arr[0] expected 10, got", arr[0]); failed++; }
+if nums[0] == 10 { print("[ ", testnum, " ] -- PASS: nums[0]=10"); passed++; }
+else { print("[ ", testnum, " ] -- FAIL: nums[0] expected 10, got", nums[0]); failed++; }
 
 testnum++;
-if arr[4] == 50 { print("[ ", testnum, " ] -- PASS: arr[4]=50"); passed++; }
-else { print("[ ", testnum, " ] -- FAIL: arr[4] expected 50, got", arr[4]); failed++; }
+if nums[4] == 50 { print("[ ", testnum, " ] -- PASS: nums[4]=50"); passed++; }
+else { print("[ ", testnum, " ] -- FAIL: nums[4] expected 50, got", nums[4]); failed++; }
 
 testnum++;
 sum = 0;
 i = 0;
 while i < 5 {
-    sum += arr[i];
+    sum += nums[i];
     i++;
 }
 if sum == 150 { print("[ ", testnum, " ] -- PASS: array sum=150"); passed++; }
 else { print("[ ", testnum, " ] -- FAIL: array sum expected 150, got", sum); failed++; }
 
 testnum++;
-arr[2] = arr[0] + arr[1];
-if arr[2] == 30 { print("[ ", testnum, " ] -- PASS: arr[2]=arr[0]+arr[1]=30"); passed++; }
-else { print("[ ", testnum, " ] -- FAIL: arr[2] expected 30, got", arr[2]); failed++; }
+nums[2] = nums[0] + nums[1];
+if nums[2] == 30 { print("[ ", testnum, " ] -- PASS: nums[2]=nums[0]+nums[1]=30"); passed++; }
+else { print("[ ", testnum, " ] -- FAIL: nums[2] expected 30, got", nums[2]); failed++; }
 
 // =============================================
 // SECTION 14: Pointers
@@ -460,7 +460,7 @@ if val == 100 { print("[ ", testnum, " ] -- PASS: *ptr=100 changes val"); passed
 else { print("[ ", testnum, " ] -- FAIL: val expected 100, got", val); failed++; }
 
 testnum++;
-ptr2.i = &arr[0];
+ptr2.i = &nums[0];
 if *ptr2 == 10 { print("[ ", testnum, " ] -- PASS: ptr to array[0]=10"); passed++; }
 else { print("[ ", testnum, " ] -- FAIL: ptr to array[0] expected 10, got", *ptr2); failed++; }
 

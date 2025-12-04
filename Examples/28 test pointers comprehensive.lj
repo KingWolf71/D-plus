@@ -28,9 +28,9 @@ func swap(a, b) {
 }
 
 // Find minimum value in array using pointers
-func findMin(arr, size) {
-    min.i = arr\i;
-    p = arr;
+func findMin(ptr, size) {
+    min.i = ptr\i;
+    p = ptr;
     i = 1;
     p = p + 1;  // Start from second element
 
@@ -46,9 +46,9 @@ func findMin(arr, size) {
 }
 
 // Reverse array using pointers
-func reverseArray(arr, size) {
-    left = arr;
-    right = arr;
+func reverseArray(ptr, size) {
+    left = ptr;
+    right = ptr;
 
     // Move right pointer to end
     i = 0;

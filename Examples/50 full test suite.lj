@@ -372,34 +372,34 @@ test("Ternary in function false", 99, pick(0, 42, 99));
 section("10. Array Operations");
 
 // Array initialization and access
-Array arr[10];
+Array nums[10];
 i = 0;
 while (i < 10) {
-    arr[i] = i * i;
+    nums[i] = i * i;
     i = i + 1;
 }
-test("Array squares 0", 0, arr[0]);
-test("Array squares 5", 25, arr[5]);
-test("Array squares 9", 81, arr[9]);
+test("Array squares 0", 0, nums[0]);
+test("Array squares 5", 25, nums[5]);
+test("Array squares 9", 81, nums[9]);
 
 // Array sum
 sum = 0;
 i = 0;
 while (i < 10) {
-    sum = sum + arr[i];
+    sum = sum + nums[i];
     i = i + 1;
 }
 test("Array sum of squares", 285, sum);  // 0+1+4+9+16+25+36+49+64+81
 
 // Array reverse copy
-Array arr2[10];
+Array nums2[10];
 i = 0;
 while (i < 10) {
-    arr2[i] = arr[9 - i];
+    nums2[i] = nums[9 - i];
     i = i + 1;
 }
-test("Reverse array first", 81, arr2[0]);
-test("Reverse array last", 0, arr2[9]);
+test("Reverse array first", 81, nums2[0]);
+test("Reverse array last", 0, nums2[9]);
 
 // =============================================================================
 // SECTION 11: STRING OPERATIONS
