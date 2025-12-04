@@ -4,12 +4,18 @@
 
 | What | Where |
 |------|-------|
-| Main compiler | `c2-modules-V13.pb` |
-| Global definitions | `c2-inc-v09.pbi` |
-| Optimizations | `c2-postprocessor-V02.pbi` |
-| VM core | `c2-vm-V08.pb` |
-| VM instructions | `c2-vm-commands-v06.pb` |
-| Test runner | `pbtester.pb` |
+| Main compiler | `c2-modules-V19.pb` |
+| Global definitions | `c2-inc-v15.pbi` |
+| Optimizations | `c2-postprocessor-V06.pbi` |
+| VM core | `c2-vm-V13.pb` |
+| VM instructions | `c2-vm-commands-v12.pb` |
+| AST parser | `c2-ast-v04.pbi` |
+| Code generator | `c2-codegen-v04.pbi` |
+| Scanner | `c2-scanner-v04.pbi` |
+| Array operations | `c2-arrays-v04.pbi` |
+| Pointer operations | `c2-pointers-v04.pbi` |
+| Built-in functions | `c2-builtins-v04.pbi` |
+| Test runner | `pbtester-v04.pb` |
 | Examples | `Examples/*.lj` |
 
 ## Key Global Variables
