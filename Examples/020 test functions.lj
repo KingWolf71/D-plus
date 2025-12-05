@@ -1,0 +1,87 @@
+/* Function Test - Compact
+   Tests: int/float/string returns, nesting, recursion
+*/
+
+#pragma appname "Function Test"
+#pragma decimals 3
+#pragma console on
+#pragma consolesize "680x740"
+#pragma consoleposition "30,50"
+#pragma optimizecode on
+#pragma ListASM on
+#pragma FastPrint on
+#pragma RunThreaded on
+#pragma ftoi "truncate"
+#pragma version on
+#pragma modulename on
+#pragma PasteToClipboard on
+#pragma floattolerance 0.0001
+#pragma stackspace 2048
+#pragma stackdepth 1024
+
+// Integer function
+func add(a, b) {
+    return a + b;
+}
+
+// Float function
+func divide.f(x.f, y.f) {
+    return x / y;
+}
+
+// String function
+func greet.s(name.s) {
+    return "Hi " + name.s;
+}
+
+// Nested call
+func addSquares(a, b) {
+    return a * a + b * b;
+}
+
+// Simple recursion
+func factorial(n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+// TESTS
+print("=== Integer Test ===");
+print("");
+r1 = add(10, 5);
+print("add(10,5) = ", r1);
+print("");
+
+print("");
+print("=== Float Test ===");
+print("");
+r2.f = divide(100.0, 4.0);
+print("divide(100,4) = ", r2);
+print("");
+
+print("");
+print("=== String Test ===");
+print("");
+s.s = greet("Bob");
+print(s);
+print("");
+
+print("");
+print("=== Nested Test ===");
+print("");
+r3 = addSquares(3, 4);
+print("3*3 + 4*4 = ", r3);
+print("");
+
+print("");
+print("=== Recursion Test ===");
+print("");
+r4 = factorial(5);
+print("factorial(5) = ", r4);
+print("");
+
+print("");
+print("=== Done ===");
+print("");

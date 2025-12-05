@@ -1,0 +1,42 @@
+#pragma appname "String Concatenation Test"
+#pragma decimals 3
+#pragma console on
+#pragma consolesize "680x740"
+#pragma consoleposition "30,50"
+#pragma optimizecode on
+#pragma ListASM on
+#pragma FastPrint on
+#pragma RunThreaded on
+#pragma ftoi "truncate"
+#pragma version on
+#pragma modulename on
+#pragma PasteToClipboard on
+#pragma floattolerance 0.0001
+#pragma stackspace 2048
+#pragma stackdepth 1024
+
+// Test 1: String + String
+bstr.s = "Today" + "," + " is a great" + " " + "day";
+print(bstr);
+
+// Test 2: String + Integer
+msg.s = "Count: " + 42;
+print(msg);
+
+// Test 3: String + Float
+pi_msg.s = "Pi = " + 3.14159;
+print(pi_msg);
+
+// Test 4: Mixed concatenation from original test
+bstr2.s = bstr + " " + 231.9961123;
+print("Result: ", bstr2);
+
+// Test 5: Expression result
+calc.s = "22/7 = " + 22.0/7.0;
+print(calc);
+
+s1.s = "W";
+print("s1 = ", s1);
+s2.s = "W" + "X";
+print("s2 = ", s2);
+print("Done");

@@ -82,3 +82,8 @@ Fixed to keep pointer at NOOPIF when followed by #ljfunction/#ljHALT.
    - [DONE] struct fields that are arrays (s\arr[i])
    - [TODO] arrays of structs (points: Point[10], points[i]\x)
 7. direct structure / array assignment.
+8. Combined pointer increment/dereference expressions
+   - Support `(++ptr)\i` - pre-increment with immediate dereference
+   - Support `(ptr++)\i` - post-increment with immediate dereference
+   - Support `(--ptr)\i` and `(ptr--)\i` - decrement variants
+   - Currently requires separate statements: `++ptr; val = ptr\i;`

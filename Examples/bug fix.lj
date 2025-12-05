@@ -4,7 +4,7 @@
 #pragma appname "Bug Fix"
 #pragma decimals 3
 #pragma console on
-#pragma consolesize "560x590"
+#pragma consolesize "680x740"
 #pragma consoleposition "30,50"
 #pragma optimizecode on
 #pragma ListASM on

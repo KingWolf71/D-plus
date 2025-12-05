@@ -141,6 +141,60 @@ Procedure               C2GETADDRS()
    pc + 1
 EndProcedure
 
+;- V1.027.2: Local Variable Address Operations (localSlotStart-relative)
+
+Procedure               C2GETLOCALADDR()
+   ; Get address of local integer variable - &localVar
+   ; _AR()\i = paramOffset (local variable's offset from localSlotStart)
+   ; Actual slot = gStack(gStackDepth)\localSlotStart + paramOffset
+
+   vm_DebugFunctionName()
+
+   Protected actualSlot.i = gStack(gStackDepth)\localSlotStart + _AR()\i
+
+   gVar(sp)\i = actualSlot
+   gVar(sp)\ptr = @gVar(actualSlot)\i
+   gVar(sp)\ptrtype = #PTR_INT
+
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2GETLOCALADDRF()
+   ; Get address of local float variable - &localVar.f
+   ; _AR()\i = paramOffset (local variable's offset from localSlotStart)
+   ; Actual slot = gStack(gStackDepth)\localSlotStart + paramOffset
+
+   vm_DebugFunctionName()
+
+   Protected actualSlot.i = gStack(gStackDepth)\localSlotStart + _AR()\i
+
+   gVar(sp)\i = actualSlot
+   gVar(sp)\ptr = @gVar(actualSlot)\f
+   gVar(sp)\ptrtype = #PTR_FLOAT
+
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2GETLOCALADDRS()
+   ; Get address of local string variable - &localVar.s
+   ; _AR()\i = paramOffset (local variable's offset from localSlotStart)
+   ; Actual slot = gStack(gStackDepth)\localSlotStart + paramOffset
+   ; Note: For strings, we store slot index not memory address (managed type)
+
+   vm_DebugFunctionName()
+
+   Protected actualSlot.i = gStack(gStackDepth)\localSlotStart + _AR()\i
+
+   gVar(sp)\i = actualSlot
+   gVar(sp)\ptr = actualSlot
+   gVar(sp)\ptrtype = #PTR_STRING
+
+   sp + 1
+   pc + 1
+EndProcedure
+
 Procedure               C2PTRFETCH()
    ; Generic pointer fetch using type dispatch
    ; Dispatches based on ptrtype tag for optimal performance
@@ -1008,6 +1062,112 @@ EndProcedure
 
 ;- End Array Pointer Operations
 
+;- V1.027.2: Local Array Pointer GETADDR Operations (localSlotStart-relative)
+
+Procedure               C2GETLOCALARRAYADDR()
+   ; Get address of local integer array element - &localArr[i]
+   ; _AR()\i = array paramOffset (offset from localSlotStart)
+   ; Stack top = element index
+   ; Actual array slot = gStack(gStackDepth)\localSlotStart + paramOffset
+
+   Protected arraySlot.i, elementIndex.i
+
+   vm_DebugFunctionName()
+
+   arraySlot = gStack(gStackDepth)\localSlotStart + _AR()\i
+
+   ; Pop index from stack
+   sp - 1
+   elementIndex = gVar(sp)\i
+
+   ; Bounds check
+   CompilerIf #DEBUG
+      If elementIndex < 0 Or elementIndex >= gVar(arraySlot)\dta\size
+         Debug "Array index out of bounds in GETLOCALARRAYADDR: " + Str(elementIndex) + " (size: " + Str(gVar(arraySlot)\dta\size) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+
+   ; Set up pointer structure
+   gVar(sp)\ptr = arraySlot  ; Store actual array slot as pointer value
+   gVar(sp)\i = elementIndex ; Store current element index
+   gVar(sp)\ptrtype = #PTR_ARRAY_INT
+
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2GETLOCALARRAYADDRF()
+   ; Get address of local float array element - &localArr.f[i]
+   ; _AR()\i = array paramOffset (offset from localSlotStart)
+   ; Stack top = element index
+   ; Actual array slot = gStack(gStackDepth)\localSlotStart + paramOffset
+
+   Protected arraySlot.i, elementIndex.i
+
+   vm_DebugFunctionName()
+
+   arraySlot = gStack(gStackDepth)\localSlotStart + _AR()\i
+
+   ; Pop index from stack
+   sp - 1
+   elementIndex = gVar(sp)\i
+
+   ; Bounds check
+   CompilerIf #DEBUG
+      If elementIndex < 0 Or elementIndex >= gVar(arraySlot)\dta\size
+         Debug "Array index out of bounds in GETLOCALARRAYADDRF: " + Str(elementIndex) + " (size: " + Str(gVar(arraySlot)\dta\size) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+
+   ; Set up pointer structure
+   gVar(sp)\ptr = arraySlot  ; Store actual array slot as pointer value
+   gVar(sp)\i = elementIndex ; Store current element index
+   gVar(sp)\ptrtype = #PTR_ARRAY_FLOAT
+
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2GETLOCALARRAYADDRS()
+   ; Get address of local string array element - &localArr.s[i]
+   ; _AR()\i = array paramOffset (offset from localSlotStart)
+   ; Stack top = element index
+   ; Actual array slot = gStack(gStackDepth)\localSlotStart + paramOffset
+
+   Protected arraySlot.i, elementIndex.i
+
+   vm_DebugFunctionName()
+
+   arraySlot = gStack(gStackDepth)\localSlotStart + _AR()\i
+
+   ; Pop index from stack
+   sp - 1
+   elementIndex = gVar(sp)\i
+
+   ; Bounds check
+   CompilerIf #DEBUG
+      If elementIndex < 0 Or elementIndex >= gVar(arraySlot)\dta\size
+         Debug "Array index out of bounds in GETLOCALARRAYADDRS: " + Str(elementIndex) + " (size: " + Str(gVar(arraySlot)\dta\size) + ") at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
+
+   ; Set up pointer structure
+   gVar(sp)\ptr = arraySlot  ; Store actual array slot as pointer value
+   gVar(sp)\i = elementIndex ; Store current element index
+   gVar(sp)\ptrtype = #PTR_ARRAY_STRING
+
+   sp + 1
+   pc + 1
+EndProcedure
+
+;- End Local Array Pointer Operations
+
 ;- Pointer-Only Opcodes (V1.020.027)
 ; These opcodes are emitted ONLY for pointer variables
 ; They ALWAYS copy pointer metadata - no conditional checks needed
@@ -1394,6 +1554,621 @@ Procedure               C2STRUCTCOPY()
 EndProcedure
 
 ;- End Struct Pointer Operations
+
+;- V1.027.0: Type-Specialized Pointer Opcodes (eliminate runtime type dispatch)
+;  These avoid expensive Select/If statements in VM by moving type decisions to compile time
+
+;- Typed Print Pointer Opcodes
+
+Procedure               C2PRTPTR_INT()
+   ; Print integer through simple variable pointer (no type dispatch)
+   vm_DebugFunctionName()
+   sp - 1
+   CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+      gBatchOutput + Str(gVar(gVar(sp)\i)\i)
+      Print(Str(gVar(gVar(sp)\i)\i))
+   CompilerElse
+      cline = cline + Str(gVar(gVar(sp)\i)\i)
+      If gFastPrint = #False
+         SetGadgetItemText(#edConsole, cy, cline)
+      EndIf
+   CompilerEndIf
+   pc + 1
+EndProcedure
+
+Procedure               C2PRTPTR_FLOAT()
+   ; Print float through simple variable pointer (no type dispatch)
+   vm_DebugFunctionName()
+   sp - 1
+   CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+      gBatchOutput + StrD(gVar(gVar(sp)\i)\f, gDecs)
+      Print(StrD(gVar(gVar(sp)\i)\f, gDecs))
+   CompilerElse
+      cline = cline + StrD(gVar(gVar(sp)\i)\f, gDecs)
+      If gFastPrint = #False
+         SetGadgetItemText(#edConsole, cy, cline)
+      EndIf
+   CompilerEndIf
+   pc + 1
+EndProcedure
+
+Procedure               C2PRTPTR_STR()
+   ; Print string through simple variable pointer (no type dispatch)
+   vm_DebugFunctionName()
+   sp - 1
+   CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+      gBatchOutput + gVar(gVar(sp)\i)\ss
+      Print(gVar(gVar(sp)\i)\ss)
+   CompilerElse
+      cline = cline + gVar(gVar(sp)\i)\ss
+      If gFastPrint = #False
+         SetGadgetItemText(#edConsole, cy, cline)
+      EndIf
+   CompilerEndIf
+   pc + 1
+EndProcedure
+
+Procedure               C2PRTPTR_ARRAY_INT()
+   ; Print integer through array element pointer (no type dispatch)
+   vm_DebugFunctionName()
+   sp - 1
+   CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+      gBatchOutput + Str(gVar(gVar(sp)\ptr)\dta\ar(gVar(sp)\i)\i)
+      Print(Str(gVar(gVar(sp)\ptr)\dta\ar(gVar(sp)\i)\i))
+   CompilerElse
+      cline = cline + Str(gVar(gVar(sp)\ptr)\dta\ar(gVar(sp)\i)\i)
+      If gFastPrint = #False
+         SetGadgetItemText(#edConsole, cy, cline)
+      EndIf
+   CompilerEndIf
+   pc + 1
+EndProcedure
+
+Procedure               C2PRTPTR_ARRAY_FLOAT()
+   ; Print float through array element pointer (no type dispatch)
+   vm_DebugFunctionName()
+   sp - 1
+   CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+      gBatchOutput + StrD(gVar(gVar(sp)\ptr)\dta\ar(gVar(sp)\i)\f, gDecs)
+      Print(StrD(gVar(gVar(sp)\ptr)\dta\ar(gVar(sp)\i)\f, gDecs))
+   CompilerElse
+      cline = cline + StrD(gVar(gVar(sp)\ptr)\dta\ar(gVar(sp)\i)\f, gDecs)
+      If gFastPrint = #False
+         SetGadgetItemText(#edConsole, cy, cline)
+      EndIf
+   CompilerEndIf
+   pc + 1
+EndProcedure
+
+Procedure               C2PRTPTR_ARRAY_STR()
+   ; Print string through array element pointer (no type dispatch)
+   vm_DebugFunctionName()
+   sp - 1
+   CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+      gBatchOutput + gVar(gVar(sp)\ptr)\dta\ar(gVar(sp)\i)\ss
+      Print(gVar(gVar(sp)\ptr)\dta\ar(gVar(sp)\i)\ss)
+   CompilerElse
+      cline = cline + gVar(gVar(sp)\ptr)\dta\ar(gVar(sp)\i)\ss
+      If gFastPrint = #False
+         SetGadgetItemText(#edConsole, cy, cline)
+      EndIf
+   CompilerEndIf
+   pc + 1
+EndProcedure
+
+;- Typed Simple Variable Pointer FETCH (no If check)
+
+Procedure               C2PTRFETCH_VAR_INT()
+   ; Fetch int from simple variable pointer (no array check)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp)\i = gVar(gVar(sp)\i)\i
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRFETCH_VAR_FLOAT()
+   ; Fetch float from simple variable pointer (no array check)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp)\f = gVar(gVar(sp)\i)\f
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRFETCH_VAR_STR()
+   ; Fetch string from simple variable pointer (no array check)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp)\ss = gVar(gVar(sp)\i)\ss
+   gVar(sp)\i = Len(gVar(sp)\ss)
+   sp + 1
+   pc + 1
+EndProcedure
+
+;- Typed Array Element Pointer FETCH (no If check)
+
+Procedure               C2PTRFETCH_ARREL_INT()
+   ; Fetch int from array element pointer (no If check)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp)\i = gVar(gVar(sp)\ptr)\dta\ar(gVar(sp)\i)\i
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRFETCH_ARREL_FLOAT()
+   ; Fetch float from array element pointer (no If check)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp)\f = gVar(gVar(sp)\ptr)\dta\ar(gVar(sp)\i)\f
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRFETCH_ARREL_STR()
+   ; Fetch string from array element pointer (no If check)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp)\ss = gVar(gVar(sp)\ptr)\dta\ar(gVar(sp)\i)\ss
+   gVar(sp)\i = Len(gVar(sp)\ss)
+   sp + 1
+   pc + 1
+EndProcedure
+
+;- Typed Simple Variable Pointer STORE (no If check)
+
+Procedure               C2PTRSTORE_VAR_INT()
+   ; Store int to simple variable pointer (no array check)
+   ; Stack: [value] [pointer]
+   vm_DebugFunctionName()
+   sp - 1
+   sp - 1
+   gVar(gVar(sp + 1)\i)\i = gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSTORE_VAR_FLOAT()
+   ; Store float to simple variable pointer (no array check)
+   vm_DebugFunctionName()
+   sp - 1
+   sp - 1
+   gVar(gVar(sp + 1)\i)\f = gVar(sp)\f
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSTORE_VAR_STR()
+   ; Store string to simple variable pointer (no array check)
+   vm_DebugFunctionName()
+   sp - 1
+   sp - 1
+   gVar(gVar(sp + 1)\i)\ss = gVar(sp)\ss
+   pc + 1
+EndProcedure
+
+;- Typed Array Element Pointer STORE (no If check)
+
+Procedure               C2PTRSTORE_ARREL_INT()
+   ; Store int to array element pointer (no If check)
+   ; Stack: [value] [pointer]
+   vm_DebugFunctionName()
+   sp - 1
+   sp - 1
+   gVar(gVar(sp + 1)\ptr)\dta\ar(gVar(sp + 1)\i)\i = gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSTORE_ARREL_FLOAT()
+   ; Store float to array element pointer (no If check)
+   vm_DebugFunctionName()
+   sp - 1
+   sp - 1
+   gVar(gVar(sp + 1)\ptr)\dta\ar(gVar(sp + 1)\i)\f = gVar(sp)\f
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSTORE_ARREL_STR()
+   ; Store string to array element pointer (no If check)
+   vm_DebugFunctionName()
+   sp - 1
+   sp - 1
+   gVar(gVar(sp + 1)\ptr)\dta\ar(gVar(sp + 1)\i)\ss = gVar(sp)\ss
+   pc + 1
+EndProcedure
+
+;- Typed Pointer Arithmetic (no Select)
+
+Procedure               C2PTRADD_INT()
+   ; Pointer add for int pointer (memory address + offset*8)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp - 1)\i + gVar(sp)\i
+   gVar(sp - 1)\ptr + (gVar(sp)\i * 8)
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRADD_FLOAT()
+   ; Pointer add for float pointer (memory address + offset*8)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp - 1)\i + gVar(sp)\i
+   gVar(sp - 1)\ptr + (gVar(sp)\i * 8)
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRADD_STRING()
+   ; Pointer add for string pointer (slot index only)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp - 1)\i + gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRADD_ARRAY()
+   ; Pointer add for array pointer (element index only)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp - 1)\i + gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSUB_INT()
+   ; Pointer sub for int pointer
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp - 1)\i - gVar(sp)\i
+   gVar(sp - 1)\ptr - (gVar(sp)\i * 8)
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSUB_FLOAT()
+   ; Pointer sub for float pointer
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp - 1)\i - gVar(sp)\i
+   gVar(sp - 1)\ptr - (gVar(sp)\i * 8)
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSUB_STRING()
+   ; Pointer sub for string pointer (slot index only)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp - 1)\i - gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSUB_ARRAY()
+   ; Pointer sub for array pointer (element index only)
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(sp - 1)\i - gVar(sp)\i
+   pc + 1
+EndProcedure
+
+;- Typed Pointer Increment (no Select)
+
+Procedure               C2PTRINC_INT()
+   ; Increment int pointer (memory address)
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i + 1
+   gVar(_AR()\i)\ptr + 8
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRINC_FLOAT()
+   ; Increment float pointer (memory address)
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i + 1
+   gVar(_AR()\i)\ptr + 8
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRINC_STRING()
+   ; Increment string pointer (slot index)
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRINC_ARRAY()
+   ; Increment array pointer (element index)
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i + 1
+   pc + 1
+EndProcedure
+
+;- Typed Pointer Decrement (no Select)
+
+Procedure               C2PTRDEC_INT()
+   ; Decrement int pointer
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i - 1
+   gVar(_AR()\i)\ptr - 8
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRDEC_FLOAT()
+   ; Decrement float pointer
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i - 1
+   gVar(_AR()\i)\ptr - 8
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRDEC_STRING()
+   ; Decrement string pointer (slot index)
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i - 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRDEC_ARRAY()
+   ; Decrement array pointer (element index)
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i - 1
+   pc + 1
+EndProcedure
+
+;- Typed Pointer Pre-Increment (no Select)
+
+Procedure               C2PTRINC_PRE_INT()
+   ; Pre-increment int pointer
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i + 1
+   gVar(_AR()\i)\ptr + 8
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptr = gVar(_AR()\i)\ptr
+   gVar(sp)\ptrtype = #PTR_INT
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRINC_PRE_FLOAT()
+   ; Pre-increment float pointer
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i + 1
+   gVar(_AR()\i)\ptr + 8
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptr = gVar(_AR()\i)\ptr
+   gVar(sp)\ptrtype = #PTR_FLOAT
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRINC_PRE_STRING()
+   ; Pre-increment string pointer
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i + 1
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptrtype = #PTR_STRING
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRINC_PRE_ARRAY()
+   ; Pre-increment array pointer (preserves original ptrtype)
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i + 1
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptr = gVar(_AR()\i)\ptr
+   gVar(sp)\ptrtype = gVar(_AR()\i)\ptrtype
+   sp + 1
+   pc + 1
+EndProcedure
+
+;- Typed Pointer Pre-Decrement (no Select)
+
+Procedure               C2PTRDEC_PRE_INT()
+   ; Pre-decrement int pointer
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i - 1
+   gVar(_AR()\i)\ptr - 8
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptr = gVar(_AR()\i)\ptr
+   gVar(sp)\ptrtype = #PTR_INT
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRDEC_PRE_FLOAT()
+   ; Pre-decrement float pointer
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i - 1
+   gVar(_AR()\i)\ptr - 8
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptr = gVar(_AR()\i)\ptr
+   gVar(sp)\ptrtype = #PTR_FLOAT
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRDEC_PRE_STRING()
+   ; Pre-decrement string pointer
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i - 1
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptrtype = #PTR_STRING
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRDEC_PRE_ARRAY()
+   ; Pre-decrement array pointer (preserves original ptrtype)
+   vm_DebugFunctionName()
+   gVar(_AR()\i)\i - 1
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptr = gVar(_AR()\i)\ptr
+   gVar(sp)\ptrtype = gVar(_AR()\i)\ptrtype
+   sp + 1
+   pc + 1
+EndProcedure
+
+;- Typed Pointer Post-Increment (no Select)
+
+Procedure               C2PTRINC_POST_INT()
+   ; Post-increment int pointer
+   vm_DebugFunctionName()
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptr = gVar(_AR()\i)\ptr
+   gVar(sp)\ptrtype = #PTR_INT
+   gVar(_AR()\i)\i + 1
+   gVar(_AR()\i)\ptr + 8
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRINC_POST_FLOAT()
+   ; Post-increment float pointer
+   vm_DebugFunctionName()
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptr = gVar(_AR()\i)\ptr
+   gVar(sp)\ptrtype = #PTR_FLOAT
+   gVar(_AR()\i)\i + 1
+   gVar(_AR()\i)\ptr + 8
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRINC_POST_STRING()
+   ; Post-increment string pointer
+   vm_DebugFunctionName()
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptrtype = #PTR_STRING
+   gVar(_AR()\i)\i + 1
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRINC_POST_ARRAY()
+   ; Post-increment array pointer (preserves original ptrtype)
+   vm_DebugFunctionName()
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptr = gVar(_AR()\i)\ptr
+   gVar(sp)\ptrtype = gVar(_AR()\i)\ptrtype
+   gVar(_AR()\i)\i + 1
+   sp + 1
+   pc + 1
+EndProcedure
+
+;- Typed Pointer Post-Decrement (no Select)
+
+Procedure               C2PTRDEC_POST_INT()
+   ; Post-decrement int pointer
+   vm_DebugFunctionName()
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptr = gVar(_AR()\i)\ptr
+   gVar(sp)\ptrtype = #PTR_INT
+   gVar(_AR()\i)\i - 1
+   gVar(_AR()\i)\ptr - 8
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRDEC_POST_FLOAT()
+   ; Post-decrement float pointer
+   vm_DebugFunctionName()
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptr = gVar(_AR()\i)\ptr
+   gVar(sp)\ptrtype = #PTR_FLOAT
+   gVar(_AR()\i)\i - 1
+   gVar(_AR()\i)\ptr - 8
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRDEC_POST_STRING()
+   ; Post-decrement string pointer
+   vm_DebugFunctionName()
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptrtype = #PTR_STRING
+   gVar(_AR()\i)\i - 1
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRDEC_POST_ARRAY()
+   ; Post-decrement array pointer (preserves original ptrtype)
+   vm_DebugFunctionName()
+   gVar(sp)\i = gVar(_AR()\i)\i
+   gVar(sp)\ptr = gVar(_AR()\i)\ptr
+   gVar(sp)\ptrtype = gVar(_AR()\i)\ptrtype
+   gVar(_AR()\i)\i - 1
+   sp + 1
+   pc + 1
+EndProcedure
+
+;- Typed Pointer Compound Assignment (no Select)
+
+Procedure               C2PTRADD_ASSIGN_INT()
+   ; ptr += offset for int pointer
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i + gVar(sp)\i
+   gVar(_AR()\i)\ptr + (gVar(sp)\i * 8)
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRADD_ASSIGN_FLOAT()
+   ; ptr += offset for float pointer
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i + gVar(sp)\i
+   gVar(_AR()\i)\ptr + (gVar(sp)\i * 8)
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRADD_ASSIGN_STRING()
+   ; ptr += offset for string pointer
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i + gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRADD_ASSIGN_ARRAY()
+   ; ptr += offset for array pointer
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i + gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSUB_ASSIGN_INT()
+   ; ptr -= offset for int pointer
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i - gVar(sp)\i
+   gVar(_AR()\i)\ptr - (gVar(sp)\i * 8)
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSUB_ASSIGN_FLOAT()
+   ; ptr -= offset for float pointer
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i - gVar(sp)\i
+   gVar(_AR()\i)\ptr - (gVar(sp)\i * 8)
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSUB_ASSIGN_STRING()
+   ; ptr -= offset for string pointer
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i - gVar(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSUB_ASSIGN_ARRAY()
+   ; ptr -= offset for array pointer
+   vm_DebugFunctionName()
+   sp - 1
+   gVar(_AR()\i)\i - gVar(sp)\i
+   pc + 1
+EndProcedure
+
+;- End Type-Specialized Pointer Opcodes
 
 ;- End Pointer Operations
 

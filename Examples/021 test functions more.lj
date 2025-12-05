@@ -1,0 +1,218 @@
+/* Comprehensive Function Test Suite
+   Tests: parameters, return values, recursion, nesting, types
+*/
+
+#pragma appname "LJ2 Function Test Suite"
+#pragma decimals 3
+#pragma console on
+#pragma consolesize "680x740"
+#pragma consoleposition "30,50"
+#pragma optimizecode on
+#pragma ListASM on
+#pragma FastPrint on
+#pragma RunThreaded on
+#pragma ftoi "truncate"
+#pragma version on
+#pragma modulename on
+#pragma PasteToClipboard on
+#pragma floattolerance 0.0001
+#pragma stackspace 2048
+#pragma stackdepth 1024
+
+//--------------------------------------
+// Test 1: Simple integer functions
+//--------------------------------------
+
+func add(a, b) {
+    return a + b;
+}
+
+func multiply(x, y) {
+    return x * y;
+}
+
+func square(n) {
+    return n * n;
+}
+
+//--------------------------------------
+// Test 2: Float functions
+//--------------------------------------
+
+func circleArea.f(radius.f) {
+    pi.f = 3.14159265359;
+    return pi * radius * radius;
+}
+
+func celsiusToFahrenheit.f(c.f) {
+    return c * 9.0 / 5.0 + 32.0;
+}
+
+//--------------------------------------
+// Test 3: String functions
+//--------------------------------------
+
+func greet.s(name.s) {
+    return "Hello, " + name + "!";
+}
+
+func makeTitle.s(word.s) {
+    return "*** " + word + " ***";
+}
+
+//--------------------------------------
+// Test 4: Mixed parameter types
+//--------------------------------------
+
+func formatPrice.s(item.s, price.f) {
+    return item + ": $" + price;
+}
+
+func describe.s(name.s, age, height.f) {
+    return name.s + " is " + age + " years old and " + height + "m tall";
+}
+
+//--------------------------------------
+// Test 5: Functions calling functions
+//--------------------------------------
+
+func pythagorean.f(a.f, b.f) {
+    aSquared.f = square(a);
+    bSquared.f = square(b);
+    return aSquared + bSquared;
+}
+
+func volumeOfCylinder.f(radius.f, height.f) {
+    baseArea.f = circleArea(radius);
+    return baseArea * height;
+}
+
+//--------------------------------------
+// Test 6: Recursive functions
+//--------------------------------------
+
+func factorial(n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+func fibonacci(n) {
+    if (n <= 1) {
+        return n;
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+//--------------------------------------
+// Test 7: No parameters
+//--------------------------------------
+
+func getPi.f() {
+    return 3.14159265359;
+}
+
+func getGreeting.s() {
+    return "Welcome to LJ2!";
+}
+
+//--------------------------------------
+// MAIN PROGRAM - Run all tests
+//--------------------------------------
+print("");
+print("=== Test 1: Integer Functions ===");
+print("");
+result = add(5, 3);
+print("add(5, 3) = ", result);
+
+result = multiply(7, 6);
+print("multiply(7, 6) = ", result);
+
+result = square(9);
+print("square(9) = ", result);
+
+print("");
+print("=== Test 2: Float Functions ===");
+print("");
+
+area.f = circleArea(5.0);
+print("circleArea(5.0) = ", area);
+
+temp.f = celsiusToFahrenheit(25.0);
+print("celsiusToFahrenheit(25.0) = ", temp);
+
+print("");
+print("=== Test 3: String Functions ===");
+print("");
+greeting.s = greet("Alice");
+print(greeting);
+
+title.s = makeTitle("FUNCTIONS WORK");
+print(title);
+
+print("");
+print("=== Test 4: Mixed Types ===");
+print("");
+
+price.s = formatPrice("Coffee", 3.50);
+print("Coffee price=",price);
+
+info.s = describe("Bob", 25, 1.75);
+print(info);
+
+print("");
+print("=== Test 5: Nested Calls ===");
+print("");
+
+hypotenuse.f = pythagorean(3.0, 4.0);
+print("pythagorean(3, 4) = ", hypotenuse, " (should be 25)");
+
+volume.f = volumeOfCylinder(2.0, 5.0);
+print("cylinder volume(r=2, h=5) = ", volume);
+
+print("");
+print("=== Test 6: Recursion ===");
+print("");
+fact5 = factorial(5);
+print("factorial(5) = ", fact5, " (should be 120)");
+
+fib7 = fibonacci(7);
+print("fibonacci(7) = ", fib7, " (should be 13)");
+
+print("");
+print("=== Test 7: No Parameters ===");
+print("");
+rpi.f = getPi();
+print("getPi() = ", rpi);
+
+msg.s = getGreeting();
+print(msg);
+
+print("");
+print("=== Test 8: Deeply Nested ===");
+print("");
+
+deep = add(multiply(square(2), 3), square(add(1, 2)));
+print("add(multiply(square(2), 3), square(add(1, 2))) = ", deep);
+print("Breakdown: square(2)=4, 4*3=12, add(1,2)=3, square(3)=9, 12+9=21");
+
+print("");
+print("=== Test 9: Multiple Returns ===");
+print("");
+
+func maxOfThree(a, b, c) {
+    if (a >= b && a >= c) {
+        return a;
+    }
+    if (b >= c) {
+        return b;
+    }
+    return c;
+}
+
+max = maxOfThree(15, 27, 12);
+print("maxOfThree(15, 27, 12) = ", max, " (should be 27)");
+
+print("");
+print("=== All Tests Complete! ===");

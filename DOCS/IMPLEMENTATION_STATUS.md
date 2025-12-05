@@ -1,22 +1,23 @@
 # LJ2 Implementation Status
-Version: 1.025.0
+Version: 1.026.0
 Date: December 2025
 
 ## Current File Versions
 
 | Component | File | Description |
 |-----------|------|-------------|
-| Main compiler | `c2-modules-V19.pb` | Scanner, preprocessor, main entry |
-| Definitions | `c2-inc-v15.pbi` | Constants, opcodes, structures |
-| AST parser | `c2-ast-v04.pbi` | Recursive descent parser |
-| Code generator | `c2-codegen-v04.pbi` | AST to bytecode |
+| Main compiler | `c2-modules-V20.pb` | Scanner, preprocessor, main entry |
+| Definitions | `c2-inc-v16.pbi` | Constants, opcodes, structures |
+| AST parser | `c2-ast-v05.pbi` | Recursive descent parser |
+| Code generator | `c2-codegen-v05.pbi` | AST to bytecode |
 | Scanner | `c2-scanner-v04.pbi` | Tokenizer |
-| Postprocessor | `c2-postprocessor-V06.pbi` | Type inference, optimization |
-| VM core | `c2-vm-V13.pb` | Virtual machine execution |
-| VM commands | `c2-vm-commands-v12.pb` | Opcode implementations |
+| Postprocessor | `c2-postprocessor-V07.pbi` | Type inference, optimization |
+| VM core | `c2-vm-V14.pb` | Virtual machine execution |
+| VM commands | `c2-vm-commands-v13.pb` | Opcode implementations |
 | Arrays | `c2-arrays-v04.pbi` | Array operations |
 | Pointers | `c2-pointers-v04.pbi` | Pointer operations |
-| Built-ins | `c2-builtins-v04.pbi` | Built-in functions |
+| Collections | `c2-collections-v01.pbi` | Lists and Maps |
+| Built-ins | `c2-builtins-v05.pbi` | Built-in functions |
 | Test runner | `pbtester-v04.pb` | Automated testing |
 
 ## Implemented Features
