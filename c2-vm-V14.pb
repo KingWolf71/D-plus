@@ -67,15 +67,19 @@ Module C2VM
       *ptr
       ptrtype.w         ; Pointer type tag (0=not pointer, 1=int, 2=float, 3=string, 4-6=array, 7=function)
       dta.stVTArray
+      ; V1.028.0: Unified collections - List and Map directly in gVar
+      List ll.stVTSimple()     ; LinkedList (empty by default, PB manages memory)
+      Map Map.stVTSimple()     ; Map with string keys (empty by default)
    EndStructure
 
    Structure stStack
-      sp.l                     ; Saved stack pointer
+      sp.l                     ; Saved stack pointer (into gEvalStack[])
       pc.l                     ; Saved program counter
-      localSlotStart.l         ; First gVar[] slot allocated for this call's locals
-      localSlotCount.l         ; Number of local variable slots allocated (params + locals)
-      ; REMOVED: LocalInt/Float/String/Arrays - now using unified gVar[] array
-      ; V1.18.0: All variables (global and local) use the same gVar[] array
+      localBase.l              ; V1.31.0: Base index in gLocal[] for this frame
+      localCount.l             ; V1.31.0: Number of local slots in gLocal[] (params + locals)
+      ; V1.31.0: ISOLATED VARIABLE SYSTEM
+      ; Locals stored in gLocal[localBase to localBase+localCount-1]
+      ; Evaluation stack in gEvalStack[sp] (completely separate)
    EndStructure
 
    ;- Globals
@@ -85,10 +89,10 @@ Module C2VM
    Global               cs                   = 0
    Global               gFunctionDepth       = 0       ; Fast function depth counter (avoids ListSize)
    Global               gStackDepth          = -1      ; Current stack frame index (-1 = no frames)
-   Global               gCurrentMaxLocal     = 0       ; Highest gVar[] slot currently used by locals (V1.18.0)   
    Global               gDecs                = 3
-   Global               gExitApplication     = 0   
-   Global               gFunctionDepth       = 2048       ; Fast function depth counter (avoids ListSize)
+   Global               gExitApplication     = 0
+   Global               gStopVMThread        = 0       ; V1.031.41: Graceful thread stop for Linux   
+   Global               gVMThreadFinished    = 0       ; V1.031.46: Simple flag set when VM thread finishes
    Global               gMaxStackSpace       = 2048
    Global               gMaxStackDepth       = 1024
    Global               gWidth.i             = 960,   ; V1.027.4: Wider for examples listbox
@@ -101,7 +105,14 @@ Module C2VM
    Global               gListASM.w           = #False
    Global               gPasteToClipboard    = #False
    Global               gShowversion         = #False
+  
    Global               gRunThreaded.w       = #True
+   ; V1.031.102: Linux GTK threading causes GUI unresponsiveness - force non-threaded
+   CompilerIf #PB_Compiler_OS = #PB_OS_Linux
+      gRunThreaded = #False
+   CompilerEndIf
+   Global               gthRun.i             = 0
+   
    Global               gConsole.w           = #True
    
    Global               gFloatTolerance.d    = 0.00001
@@ -110,39 +121,102 @@ Module C2VM
    Global               gSelectedExample.i   = 0       ; V1.027.6: Track selected example in listbox
 
    Global Dim           *ptrJumpTable(1)
-   Global Dim           gVar.stVT(#C2MAXCONSTANTS)
-   Global Dim           gStack.stStack(gMaxStackDepth - 1)
-   
+   Global Dim           gVar.stVT(#C2MAXCONSTANTS)          ; V1.31.0: Global variables ONLY
+   Global Dim           gStack.stStack(gMaxStackDepth - 1)   ; Call stack (function frames)
+
+   ; V1.31.0: Isolated Variable System - separate arrays for complete isolation
+   Global Dim           gLocal.stVT(#C2MAXLOCALS)           ; Local variables ONLY (per-function frame)
+   Global Dim           gEvalStack.stVT(#C2MAXEVALSTACK)    ; Evaluation stack ONLY (sp-indexed)
+   Global               gLocalBase.i     = 0                 ; Base index in gLocal[] for current frame
+   Global               gLocalTop.i      = 0                 ; Current top of gLocal[] allocation
+
+   ; V1.031.96: Flag for pending RunVM - checked in main loop, not in bound callback
+   Global               gRunVMPending.i  = #False
+
+   ; V1.031.101: GUI message queue for thread-safe GUI updates on Linux
+   Enumeration
+      #MSG_SET_TEXT
+      #MSG_ADD_LINE
+   EndEnumeration
+
+   Structure stGUIMessage
+      msgType.i
+      gadgetID.i
+      lineNum.i
+      text.s
+   EndStructure
+
+   Global NewList       gGUIQueue.stGUIMessage()
+   Global               gGUIQueueMutex.i = 0
+
    ;- Macros
+   ; V1.031.101: Queue-based threading for GUI
    Macro             vm_ConsoleOrGUI( mytext )
       CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
          PrintN( mytext )
       CompilerElse
-         AddGadgetItem( #edConsole, -1, mytext )
+         If gRunThreaded
+            vmQueueGUIMessage(#MSG_ADD_LINE, #edConsole, 0, mytext)
+         Else
+            AddGadgetItem( #edConsole, -1, mytext )
+         EndIf
       CompilerEndIf
    EndMacro
+
+   ; V1.031.101: Queue-based threading for GUI - SetGadgetItemText
+   Macro             vm_SetGadgetText(gadgetID, lineNum, text)
+      If gRunThreaded
+         vmQueueGUIMessage(#MSG_SET_TEXT, gadgetID, lineNum, text)
+      Else
+         SetGadgetItemText(gadgetID, lineNum, text)
+      EndIf
+   EndMacro
+
+   ; V1.031.101: Queue-based threading for GUI - AddGadgetItem
+   Macro             vm_AddGadgetLine(gadgetID, text)
+      If gRunThreaded
+         vmQueueGUIMessage(#MSG_ADD_LINE, gadgetID, 0, text)
+      Else
+         AddGadgetItem(gadgetID, -1, text)
+      EndIf
+   EndMacro
+
+   ; V1.031.101: No-op for scroll
+   Macro             vm_ScrollGadget(gadgetID)
+   EndMacro
+
+   Macro             vm_ProperCloseWindow()
+      
+      If IsWindow( #MainWindow )
+         UnbindEvent( #PB_Event_SizeWindow, @ResizeMain() )
+         UnbindEvent( #PB_Event_CloseWindow, @vmCloseWindow() )
+         UnbindGadgetEvent( #lstExamples, @vmListExamples() )
+         CloseWindow( #MainWindow )
+      EndIf
+      Delay(32)
+   EndMacro
+
+
+   ; V1.31.0: Updated macros for Isolated Variable System (use gEvalStack[])
    Macro             vm_Comparators( operator )
       sp - 1
       CompilerIf #DEBUG
-         Protected cmpLeft.i = gVar(sp-1)\i
-         Protected cmpRight.i = gVar(sp)\i
+         Protected cmpLeft.i = gEvalStack(sp-1)\i
+         Protected cmpRight.i = gEvalStack(sp)\i
          Protected cmpResult.i
       CompilerEndIf
-      If gVar(sp-1)\i operator gVar(sp)\i
-         gVar(sp-1)\i = 1
+      If gEvalStack(sp-1)\i operator gEvalStack(sp)\i
+         gEvalStack(sp-1)\i = 1
          CompilerIf #DEBUG
             cmpResult = 1
          CompilerEndIf
       Else
-         gVar(sp-1)\i = 0
+         gEvalStack(sp-1)\i = 0
          CompilerIf #DEBUG
             cmpResult = 0
          CompilerEndIf
       EndIf
       CompilerIf #DEBUG
-         ; V1.020.090: Only debug when comparing with negative values
-         ; V1.020.093: Disabled to reduce output noise
-         ; V1.022.93: Enable for high recursion depth debugging (quicksort)
          If gStackDepth >= 6
             Debug "C2CMP: pc=" + Str(pc) + " left=" + Str(cmpLeft) + " right=" + Str(cmpRight) + " result=" + Str(cmpResult) + " sp=" + Str(sp) + " depth=" + Str(gStackDepth)
          EndIf
@@ -151,21 +225,21 @@ Module C2VM
    EndMacro
    Macro             vm_BitOperation( operand )
       sp - 1
-      gVar(sp-1)\i = gVar(sp-1)\i operand gVar(sp)\i
+      gEvalStack(sp-1)\i = gEvalStack(sp-1)\i operand gEvalStack(sp)\i
       pc + 1
    EndMacro
    Macro             vm_FloatComparators( operator )
       sp - 1
-      If gVar(sp - 1)\f operator gVar( sp )\f
-         gVar(sp - 1)\i = 1
+      If gEvalStack(sp - 1)\f operator gEvalStack(sp)\f
+         gEvalStack(sp - 1)\i = 1
       Else
-         gVar(sp - 1)\i = 0
+         gEvalStack(sp - 1)\i = 0
       EndIf
       pc + 1
    EndMacro
    Macro             vm_FloatOperation( operand )
       sp - 1
-      gVar(sp - 1)\f = gVar(sp - 1)\f operand gVar( sp )\f
+      gEvalStack(sp - 1)\f = gEvalStack(sp - 1)\f operand gEvalStack(sp)\f
       pc + 1
    EndMacro
    Macro             vm_DualAssign( pragma, param1, param2, psep )
@@ -193,24 +267,144 @@ Module C2VM
          EndIf
       CompilerEndIf
    EndMacro
-  
+
+   ; V1.029.36: Struct pointer macros - unified struct field access via \ptr
+   ; All struct variables store data in gVar(slot)\ptr as contiguous memory
+   ; Field offset = field_index * 8 (8 bytes per field)
+   Macro StructGetInt(slot, offset)
+      PeekQ(gVar(slot)\ptr + offset)
+   EndMacro
+   Macro StructGetFloat(slot, offset)
+      PeekD(gVar(slot)\ptr + offset)
+   EndMacro
+   Macro StructSetInt(slot, offset, value)
+      PokeQ(gVar(slot)\ptr + offset, value)
+   EndMacro
+   Macro StructSetFloat(slot, offset, value)
+      PokeD(gVar(slot)\ptr + offset, value)
+   EndMacro
+   ; V1.029.55: String struct field macros
+   ; Strings stored as pointers to dynamically allocated string memory
+   Macro StructGetStr(slot, offset)
+      PeekS(PeekQ(gVar(slot)\ptr + offset))
+   EndMacro
+   ; Note: StructSetStr is a procedure, not macro, due to memory management
+   Macro StructAlloc(slot, byteSize)
+      If gVar(slot)\ptr : FreeMemory(gVar(slot)\ptr) : EndIf
+      gVar(slot)\ptr = AllocateMemory(byteSize)
+   EndMacro
+   Macro StructCopy(srcPtr, destPtr, byteSize)
+      CopyMemory(srcPtr, destPtr, byteSize)
+   EndMacro
+   ; V1.031.25: LOCAL struct field macros - use gLocal[] instead of gVar[]
+   Macro StructGetIntLocal(slot, offset)
+      PeekQ(gLocal(slot)\ptr + offset)
+   EndMacro
+   Macro StructGetFloatLocal(slot, offset)
+      PeekD(gLocal(slot)\ptr + offset)
+   EndMacro
+   Macro StructSetIntLocal(slot, offset, value)
+      PokeQ(gLocal(slot)\ptr + offset, value)
+   EndMacro
+   Macro StructSetFloatLocal(slot, offset, value)
+      PokeD(gLocal(slot)\ptr + offset, value)
+   EndMacro
+   Macro StructGetStrLocal(slot, offset)
+      PeekS(PeekQ(gLocal(slot)\ptr + offset))
+   EndMacro
+   ; V1.031.26: LOCAL struct allocation macro - use gLocal[] instead of gVar[]
+   Macro StructAllocLocal(slot, byteSize)
+      If gLocal(slot)\ptr : FreeMemory(gLocal(slot)\ptr) : EndIf
+      gLocal(slot)\ptr = AllocateMemory(byteSize)
+   EndMacro
+
+   ; V1.031.101: Queue GUI message from worker thread
+   Procedure vmQueueGUIMessage(msgType.i, gadgetID.i, lineNum.i, text.s)
+      If gGUIQueueMutex = 0 : gGUIQueueMutex = CreateMutex() : EndIf
+      LockMutex(gGUIQueueMutex)
+      AddElement(gGUIQueue())
+      gGUIQueue()\msgType = msgType
+      gGUIQueue()\gadgetID = gadgetID
+      gGUIQueue()\lineNum = lineNum
+      gGUIQueue()\text = text
+      UnlockMutex(gGUIQueueMutex)
+   EndProcedure
+
+   ; V1.031.101: Process queued GUI messages on main thread (batch limited)
+   #GUI_BATCH_SIZE = 50  ; Process max 50 messages per call to keep GUI responsive
+   Procedure vmProcessGUIQueue()
+      Protected count.i = 0
+      If gGUIQueueMutex = 0 : ProcedureReturn 0 : EndIf
+      If TryLockMutex(gGUIQueueMutex)
+         While FirstElement(gGUIQueue()) And count < #GUI_BATCH_SIZE
+            Select gGUIQueue()\msgType
+               Case #MSG_SET_TEXT
+                  SetGadgetItemText(gGUIQueue()\gadgetID, gGUIQueue()\lineNum, gGUIQueue()\text)
+               Case #MSG_ADD_LINE
+                  AddGadgetItem(gGUIQueue()\gadgetID, -1, gGUIQueue()\text)
+            EndSelect
+            DeleteElement(gGUIQueue())
+            count + 1
+         Wend
+         UnlockMutex(gGUIQueueMutex)
+      EndIf
+      ProcedureReturn count
+   EndProcedure
+
+   ; V1.031.41: Graceful thread shutdown for Linux (avoid KillThread deadlocks)
+   Procedure vmStopVMThread(thread.i, timeoutMs.i = 500)
+      Protected startTime.i, elapsed.i
+
+      If thread = 0 Or Not IsThread(thread)
+         ProcedureReturn #True
+      EndIf
+
+      ; Signal the thread to stop
+      gStopVMThread = #True
+
+      ; Wait for thread to exit gracefully with timeout
+      startTime = ElapsedMilliseconds()
+      While IsThread(thread)
+         elapsed = ElapsedMilliseconds() - startTime
+         If elapsed > timeoutMs          
+               KillThread(thread)
+               ProcedureReturn #True
+         EndIf
+         Delay(16)
+      Wend
+
+      ; Thread stopped gracefully
+      gStopVMThread = #False
+      ProcedureReturn #True
+   EndProcedure
+
    XIncludeFile      "c2-vm-commands-v13.pb"
-   ; Note: c2-pointers-v04.pbi and c2-collections-v01.pbi included via c2-vm-commands-v13.pb
+   ; Note: c2-pointers-v04.pbi and c2-collections-v02.pbi included via c2-vm-commands-v13.pb
+   ; V1.028.0: Collections (lists/maps) now unified in gVar\ll() and gVar\map()
 
    ;- Console GUI
    Procedure         MainWindow(name.s)
       Protected       dir, filename.s
 
-      If OpenWindow( #MainWindow, #PB_Ignore, #PB_Ignore, 960, 680, name, #PB_Window_SizeGadget | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget | #PB_Window_TitleBar )
+      ; V1.031.72: Added SystemMenu flag for Linux compatibility
+      If OpenWindow( #MainWindow, #PB_Ignore, #PB_Ignore, 960, 680, name, #PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget | #PB_Window_TitleBar )
          ButtonGadget( #BtnExit,    5,    3,  90,  29, "EXIT" )
          ButtonGadget( #BtnLoad,  100,    3,  90,  29, "Load/Compile" )
          ButtonGadget( #BtnRun,   200,    3,  90,  29, "Run" )
 
          ; V1.027.4: Examples listbox on the left side
          ListViewGadget( #lstExamples, 0, 35, 200, 640 )
+         EditorGadget( #edConsole, 205,  35, 755, 640 )
+         ; V1.031.101: Add initial line so cy=0 has a line to update
+         AddGadgetItem( #edConsole, -1, "" )
 
          ; Populate listbox with *.lj files from Examples folder
-         dir = ExamineDirectory(#PB_Any, ".\Examples\", "*.lj")
+         ; V1.031.30: Cross-platform path
+         CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+            dir = ExamineDirectory(#PB_Any, ".\Examples\", "*.lj")
+         CompilerElse
+            dir = ExamineDirectory(#PB_Any, "./Examples/", "*.lj")
+         CompilerEndIf
          If dir
             While NextDirectoryEntry(dir)
                If DirectoryEntryType(dir) = #PB_DirectoryEntry_File
@@ -229,8 +423,6 @@ Module C2VM
          ; V1.027.7: Set focus to listbox for keyboard navigation (arrows, pgup/pgdn, home/end)
          SetActiveGadget(#lstExamples)
 
-         EditorGadget( #edConsole, 205,  35, 755, 640, #PB_Editor_ReadOnly )
-         AddGadgetItem( #edConsole, -1, "" )
          ProcedureReturn 1
       EndIf
 
@@ -242,10 +434,12 @@ Module C2VM
 
       x = WindowWidth( #MainWindow )
       y = WindowHeight( #MainWindow )
+
+      ; V1.031.100: Only enforce minimums and resize gadgets - don't call ResizeWindow from callback
+      ; On Linux/GTK, calling ResizeWindow from resize event callback can cause issues
       If x < 500 : x = 500 : EndIf
       If y < 230 : y = 230 : EndIf
 
-      ResizeWindow( #MainWindow, #PB_Ignore, #PB_Ignore, x, y )
       ; V1.027.4: Resize listbox and console with proper layout
       ResizeGadget( #lstExamples, #PB_Ignore, #PB_Ignore, #PB_Ignore, y - 40 )
       ResizeGadget( #edConsole, #PB_Ignore, #PB_Ignore, x - 205, y - 40 )
@@ -307,6 +501,8 @@ Module C2VM
       *ptrJumpTable( #ljPTRDEC_PRE )      = @C2PTRDEC_PRE()
       *ptrJumpTable( #ljPTRINC_POST )     = @C2PTRINC_POST()
       *ptrJumpTable( #ljPTRDEC_POST )     = @C2PTRDEC_POST()
+      *ptrJumpTable( #ljSTORE_STRUCT )    = @C2STORE_STRUCT()  ; V1.029.84: Store struct (copies \i and \ptr)
+      *ptrJumpTable( #ljLSTORE_STRUCT )   = @C2LSTORE_STRUCT() ; V1.031.32: Local struct store
       ; In-place compound assignment opcodes
       *ptrJumpTable( #ljADD_ASSIGN_VAR )  = @C2ADD_ASSIGN_VAR()
       *ptrJumpTable( #ljSUB_ASSIGN_VAR )  = @C2SUB_ASSIGN_VAR()
@@ -546,6 +742,27 @@ Module C2VM
       ; V1.022.65: Struct copy operation
       *ptrJumpTable( #ljSTRUCTCOPY )            = @C2STRUCTCOPY()
 
+      ; V1.029.36: Struct pointer operations
+      *ptrJumpTable( #ljSTRUCT_ALLOC )          = @C2STRUCT_ALLOC()
+      *ptrJumpTable( #ljSTRUCT_ALLOC_LOCAL )    = @C2STRUCT_ALLOC_LOCAL()
+      *ptrJumpTable( #ljSTRUCT_FREE )           = @C2STRUCT_FREE()
+      *ptrJumpTable( #ljSTRUCT_FETCH_INT )      = @C2STRUCT_FETCH_INT()
+      *ptrJumpTable( #ljSTRUCT_FETCH_FLOAT )    = @C2STRUCT_FETCH_FLOAT()
+      *ptrJumpTable( #ljSTRUCT_FETCH_INT_LOCAL )    = @C2STRUCT_FETCH_INT_LOCAL()
+      *ptrJumpTable( #ljSTRUCT_FETCH_FLOAT_LOCAL )  = @C2STRUCT_FETCH_FLOAT_LOCAL()
+      *ptrJumpTable( #ljSTRUCT_STORE_INT )      = @C2STRUCT_STORE_INT()
+      *ptrJumpTable( #ljSTRUCT_STORE_FLOAT )    = @C2STRUCT_STORE_FLOAT()
+      *ptrJumpTable( #ljSTRUCT_STORE_INT_LOCAL )    = @C2STRUCT_STORE_INT_LOCAL()
+      *ptrJumpTable( #ljSTRUCT_STORE_FLOAT_LOCAL )  = @C2STRUCT_STORE_FLOAT_LOCAL()
+      ; V1.029.55: String struct field support
+      *ptrJumpTable( #ljSTRUCT_FETCH_STR )        = @C2STRUCT_FETCH_STR()
+      *ptrJumpTable( #ljSTRUCT_FETCH_STR_LOCAL )  = @C2STRUCT_FETCH_STR_LOCAL()
+      *ptrJumpTable( #ljSTRUCT_STORE_STR )        = @C2STRUCT_STORE_STR()
+      *ptrJumpTable( #ljSTRUCT_STORE_STR_LOCAL )  = @C2STRUCT_STORE_STR_LOCAL()
+      *ptrJumpTable( #ljSTRUCT_COPY_PTR )       = @C2STRUCT_COPY_PTR()
+      *ptrJumpTable( #ljFETCH_STRUCT )          = @C2FETCH_STRUCT()
+      *ptrJumpTable( #ljLFETCH_STRUCT )         = @C2LFETCH_STRUCT()
+
       ; V1.026.0: List operations (NEW uses \i for slot assignment)
       *ptrJumpTable( #ljLIST_NEW )              = @C2LIST_NEW()
       ; V1.026.8: Non-value operations use _T versions (pool slot from stack via FETCH/LFETCH)
@@ -579,6 +796,11 @@ Module C2VM
       *ptrJumpTable( #ljLIST_SET_FLOAT )        = @C2LIST_SET_FLOAT()
       *ptrJumpTable( #ljLIST_SET_STR )          = @C2LIST_SET_STR()
 
+      ; V1.029.28: Struct list operations
+      *ptrJumpTable( #ljLIST_ADD_STRUCT )       = @C2LIST_ADD_STRUCT()
+      *ptrJumpTable( #ljLIST_GET_STRUCT )       = @C2LIST_GET_STRUCT()
+      *ptrJumpTable( #ljLIST_SET_STRUCT )       = @C2LIST_SET_STRUCT()
+
       ; V1.026.0: Map operations (NEW uses \i for slot assignment)
       *ptrJumpTable( #ljMAP_NEW )               = @C2MAP_NEW()
       ; V1.026.8: Non-value operations use _T versions (pool slot from stack via FETCH/LFETCH)
@@ -603,6 +825,17 @@ Module C2VM
       *ptrJumpTable( #ljMAP_VALUE_INT )         = @C2MAP_VALUE_INT()
       *ptrJumpTable( #ljMAP_VALUE_FLOAT )       = @C2MAP_VALUE_FLOAT()
       *ptrJumpTable( #ljMAP_VALUE_STR )         = @C2MAP_VALUE_STR()
+
+      ; V1.029.28: Struct map operations
+      *ptrJumpTable( #ljMAP_PUT_STRUCT )        = @C2MAP_PUT_STRUCT()
+      *ptrJumpTable( #ljMAP_GET_STRUCT )        = @C2MAP_GET_STRUCT()
+      *ptrJumpTable( #ljMAP_VALUE_STRUCT )      = @C2MAP_VALUE_STRUCT()
+
+      ; V1.029.65: \ptr-based struct collection operations
+      *ptrJumpTable( #ljLIST_ADD_STRUCT_PTR )   = @C2LIST_ADD_STRUCT_PTR()
+      *ptrJumpTable( #ljLIST_GET_STRUCT_PTR )   = @C2LIST_GET_STRUCT_PTR()
+      *ptrJumpTable( #ljMAP_PUT_STRUCT_PTR )    = @C2MAP_PUT_STRUCT_PTR()
+      *ptrJumpTable( #ljMAP_GET_STRUCT_PTR )    = @C2MAP_GET_STRUCT_PTR()
 
       ; Pointer operations
       *ptrJumpTable( #ljGETADDR )         = @C2GETADDR()
@@ -732,6 +965,7 @@ Module C2VM
       ; Constants: still transfer from gVarMeta
       ; Arrays: still need ReDim for element allocation
       Protected i
+      Protected structByteSize.i  ; V1.029.40: For struct allocation
 
       CompilerIf #DEBUG
          Debug "=== vmTransferMetaToRuntime: Transferring " + Str(gnLastVariable) + " variables ==="
@@ -770,6 +1004,19 @@ Module C2VM
             ReDim gVar(i)\dta\ar(gVarMeta(i)\arraySize - 1)  ; 0-based indexing
             gVar(i)\dta\size = gVarMeta(i)\arraySize  ; Store size in structure
          EndIf
+
+         ; V1.029.40: Allocate struct memory for global struct variables
+         ; Local structs are allocated at function call time via STRUCT_ALLOC_LOCAL
+         If gVarMeta(i)\flags & #C2FLAG_STRUCT And gVarMeta(i)\paramOffset < 0
+            ; Calculate byte size: elementSize is field count, multiply by 8 bytes per field
+            structByteSize = gVarMeta(i)\elementSize * 8
+            If structByteSize > 0
+               gVar(i)\ptr = AllocateMemory(structByteSize)
+               CompilerIf #DEBUG
+                  Debug "  Allocate struct [" + Str(i) + "] '" + gVarMeta(i)\name + "': " + Str(structByteSize) + " bytes at ptr=" + Str(gVar(i)\ptr)
+               CompilerEndIf
+            EndIf
+         EndIf
       Next
    EndProcedure
 
@@ -788,7 +1035,16 @@ Module C2VM
       ; Clear the call stack
       gStackDepth = -1
       gFunctionDepth = 0
-      gCurrentMaxLocal = gnLastVariable  ; V1.020.065: Reset to start after all compile-time allocations
+
+      ; V1.31.0: Reset isolated variable system
+      gLocalBase = 0
+      gLocalTop = 0
+      ; V1.031.15: Clear gLocal[] array to avoid garbage values as array indices
+      For i = 0 To #C2MAXLOCALS - 1
+         gLocal(i)\i = 0
+         gLocal(i)\f = 0.0
+         gLocal(i)\ss = ""
+      Next
 
       ; Stop any running code by resetting pc and putting HALT at start
       pc = 0
@@ -825,20 +1081,23 @@ Module C2VM
       Protected      *opcodeHandler  ; Cached handler pointer (VM optimization)
       Dim            arProfiler.stProfiler(1)
 
+      t     = ElapsedMilliseconds()
+      Delay(16)      
       ; Transfer compile-time metadata to runtime values
       ; In the future, this will load from JSON/XML instead of gVarMeta
-      vmTransferMetaToRuntime()
-
-      t     = ElapsedMilliseconds()
-      sp    = gnLastVariable  ; V1.020.065: Use gnLastVariable (all allocations) to prevent locals from overwriting constants in slots 64-75
-      gCurrentMaxLocal = gnLastVariable  ; V1.020.065: Start local allocator after all compile-time allocations
+      vmTransferMetaToRuntime()      
+      
+      ; V1.31.0: Isolated Variable System - sp indexes into gEvalStack[], not gVar[]
+      sp    = 0                           ; Evaluation stack starts at gEvalStack[0]
+      gLocalBase = 0                      ; Local variables start at gLocal[0]
+      gLocalTop = 0                       ; No locals allocated yet
       cy    = 0
       pc    = 0
       ReDim arProfiler( gnTotalTokens )
 
       ; Optimized VM loop: cache opcode and handler pointer
       opcode = CPC()
-      While opcode <> #ljHALT And Not gExitApplication
+      While opcode <> #ljHALT And Not gExitApplication And Not gStopVMThread
          CompilerIf #C2PROFILER > 0
             arProfiler(opcode)\count + 1
             t1 = ElapsedMilliseconds()
@@ -866,18 +1125,21 @@ Module C2VM
          ; Cache next opcode at end of loop (VM optimization)
          opcode = CPC()
       Wend
-      
-      endline  = "Runtime: " + FormatNumber( (ElapsedMilliseconds() - t ) / 1000 ) + " seconds. Stack=" + Str(sp - gnLastVariable) + " (sp=" + Str(sp) + " gnLastVariable=" + Str(gnLastVariable) + ")"
 
-      ; V1.020.065: Debug leaked stack values (stack should be empty: sp == gnLastVariable)
-      If sp <> gnLastVariable
+      ; V1.031.42: VM loop ended - thread will terminate naturally
+
+      ; V1.31.0: Stack balance uses sp=0 base (gEvalStack[] is isolated)
+      endline  = "Runtime: " + FormatNumber( (ElapsedMilliseconds() - t ) / 1000 ) + " seconds. Stack=" + Str(sp) + " (sp=" + Str(sp) + ")"
+
+      ; V1.31.0: Debug leaked stack values (stack should be empty: sp == 0)
+      If sp <> 0
          CompilerIf #DEBUG
             Debug "*** STACK IMBALANCE DETECTED ***"
-            Debug "Expected sp=" + Str(gnLastVariable) + ", actual sp=" + Str(sp)
-            If sp > gnLastVariable
-               Debug "Leaked values on stack:"
-               For i = gnLastVariable To sp - 1
-                  Debug "  stack[" + Str(i) + "]: i=" + Str(gVar(i)\i) + " f=" + StrD(gVar(i)\f, 6) + " ss='" + gVar(i)\ss + "'"
+            Debug "Expected sp=0, actual sp=" + Str(sp)
+            If sp > 0
+               Debug "Leaked values on gEvalStack[]:"
+               For i = 0 To sp - 1
+                  Debug "  gEvalStack[" + Str(i) + "]: i=" + Str(gEvalStack(i)\i) + " f=" + StrD(gEvalStack(i)\f, 6) + " ss='" + gEvalStack(i)\ss + "'"
                Next
             EndIf
          CompilerEndIf
@@ -922,19 +1184,27 @@ Module C2VM
          vm_ConsoleOrGUI( "==================================================" )
       CompilerEndIf
       
-      
       CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Executable
          If gPasteToClipboard
             vm_ConsoleOrGUI( "" )
+            ; V1.031.84: Restore GetGadgetText for EditorGadget
             SetClipboardText( GetGadgetText(#edConsole) )
          EndIf
       CompilerEndIf
+
+       gVMThreadFinished = #True
+       Delay(16)
    EndProcedure
    Procedure            vmPragmaSet()
       Protected.s       temp, name
       Protected         n
-      
+
+      ; V1.031.101: Allow threading on all platforms with queue-based GUI updates
       vm_SetGlobalFromPragma( 1, "runthreaded", gRunThreaded )
+      ; V1.031.102: Force non-threaded on Linux - GTK threading causes GUI unresponsiveness
+      CompilerIf #PB_Compiler_OS = #PB_OS_Linux
+         gRunThreaded = #False
+      CompilerEndIf
       vm_SetGlobalFromPragma( 1, "console", gConsole )
       vm_SetGlobalFromPragma( 0, "version", gShowversion )      
       vm_SetGlobalFromPragma( 0, "fastprint", gFastPrint )
@@ -982,129 +1252,194 @@ Module C2VM
       vm_DualAssign( "consoleposition", gWindowX, gWindowY, "," )      
       
    EndProcedure
-   
+    Procedure            vmCloseWindow()
+      gExitApplication = #True
+   EndProcedure
+   Procedure            vmListExamples()
+      Protected         i, err
+      Protected.s       filename
+      
+      Delay(8)
+      i = GetGadgetState(#lstExamples)
+      
+      If i >= 0
+         gSelectedExample = i  ; V1.027.6: Remember selection for next window
+         ; V1.031.30: Cross-platform path
+         CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+            filename = ".\Examples\" + GetGadgetItemText(#lstExamples, i)
+         CompilerElse
+            filename = "./Examples/" + GetGadgetItemText(#lstExamples, i)
+         CompilerEndIf
+
+         ; Clear console (V1.031.84: SetGadgetText for EditorGadget)
+         SetGadgetText(#edConsole, "")
+         ClearDebugOutput()
+
+         ; Clear VM state
+         vmClearRun()
+
+         If gRunThreaded = #True And IsThread( gthRun )
+            vmStopVMThread( gthRun )
+         EndIf
+
+         gModuleName = filename
+         AddGadgetItem(#edConsole, -1, "Loading: " + filename)
+
+         If C2Lang::LoadLJ( filename )
+            AddGadgetItem(#edConsole, -1, "Error: " + C2Lang::Error( @err ))
+         Else
+            If C2Lang::Compile() = 0
+               ; Compile passed - run it
+               AddGadgetItem(#edConsole, -1, "Compile OK - Running...")
+               AddGadgetItem(#edConsole, -1, "")
+               ; V1.031.96: Set flag - main loop will call RunVM outside callback context
+               gRunVMPending = #True
+            Else
+               AddGadgetItem(#edConsole, -1, "Compile failed")
+            EndIf
+         EndIf
+      EndIf
+
+   EndProcedure
+
+   Procedure            vmWindowEvents()
+      Protected         Event, e, err, i
+      Protected.s       filename      
+      
+      If gRunThreaded = #True
+         Debug " -- Running threaded."
+         ; V1.031.42: Initialize semaphore for proper thread synchronization on Linux
+         gthRun = CreateThread(@vmExecute(), 0 )
+      Else
+         Debug " -- Running full steam."
+         vmExecute()
+      EndIf
+      
+      If IsWindow( #MainWindow )
+         BindEvent( #PB_Event_CloseWindow, @vmCloseWindow() )
+         BindEvent( #PB_Event_SizeWindow, @ResizeMain() )
+         BindGadgetEvent( #lstExamples, @vmListExamples() )
+
+         If gConsole = #True
+            ResizeWindow( #MainWindow, gWindowX, gWindowY, gWidth, gHeight )
+         EndIf
+      EndIf
+      
+      While IsWindow( #MainWindow ) And Not gExitApplication
+         Event = WaitWindowEvent(16)
+
+         ; V1.031.101: Process queued GUI messages from worker thread (only needed in threaded mode)
+         If gRunThreaded : vmProcessGUIQueue() : EndIf
+
+         ; V1.031.96: Check pending RunVM flag - execute outside callback context
+         ; V1.031.101: Use threading when gRunThreaded is true
+         If gRunVMPending
+            gRunVMPending = #False
+            ; Initialize VM
+            gExitApplication = 0
+            gStopVMThread = 0
+            gVMThreadFinished = 0
+            vmInitVM()
+            cs = ArraySize(ArCode())
+            vmPragmaSet()
+            ; Execute: threaded or synchronous
+            If gRunThreaded
+               gthRun = CreateThread(@vmExecute(), 0)
+            Else
+               vmExecute()
+            EndIf
+         EndIf
+
+         Select Event
+            Case #PB_Event_Gadget
+               e = EventGadget()
+
+               If e = #BtnExit
+                  vm_ProperCloseWindow()
+                  gExitApplication = #True
+               ElseIf e = #BtnLoad
+                  ; V1.031.30: Cross-platform path
+                  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+                     filename = OpenFileRequester( "Please choose source", ".\Examples\", "LJ Files|*.lj", 0 )
+                  CompilerElse
+                     filename = OpenFileRequester( "Please choose source", "./Examples/", "LJ Files|*.lj", 0 )
+                  CompilerEndIf
+
+                  ; Always clear VM state before loading new file
+                  vmClearRun()
+
+                  If gRunThreaded = #True And IsThread( gthRun )
+                     vmStopVMThread( gthRun )
+                  EndIf
+
+                  If filename > ""
+                     DebugShowFilename()
+                     gModuleName = filename
+
+                     If C2Lang::LoadLJ( filename )
+                        Debug "Error: " + C2Lang::Error( @err )
+                     Else
+                        C2Lang::Compile()
+                     EndIf
+                  EndIf
+
+               ElseIf e = #BtnRun
+                  vm_ProperCloseWindow()
+                  Delay(64)
+                  C2VM::RunVM()
+               EndIf
+         EndSelect
+         
+         ;Delay(1)
+      Wend
+
+   EndProcedure
    ; Execute the code list
    Procedure            RunVM()
-      Protected         i, j, e
+      Protected         i, j
       Protected         err
       Protected         x, y
-      Protected.s       temp, filename
-      Protected         win, Event
-      Protected         thRun
+      Protected.s       temp
+      Protected         win
       Protected         verFile.i, verString.s
+      Protected         threadFinished.i      ; V1.031.49: For mutex-protected thread check
+      Protected         vmThreadDone = #False
+
+      ; V1.031.44: Reset threading globals before each run
+      gExitApplication = 0
+      gStopVMThread = 0
+      gVMThreadFinished = 0  ; V1.031.46: Reset thread finished flag
+      ; V1.031.94: Removed queue clearing - no threading on Linux GUI
 
       vmInitVM()
       cs = ArraySize( ArCode() )      
       vmPragmaSet()
 
-      CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console    
+      CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
          ; Batch mode - just execute directly
          vmExecute()
       CompilerElse
+         ; V1.031.30: On Linux, check if DISPLAY is set before attempting GUI
+         CompilerIf #PB_Compiler_OS = #PB_OS_Linux
+            If GetEnvironmentVariable("DISPLAY") = ""
+               Debug "ERROR: No DISPLAY set. Compile with 'Create executable' as Console or set DISPLAY for GUI."
+               End
+            EndIf
+         CompilerEndIf
+         
          If gConsole = #True
             win = MainWindow( gszAppName )
-            ResizeWindow( #MainWindow, gWindowX, gWindowY, gWidth, gHeight )
          EndIf
 
          cs = ArraySize( ArCode() )
 
-         If win
-            If gRunThreaded = #True
-               Debug " -- Running threaded."
-               thRun = CreateThread(@vmExecute(), 0 )
-            Else
-               Debug " -- Running full steam."
-               vmExecute()
-            EndIf
+         If IsWindow( #MainWindow )
+            vmWindowEvents()
             
-            Repeat
-               If IsWindow(#MainWindow)
-                  Event = WaitWindowEvent(32)
-
-                  Select Event
-                     Case #PB_Event_CloseWindow
-                        gExitApplication = #True
-
-                     Case #PB_Event_SizeWindow
-                        ResizeMain()
-
-                     Case #PB_Event_Gadget
-                        e = EventGadget()
-
-                        If e = #BtnExit
-                           gExitApplication = #True
-                        ElseIf e = #BtnLoad
-                           filename = OpenFileRequester( "Please choose source", ".\Examples\", "LJ Files|*.lj", 0 )
-
-                           ; Always clear VM state before loading new file
-                           vmClearRun()
-
-                           If gRunThreaded = #True And IsThread( thRun )
-                              KillThread( thRun)
-                           EndIf
-
-                           If filename > ""
-                              DebugShowFilename()
-                              gModuleName = filename
-
-                              If C2Lang::LoadLJ( filename )
-                                 Debug "Error: " + C2Lang::Error( @err )
-                              Else
-                                 C2Lang::Compile()
-                              EndIf
-                           EndIf
-
-                        ElseIf e = #BtnRun
-                           CloseWindow( #MainWindow )
-                           C2VM::RunVM()
-
-                        ; V1.027.4: Examples listbox - auto compile & run on selection
-                        ElseIf e = #lstExamples
-                           i = GetGadgetState(#lstExamples)
-                           If i >= 0
-                              gSelectedExample = i  ; V1.027.6: Remember selection for next window
-                              filename = ".\Examples\" + GetGadgetItemText(#lstExamples, i)
-
-                              ; Clear console
-                              ClearGadgetItems(#edConsole)
-                              ClearDebugOutput()
-
-                              ; Clear VM state
-                              vmClearRun()
-
-                              If gRunThreaded = #True And IsThread( thRun )
-                                 KillThread( thRun)
-                              EndIf
-
-                              gModuleName = filename
-                              AddGadgetItem(#edConsole, -1, "Loading: " + filename)
-
-                              If C2Lang::LoadLJ( filename )
-                                 AddGadgetItem(#edConsole, -1, "Error: " + C2Lang::Error( @err ))
-                              Else
-                                 If C2Lang::Compile() = 0
-                                    ; Compile passed - run it
-                                    AddGadgetItem(#edConsole, -1, "Compile OK - Running...")
-                                    AddGadgetItem(#edConsole, -1, "")
-                                    CloseWindow( #MainWindow )
-                                    C2VM::RunVM()
-                                 Else
-                                    AddGadgetItem(#edConsole, -1, "Compile failed")
-                                 EndIf
-                              EndIf
-                           EndIf
-                        EndIf
-                  EndSelect
-               Else
-                  Delay(64)
-               EndIf
-            Until gExitApplication
-
             ; Wait for vmExecute thread to finish before destroying window
-            If gRunThreaded = #True And IsThread(thRun)
-               Debug "Waiting for VM thread to complete..."
-               WaitThread(thRun)
-               Debug "VM thread completed"
+            If gRunThreaded = #True And IsThread(gthRun)
+               ; V1.031.41: Use graceful shutdown with timeout (2 seconds for exit)
+               vmStopVMThread(gthRun, 2000)
             EndIf
          Else
             ; Window creation failed - can't execute without console gadget
@@ -1115,9 +1450,9 @@ Module C2VM
 EndModule
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1057
-; FirstLine = 1042
-; Folding = -----
+; CursorPosition = 1320
+; FirstLine = 1312
+; Folding = ----------
 ; EnableAsm
 ; EnableThread
 ; EnableXP

@@ -31,7 +31,7 @@ Procedure               C2ARRAYINDEX()
    elementSize = _AR()\j
 
    sp - 1
-   index = gVar(sp)\i            ; Pop index from stack
+   index = gEvalStack(sp)\i            ; Pop index from stack
 
    ; Optional bounds checking
    CompilerIf #DEBUG
@@ -42,7 +42,7 @@ Procedure               C2ARRAYINDEX()
    CompilerEndIf
 
    ; Push computed index back to stack (just the index, not the base)
-   gVar(sp)\i = index
+   gEvalStack(sp)\i = index
    sp + 1
    pc + 1
 EndProcedure
@@ -66,21 +66,21 @@ Procedure               C2ARRAYFETCH()
       index = gVar(_AR()\ndx)\i
    Else
       sp - 1
-      index = gVar(sp)\i
+      index = gEvalStack(sp)\i
    EndIf
 
    ; Bounds checking and copy based on array type
    If _AR()\j
-      ; Local array - use unified gVar[] with _LARRAY macro
+      ; V1.31.0: Local array - use gLocal[] with _LARRAY macro (Isolated Variable System)
       CompilerIf #DEBUG
-         arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+         arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
          If index < 0 Or index >= arraySize
             Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
             gExitApplication = #True
             ProcedureReturn
          EndIf
       CompilerEndIf
-      CopyStructure( gVar(sp), gVar(_LARRAY(_AR()\i))\dta\ar(index), stVTSimple )
+      CopyStructure( gEvalStack(sp), gLocal(_LARRAY(_AR()\i))\dta\ar(index), stVTSimple )
    Else
       ; Global array
       CompilerIf #DEBUG
@@ -91,7 +91,7 @@ Procedure               C2ARRAYFETCH()
             ProcedureReturn
          EndIf
       CompilerEndIf
-      CopyStructure( gVar(sp), gVar(_AR()\i)\dta\ar(index), stVTSimple )
+      CopyStructure( gEvalStack(sp), gVar(_AR()\i)\dta\ar(index), stVTSimple )
    EndIf
 
    sp + 1
@@ -118,22 +118,22 @@ Procedure               C2ARRAYSTORE()
       sp - 1
    Else
       sp - 1
-      index = gVar(sp)\i
+      index = gEvalStack(sp)\i
       sp - 1
    EndIf
 
    ; Bounds checking and copy based on array type
    If _AR()\j
-      ; Local array - use unified gVar[] with _LARRAY macro
+      ; V1.31.0: Local array - use gLocal[] with _LARRAY macro (Isolated Variable System)
       CompilerIf #DEBUG
-         arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+         arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
          If index < 0 Or index >= arraySize
             Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
             gExitApplication = #True
             ProcedureReturn
          EndIf
       CompilerEndIf
-      CopyStructure( gVar(_LARRAY(_AR()\i))\dta\ar(index), gVar(sp), stVTSimple )
+      CopyStructure( gLocal(_LARRAY(_AR()\i))\dta\ar(index), gEvalStack(sp), stVTSimple )
    Else
       ; Global array
       CompilerIf #DEBUG
@@ -144,7 +144,7 @@ Procedure               C2ARRAYSTORE()
             ProcedureReturn
          EndIf
       CompilerEndIf
-      CopyStructure( gVar(_AR()\i)\dta\ar(index), gVar(sp), stVTSimple )
+      CopyStructure( gVar(_AR()\i)\dta\ar(index), gEvalStack(sp), stVTSimple )
    EndIf
 
    pc + 1
@@ -166,14 +166,14 @@ Procedure               C2ARRAYFETCH_INT_GLOBAL_OPT()
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(sp)\i = gVar(arrIdx)\dta\ar(index)\i
+   gEvalStack(sp)\i = gVar(arrIdx)\dta\ar(index)\i
    ; Copy pointer metadata if present (for arrays of pointers)
    ; V1.022.35: Always clear or set ptrtype to avoid leftover values causing crashes
    If gVar(arrIdx)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -185,7 +185,7 @@ Procedure               C2ARRAYFETCH_INT_GLOBAL_STACK()
    vm_DebugFunctionName()
    arrIdx = _AR()\i
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -194,14 +194,14 @@ Procedure               C2ARRAYFETCH_INT_GLOBAL_STACK()
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(sp)\i = gVar(arrIdx)\dta\ar(index)\i
+   gEvalStack(sp)\i = gVar(arrIdx)\dta\ar(index)\i
    ; Copy pointer metadata if present (for arrays of pointers)
    ; V1.022.35: Always clear or set ptrtype to avoid leftover values causing crashes
    If gVar(arrIdx)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -217,7 +217,7 @@ Procedure               C2ARRAYFETCH_INT_LOCAL_OPT()
    localSlot = _LARRAY(_AR()\i)
 
    ; V1.022.112: Always check bounds, use PrintN for release mode visibility
-   arraySize = gVar(localSlot)\dta\size
+   arraySize = gLocal(localSlot)\dta\size
    If arraySize = 0
       PrintN("LFETCHARINT_OPT ERROR: Array at slot " + Str(localSlot) + " not allocated! pc=" + Str(pc) + " depth=" + Str(gStackDepth) + " offset=" + Str(_AR()\i))
       gExitApplication = #True
@@ -233,14 +233,14 @@ Procedure               C2ARRAYFETCH_INT_LOCAL_OPT()
    CompilerIf #DEBUG
       Debug "LFETCHARINT_OPT: pc=" + Str(pc) + " localSlot=" + Str(localSlot) + " index=" + Str(index) + " depth=" + Str(gStackDepth)
    CompilerEndIf
-   gVar(sp)\i = gVar(localSlot)\dta\ar(index)\i
+   gEvalStack(sp)\i = gLocal(localSlot)\dta\ar(index)\i
    ; Copy pointer metadata if present
    ; V1.022.35: Always clear or set ptrtype to avoid leftover values causing crashes
-   If gVar(localSlot)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(localSlot)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(localSlot)\dta\ar(index)\ptrtype
+   If gLocal(localSlot)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gLocal(localSlot)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gLocal(localSlot)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -253,11 +253,11 @@ Procedure               C2ARRAYFETCH_INT_LOCAL_STACK()
    Protected arraySize.i   ; V1.022.108: Runtime bounds checking
    vm_DebugFunctionName()
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    localSlot = _LARRAY(_AR()\i)
 
    ; V1.022.112: Always check bounds, use PrintN for release mode visibility
-   arraySize = gVar(localSlot)\dta\size
+   arraySize = gLocal(localSlot)\dta\size
    If arraySize = 0
       PrintN("LFETCHARINT_STACK ERROR: Array at slot " + Str(localSlot) + " not allocated! pc=" + Str(pc) + " depth=" + Str(gStackDepth) + " offset=" + Str(_AR()\i))
       gExitApplication = #True
@@ -273,14 +273,14 @@ Procedure               C2ARRAYFETCH_INT_LOCAL_STACK()
    CompilerIf #DEBUG
       Debug "LFETCHARINT_STACK: pc=" + Str(pc) + " localSlot=" + Str(localSlot) + " index=" + Str(index) + " depth=" + Str(gStackDepth)
    CompilerEndIf
-   gVar(sp)\i = gVar(localSlot)\dta\ar(index)\i
+   gEvalStack(sp)\i = gLocal(localSlot)\dta\ar(index)\i
    ; Copy pointer metadata if present
    ; V1.022.35: Always clear or set ptrtype to avoid leftover values causing crashes
-   If gVar(localSlot)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(localSlot)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(localSlot)\dta\ar(index)\ptrtype
+   If gLocal(localSlot)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gLocal(localSlot)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gLocal(localSlot)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -300,14 +300,14 @@ Procedure               C2ARRAYFETCH_FLOAT_GLOBAL_OPT()
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(sp)\f = gVar(arrIdx)\dta\ar(index)\f
+   gEvalStack(sp)\f = gVar(arrIdx)\dta\ar(index)\f
    ; Copy pointer metadata if present (for arrays of pointers)
    ; V1.022.35: Always clear or set ptrtype to avoid leftover values causing crashes
    If gVar(arrIdx)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -319,7 +319,7 @@ Procedure               C2ARRAYFETCH_FLOAT_GLOBAL_STACK()
    vm_DebugFunctionName()
    arrIdx = _AR()\i
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -328,14 +328,14 @@ Procedure               C2ARRAYFETCH_FLOAT_GLOBAL_STACK()
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(sp)\f = gVar(arrIdx)\dta\ar(index)\f
+   gEvalStack(sp)\f = gVar(arrIdx)\dta\ar(index)\f
    ; Copy pointer metadata if present (for arrays of pointers)
    ; V1.022.35: Always clear or set ptrtype to avoid leftover values causing crashes
    If gVar(arrIdx)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -352,7 +352,7 @@ Procedure               C2ARRAYFETCH_FLOAT_LOCAL_OPT()
    localSlot = _LARRAY(_AR()\i)
 
    ; V1.022.112: Always check bounds, use PrintN for release mode visibility
-   arraySize = gVar(localSlot)\dta\size
+   arraySize = gLocal(localSlot)\dta\size
    If arraySize = 0
       PrintN("LFETCHARFLT_OPT ERROR: Array at slot " + Str(localSlot) + " not allocated! pc=" + Str(pc) + " depth=" + Str(gStackDepth) + " offset=" + Str(_AR()\i))
       gExitApplication = #True
@@ -368,14 +368,14 @@ Procedure               C2ARRAYFETCH_FLOAT_LOCAL_OPT()
    CompilerIf #DEBUG
       Debug "LFETCHARFLT_OPT: pc=" + Str(pc) + " offset=" + Str(_AR()\i) + " localSlot=" + Str(localSlot) + " index=" + Str(index) + " depth=" + Str(gStackDepth)
    CompilerEndIf
-   gVar(sp)\f = gVar(localSlot)\dta\ar(index)\f
+   gEvalStack(sp)\f = gLocal(localSlot)\dta\ar(index)\f
    ; Copy pointer metadata if present
    ; V1.022.35: Always clear or set ptrtype to avoid leftover values causing crashes
-   If gVar(localSlot)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(localSlot)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(localSlot)\dta\ar(index)\ptrtype
+   If gLocal(localSlot)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gLocal(localSlot)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gLocal(localSlot)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -390,12 +390,12 @@ Procedure               C2ARRAYFETCH_FLOAT_LOCAL_STACK()
    vm_DebugFunctionName()
    spBefore = sp
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    ; V1.022.105: Calculate and check local slot
    localSlot = _LARRAY(_AR()\i)
 
    ; V1.022.113: Enhanced diagnostics with sp and ndx info
-   arraySize = gVar(localSlot)\dta\size
+   arraySize = gLocal(localSlot)\dta\size
    If arraySize = 0
       PrintN("LFETCHARFLT_STACK ERROR: Array at slot " + Str(localSlot) + " not allocated! pc=" + Str(pc) + " depth=" + Str(gStackDepth) + " offset=" + Str(_AR()\i) + " sp=" + Str(spBefore))
       gExitApplication = #True
@@ -411,14 +411,14 @@ Procedure               C2ARRAYFETCH_FLOAT_LOCAL_STACK()
    CompilerIf #DEBUG
       Debug "LFETCHARFLT_STACK: pc=" + Str(pc) + " offset=" + Str(_AR()\i) + " localSlot=" + Str(localSlot) + " index=" + Str(index) + " depth=" + Str(gStackDepth)
    CompilerEndIf
-   gVar(sp)\f = gVar(localSlot)\dta\ar(index)\f
+   gEvalStack(sp)\f = gLocal(localSlot)\dta\ar(index)\f
    ; Copy pointer metadata if present
    ; V1.022.35: Always clear or set ptrtype to avoid leftover values causing crashes
-   If gVar(localSlot)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(localSlot)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(localSlot)\dta\ar(index)\ptrtype
+   If gLocal(localSlot)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gLocal(localSlot)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gLocal(localSlot)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -438,14 +438,14 @@ Procedure               C2ARRAYFETCH_STR_GLOBAL_OPT()
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(sp)\ss = gVar(arrIdx)\dta\ar(index)\ss
+   gEvalStack(sp)\ss = gVar(arrIdx)\dta\ar(index)\ss
    ; Copy pointer metadata if present (for arrays of pointers)
    ; V1.022.35: Always clear or set ptrtype to avoid leftover values causing crashes
    If gVar(arrIdx)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -457,7 +457,7 @@ Procedure               C2ARRAYFETCH_STR_GLOBAL_STACK()
    vm_DebugFunctionName()
    arrIdx = _AR()\i
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -466,14 +466,14 @@ Procedure               C2ARRAYFETCH_STR_GLOBAL_STACK()
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(sp)\ss = gVar(arrIdx)\dta\ar(index)\ss
+   gEvalStack(sp)\ss = gVar(arrIdx)\dta\ar(index)\ss
    ; Copy pointer metadata if present (for arrays of pointers)
    ; V1.022.35: Always clear or set ptrtype to avoid leftover values causing crashes
    If gVar(arrIdx)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -486,21 +486,21 @@ Procedure               C2ARRAYFETCH_STR_LOCAL_OPT()
    index = gVar(_AR()\ndx)\i
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(sp)\ss = gVar(_LARRAY(_AR()\i))\dta\ar(index)\ss
+   gEvalStack(sp)\ss = gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ss
    ; Copy pointer metadata if present
    ; V1.022.35: Always clear or set ptrtype to avoid leftover values causing crashes
-   If gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype
+   If gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -511,24 +511,24 @@ Procedure               C2ARRAYFETCH_STR_LOCAL_STACK()
    Protected index.i
    vm_DebugFunctionName()
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(sp)\ss = gVar(_LARRAY(_AR()\i))\dta\ar(index)\ss
+   gEvalStack(sp)\ss = gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ss
    ; Copy pointer metadata if present
    ; V1.022.35: Always clear or set ptrtype to avoid leftover values causing crashes
-   If gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype
+   If gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -539,6 +539,7 @@ EndProcedure
 
 Procedure               C2ARRAYFETCH_INT_LOCAL_LOPT()
    ; Integer array fetch - LOCAL array, LOCAL optimized index
+   ; V1.031.19: Fixed to use gLocal[] instead of gVar[] for local slots
    Protected index.i
    Protected arrOffset.i, idxOffset.i, arrSlot.i, idxSlot.i
    Protected arraySize.i
@@ -547,18 +548,18 @@ Procedure               C2ARRAYFETCH_INT_LOCAL_LOPT()
    idxOffset = _AR()\ndx
    arrSlot = _LARRAY(arrOffset)
    idxSlot = _LARRAY(idxOffset)
-   index = gVar(idxSlot)\i   ; Read index from LOCAL slot
+   index = gLocal(idxSlot)\i   ; V1.031.19: Read index from gLocal[]
 
    ; V1.022.113: Always check bounds
-   arraySize = gVar(arrSlot)\dta\size
+   arraySize = gLocal(arrSlot)\dta\size
    If arraySize = 0
-      PrintN("LLOCAL_FETCH_I ERROR: Array at slot " + Str(arrSlot) + " not allocated! pc=" + Str(pc) + " depth=" + Str(gStackDepth))
+      Debug "LLOCAL_FETCH_I ERROR: Array at slot " + Str(arrSlot) + " not allocated! pc=" + Str(pc) + " depth=" + Str(gStackDepth)
       gExitApplication = #True
       pc + 1
       ProcedureReturn
    EndIf
    If index < 0 Or index >= arraySize
-      PrintN("LLOCAL_FETCH_I ERROR: Index " + Str(index) + " out of bounds (size=" + Str(arraySize) + ") pc=" + Str(pc))
+      Debug "LLOCAL_FETCH_I ERROR: Index " + Str(index) + " out of bounds (size=" + Str(arraySize) + ") pc=" + Str(pc)
       gExitApplication = #True
       pc + 1
       ProcedureReturn
@@ -566,12 +567,12 @@ Procedure               C2ARRAYFETCH_INT_LOCAL_LOPT()
    CompilerIf #DEBUG
       Debug "  LLOCAL_FETCH_I: depth=" + Str(gStackDepth) + " arrOff=" + Str(arrOffset) + " arrSlot=" + Str(arrSlot) + " idxOff=" + Str(idxOffset) + " idxSlot=" + Str(idxSlot) + " index=" + Str(index) + " pc=" + Str(pc)
    CompilerEndIf
-   gVar(sp)\i = gVar(arrSlot)\dta\ar(index)\i
-   If gVar(arrSlot)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(arrSlot)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(arrSlot)\dta\ar(index)\ptrtype
+   gEvalStack(sp)\i = gLocal(arrSlot)\dta\ar(index)\i
+   If gLocal(arrSlot)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gLocal(arrSlot)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gLocal(arrSlot)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -579,6 +580,7 @@ EndProcedure
 
 Procedure               C2ARRAYFETCH_FLOAT_LOCAL_LOPT()
    ; Float array fetch - LOCAL array, LOCAL optimized index
+   ; V1.031.19: Fixed to use gLocal[] instead of gVar[] for local slots
    Protected index.i
    Protected arrOffset.i, idxOffset.i, arrSlot.i, idxSlot.i
    Protected arraySize.i
@@ -587,10 +589,10 @@ Procedure               C2ARRAYFETCH_FLOAT_LOCAL_LOPT()
    idxOffset = _AR()\ndx
    arrSlot = _LARRAY(arrOffset)
    idxSlot = _LARRAY(idxOffset)
-   index = gVar(idxSlot)\i   ; Read index from LOCAL slot
+   index = gLocal(idxSlot)\i   ; V1.031.19: Read index from gLocal[]
 
    ; V1.022.113: Always check bounds
-   arraySize = gVar(arrSlot)\dta\size
+   arraySize = gLocal(arrSlot)\dta\size
    If arraySize = 0
       PrintN("LLOCAL_FETCH_F ERROR: Array at slot " + Str(arrSlot) + " not allocated! pc=" + Str(pc) + " depth=" + Str(gStackDepth))
       gExitApplication = #True
@@ -606,12 +608,12 @@ Procedure               C2ARRAYFETCH_FLOAT_LOCAL_LOPT()
    CompilerIf #DEBUG
       Debug "  LLOCAL_FETCH_F: depth=" + Str(gStackDepth) + " arrOff=" + Str(arrOffset) + " arrSlot=" + Str(arrSlot) + " idxOff=" + Str(idxOffset) + " idxSlot=" + Str(idxSlot) + " index=" + Str(index) + " pc=" + Str(pc)
    CompilerEndIf
-   gVar(sp)\f = gVar(arrSlot)\dta\ar(index)\f
-   If gVar(arrSlot)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(arrSlot)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(arrSlot)\dta\ar(index)\ptrtype
+   gEvalStack(sp)\f = gLocal(arrSlot)\dta\ar(index)\f
+   If gLocal(arrSlot)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gLocal(arrSlot)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gLocal(arrSlot)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -619,6 +621,7 @@ EndProcedure
 
 Procedure               C2ARRAYFETCH_STR_LOCAL_LOPT()
    ; String array fetch - LOCAL array, LOCAL optimized index
+   ; V1.031.19: Fixed to use gLocal[] instead of gVar[] for local slots
    Protected index.i
    Protected arrOffset.i, idxOffset.i, arrSlot.i, idxSlot.i
    Protected arraySize.i
@@ -627,10 +630,10 @@ Procedure               C2ARRAYFETCH_STR_LOCAL_LOPT()
    idxOffset = _AR()\ndx
    arrSlot = _LARRAY(arrOffset)
    idxSlot = _LARRAY(idxOffset)
-   index = gVar(idxSlot)\i   ; Read index from LOCAL slot
+   index = gLocal(idxSlot)\i   ; V1.031.19: Read index from gLocal[]
 
    ; V1.022.113: Always check bounds
-   arraySize = gVar(arrSlot)\dta\size
+   arraySize = gLocal(arrSlot)\dta\size
    If arraySize = 0
       PrintN("LLOCAL_FETCH_S ERROR: Array at slot " + Str(arrSlot) + " not allocated! pc=" + Str(pc) + " depth=" + Str(gStackDepth))
       gExitApplication = #True
@@ -646,12 +649,12 @@ Procedure               C2ARRAYFETCH_STR_LOCAL_LOPT()
    CompilerIf #DEBUG
       Debug "  LLOCAL_FETCH_S: depth=" + Str(gStackDepth) + " arrOff=" + Str(arrOffset) + " arrSlot=" + Str(arrSlot) + " idxOff=" + Str(idxOffset) + " idxSlot=" + Str(idxSlot) + " index=" + Str(index) + " pc=" + Str(pc)
    CompilerEndIf
-   gVar(sp)\ss = gVar(arrSlot)\dta\ar(index)\ss
-   If gVar(arrSlot)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(arrSlot)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(arrSlot)\dta\ar(index)\ptrtype
+   gEvalStack(sp)\ss = gLocal(arrSlot)\dta\ar(index)\ss
+   If gLocal(arrSlot)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gLocal(arrSlot)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gLocal(arrSlot)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -691,7 +694,7 @@ Procedure               C2ARRAYSTORE_INT_GLOBAL_OPT_STACK()
    arrIdx = _AR()\i
    index = gVar(_AR()\ndx)\i
    sp - 1
-   value = gVar(sp)\i
+   value = gEvalStack(sp)\i
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -702,9 +705,9 @@ Procedure               C2ARRAYSTORE_INT_GLOBAL_OPT_STACK()
    CompilerEndIf
    gVar(arrIdx)\dta\ar(index)\i = value
    ; Copy pointer metadata if present (for arrays of pointers)
-   If gVar(sp)\ptrtype
-      gVar(arrIdx)\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(arrIdx)\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gVar(arrIdx)\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gVar(arrIdx)\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -712,12 +715,13 @@ EndProcedure
 Procedure               C2ARRAYSTORE_INT_GLOBAL_OPT_LOPT()
    ; V1.022.114: Integer array store - global array, GLOBAL opt index, LOCAL opt value
    ; Used when index is constant but value comes from local temp (function scope)
+   ; V1.031.21: Fixed to use gLocal[] instead of gVar[] for local value slot
    Protected arrIdx.i, index.i, valSlot.i, value.i
    vm_DebugFunctionName()
    arrIdx = _AR()\i
    index = gVar(_AR()\ndx)\i           ; Read index from GLOBAL slot
    valSlot = _LARRAY(_AR()\n)
-   value = gVar(valSlot)\i             ; Read value from LOCAL slot
+   value = gLocal(valSlot)\i           ; Read value from LOCAL slot (gLocal, not gVar)
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -727,9 +731,9 @@ Procedure               C2ARRAYSTORE_INT_GLOBAL_OPT_LOPT()
       EndIf
    CompilerEndIf
    gVar(arrIdx)\dta\ar(index)\i = value
-   If gVar(valSlot)\ptrtype
-      gVar(arrIdx)\dta\ar(index)\ptr = gVar(valSlot)\ptr
-      gVar(arrIdx)\dta\ar(index)\ptrtype = gVar(valSlot)\ptrtype
+   If gLocal(valSlot)\ptrtype
+      gVar(arrIdx)\dta\ar(index)\ptr = gLocal(valSlot)\ptr
+      gVar(arrIdx)\dta\ar(index)\ptrtype = gLocal(valSlot)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -740,7 +744,7 @@ Procedure               C2ARRAYSTORE_INT_GLOBAL_STACK_OPT()
    vm_DebugFunctionName()
    arrIdx = _AR()\i
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    value = gVar(_AR()\n)\i
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
@@ -765,9 +769,9 @@ Procedure               C2ARRAYSTORE_INT_GLOBAL_STACK_STACK()
    vm_DebugFunctionName()
    arrIdx = _AR()\i
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    sp - 1
-   value = gVar(sp)\i
+   value = gEvalStack(sp)\i
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -778,9 +782,9 @@ Procedure               C2ARRAYSTORE_INT_GLOBAL_STACK_STACK()
    CompilerEndIf
    gVar(arrIdx)\dta\ar(index)\i = value
    ; Copy pointer metadata if present (for arrays of pointers)
-   If gVar(sp)\ptrtype
-      gVar(arrIdx)\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(arrIdx)\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gVar(arrIdx)\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gVar(arrIdx)\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -793,14 +797,14 @@ Procedure               C2ARRAYSTORE_INT_LOCAL_OPT_OPT()
    value = gVar(_AR()\n)\i
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\i = value
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\i = value
    pc + 1
 EndProcedure
 
@@ -810,7 +814,7 @@ Procedure               C2ARRAYSTORE_INT_LOCAL_OPT_STACK()
    vm_DebugFunctionName()
    index = gVar(_AR()\ndx)\i
    sp - 1
-   value = gVar(sp)\i
+   value = gEvalStack(sp)\i
    CompilerIf #DEBUG
       Protected arraySize.i, actualSlot.i
       actualSlot = _LARRAY(_AR()\i)
@@ -822,11 +826,11 @@ Procedure               C2ARRAYSTORE_INT_LOCAL_OPT_STACK()
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\i = value
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\i = value
    ; Copy pointer metadata if present
-   If gVar(sp)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -834,25 +838,26 @@ EndProcedure
 Procedure               C2ARRAYSTORE_INT_LOCAL_OPT_LOPT()
    ; V1.022.115: Integer array store - local array, GLOBAL opt index, LOCAL opt value
    ; Used when index is constant but value comes from local temp (function scope)
+   ; V1.031.20: Fixed to use gLocal[] for LOCAL value slot
    Protected index.i, valSlot.i, value.i
    vm_DebugFunctionName()
    index = gVar(_AR()\ndx)\i           ; Read index from GLOBAL slot
    valSlot = _LARRAY(_AR()\n)
-   value = gVar(valSlot)\i             ; Read value from LOCAL slot
+   value = gLocal(valSlot)\i           ; Read value from LOCAL slot
    CompilerIf #DEBUG
       Protected arraySize.i, actualSlot.i
       actualSlot = _LARRAY(_AR()\i)
-      arraySize = gVar(actualSlot)\dta\size
+      arraySize = gLocal(actualSlot)\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\i = value
-   If gVar(valSlot)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(valSlot)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(valSlot)\ptrtype
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\i = value
+   If gLocal(valSlot)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gLocal(valSlot)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gLocal(valSlot)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -862,22 +867,22 @@ Procedure               C2ARRAYSTORE_INT_LOCAL_STACK_OPT()
    Protected index.i, value.i
    vm_DebugFunctionName()
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    value = gVar(_AR()\n)\i
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\i = value
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\i = value
    ; Copy pointer metadata if present
    If gVar(_AR()\n)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -887,23 +892,23 @@ Procedure               C2ARRAYSTORE_INT_LOCAL_STACK_STACK()
    Protected index.i, value.i
    vm_DebugFunctionName()
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    sp - 1
-   value = gVar(sp)\i
+   value = gEvalStack(sp)\i
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\i = value
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\i = value
    ; Copy pointer metadata if present
-   If gVar(sp)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -941,7 +946,7 @@ Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_OPT_STACK()
    arrIdx = _AR()\i
    index = gVar(_AR()\ndx)\i
    sp - 1
-   value = gVar(sp)\f
+   value = gEvalStack(sp)\f
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -952,9 +957,9 @@ Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_OPT_STACK()
    CompilerEndIf
    gVar(arrIdx)\dta\ar(index)\f = value
    ; Copy pointer metadata if present (for arrays of pointers)
-   If gVar(sp)\ptrtype
-      gVar(arrIdx)\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(arrIdx)\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gVar(arrIdx)\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gVar(arrIdx)\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -962,13 +967,14 @@ EndProcedure
 Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_OPT_LOPT()
    ; V1.022.114: Float array store - global array, GLOBAL opt index, LOCAL opt value
    ; Used when index is constant but value comes from local temp (function scope)
+   ; V1.031.21: Fixed to use gLocal[] instead of gVar[] for local value slot
    Protected arrIdx.i, index.i, valSlot.i
    Protected value.f
    vm_DebugFunctionName()
    arrIdx = _AR()\i
    index = gVar(_AR()\ndx)\i           ; Read index from GLOBAL slot
    valSlot = _LARRAY(_AR()\n)
-   value = gVar(valSlot)\f             ; Read value from LOCAL slot
+   value = gLocal(valSlot)\f           ; Read value from LOCAL slot (gLocal, not gVar)
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -978,9 +984,9 @@ Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_OPT_LOPT()
       EndIf
    CompilerEndIf
    gVar(arrIdx)\dta\ar(index)\f = value
-   If gVar(valSlot)\ptrtype
-      gVar(arrIdx)\dta\ar(index)\ptr = gVar(valSlot)\ptr
-      gVar(arrIdx)\dta\ar(index)\ptrtype = gVar(valSlot)\ptrtype
+   If gLocal(valSlot)\ptrtype
+      gVar(arrIdx)\dta\ar(index)\ptr = gLocal(valSlot)\ptr
+      gVar(arrIdx)\dta\ar(index)\ptrtype = gLocal(valSlot)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -992,7 +998,7 @@ Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_STACK_OPT()
    vm_DebugFunctionName()
    arrIdx = _AR()\i
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    value = gVar(_AR()\n)\f
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
@@ -1018,9 +1024,9 @@ Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_STACK_STACK()
    vm_DebugFunctionName()
    arrIdx = _AR()\i
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    sp - 1
-   value = gVar(sp)\f
+   value = gEvalStack(sp)\f
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -1031,9 +1037,9 @@ Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_STACK_STACK()
    CompilerEndIf
    gVar(arrIdx)\dta\ar(index)\f = value
    ; Copy pointer metadata if present (for arrays of pointers)
-   If gVar(sp)\ptrtype
-      gVar(arrIdx)\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(arrIdx)\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gVar(arrIdx)\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gVar(arrIdx)\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1055,24 +1061,24 @@ Procedure               C2ARRAYSTORE_FLOAT_LOCAL_OPT_OPT()
          gExitApplication = #True
          ProcedureReturn
       EndIf
-      If gVar(localSlot)\dta = 0
+      If gLocal(localSlot)\dta = 0
          Debug "  ERROR: Local array at slot " + Str(localSlot) + " has no dta allocated!"
          gExitApplication = #True
          ProcedureReturn
       EndIf
       Protected arraySize.i
-      arraySize = gVar(localSlot)\dta\size
+      arraySize = gLocal(localSlot)\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(localSlot)\dta\ar(index)\f = value
+   gLocal(localSlot)\dta\ar(index)\f = value
    ; Copy pointer metadata if present
    If gVar(_AR()\n)\ptrtype
-      gVar(localSlot)\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
-      gVar(localSlot)\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
+      gLocal(localSlot)\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
+      gLocal(localSlot)\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1084,21 +1090,21 @@ Procedure               C2ARRAYSTORE_FLOAT_LOCAL_OPT_STACK()
    vm_DebugFunctionName()
    index = gVar(_AR()\ndx)\i
    sp - 1
-   value = gVar(sp)\f
+   value = gEvalStack(sp)\f
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\f = value
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\f = value
    ; Copy pointer metadata if present
-   If gVar(sp)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1106,25 +1112,26 @@ EndProcedure
 Procedure               C2ARRAYSTORE_FLOAT_LOCAL_OPT_LOPT()
    ; V1.022.115: Float array store - local array, GLOBAL opt index, LOCAL opt value
    ; Used when index is constant but value comes from local temp (function scope)
+   ; V1.031.20: Fixed to use gLocal[] for LOCAL value slot
    Protected index.i, valSlot.i
    Protected value.f
    vm_DebugFunctionName()
    index = gVar(_AR()\ndx)\i           ; Read index from GLOBAL slot
    valSlot = _LARRAY(_AR()\n)
-   value = gVar(valSlot)\f             ; Read value from LOCAL slot
+   value = gLocal(valSlot)\f           ; Read value from LOCAL slot
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\f = value
-   If gVar(valSlot)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(valSlot)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(valSlot)\ptrtype
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\f = value
+   If gLocal(valSlot)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gLocal(valSlot)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gLocal(valSlot)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1135,22 +1142,22 @@ Procedure               C2ARRAYSTORE_FLOAT_LOCAL_STACK_OPT()
    Protected value.f
    vm_DebugFunctionName()
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    value = gVar(_AR()\n)\f
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\f = value
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\f = value
    ; Copy pointer metadata if present
    If gVar(_AR()\n)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1161,23 +1168,23 @@ Procedure               C2ARRAYSTORE_FLOAT_LOCAL_STACK_STACK()
    Protected value.f
    vm_DebugFunctionName()
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    sp - 1
-   value = gVar(sp)\f
+   value = gEvalStack(sp)\f
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\f = value
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\f = value
    ; Copy pointer metadata if present
-   If gVar(sp)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1215,7 +1222,7 @@ Procedure               C2ARRAYSTORE_STR_GLOBAL_OPT_STACK()
    arrIdx = _AR()\i
    index = gVar(_AR()\ndx)\i
    sp - 1
-   value = gVar(sp)\ss
+   value = gEvalStack(sp)\ss
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -1226,9 +1233,9 @@ Procedure               C2ARRAYSTORE_STR_GLOBAL_OPT_STACK()
    CompilerEndIf
    gVar(arrIdx)\dta\ar(index)\ss = value
    ; Copy pointer metadata if present (for arrays of pointers)
-   If gVar(sp)\ptrtype
-      gVar(arrIdx)\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(arrIdx)\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gVar(arrIdx)\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gVar(arrIdx)\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1236,13 +1243,14 @@ EndProcedure
 Procedure               C2ARRAYSTORE_STR_GLOBAL_OPT_LOPT()
    ; V1.022.114: String array store - global array, GLOBAL opt index, LOCAL opt value
    ; Used when index is constant but value comes from local temp (function scope)
+   ; V1.031.21: Fixed to use gLocal[] instead of gVar[] for local value slot
    Protected arrIdx.i, index.i, valSlot.i
    Protected value.s
    vm_DebugFunctionName()
    arrIdx = _AR()\i
    index = gVar(_AR()\ndx)\i           ; Read index from GLOBAL slot
    valSlot = _LARRAY(_AR()\n)
-   value = gVar(valSlot)\ss            ; Read value from LOCAL slot
+   value = gLocal(valSlot)\ss          ; Read value from LOCAL slot (gLocal, not gVar)
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -1252,9 +1260,9 @@ Procedure               C2ARRAYSTORE_STR_GLOBAL_OPT_LOPT()
       EndIf
    CompilerEndIf
    gVar(arrIdx)\dta\ar(index)\ss = value
-   If gVar(valSlot)\ptrtype
-      gVar(arrIdx)\dta\ar(index)\ptr = gVar(valSlot)\ptr
-      gVar(arrIdx)\dta\ar(index)\ptrtype = gVar(valSlot)\ptrtype
+   If gLocal(valSlot)\ptrtype
+      gVar(arrIdx)\dta\ar(index)\ptr = gLocal(valSlot)\ptr
+      gVar(arrIdx)\dta\ar(index)\ptrtype = gLocal(valSlot)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1266,7 +1274,7 @@ Procedure               C2ARRAYSTORE_STR_GLOBAL_STACK_OPT()
    vm_DebugFunctionName()
    arrIdx = _AR()\i
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    value = gVar(_AR()\n)\ss
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
@@ -1292,9 +1300,9 @@ Procedure               C2ARRAYSTORE_STR_GLOBAL_STACK_STACK()
    vm_DebugFunctionName()
    arrIdx = _AR()\i
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    sp - 1
-   value = gVar(sp)\ss
+   value = gEvalStack(sp)\ss
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -1305,9 +1313,9 @@ Procedure               C2ARRAYSTORE_STR_GLOBAL_STACK_STACK()
    CompilerEndIf
    gVar(arrIdx)\dta\ar(index)\ss = value
    ; Copy pointer metadata if present (for arrays of pointers)
-   If gVar(sp)\ptrtype
-      gVar(arrIdx)\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(arrIdx)\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gVar(arrIdx)\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gVar(arrIdx)\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1321,18 +1329,18 @@ Procedure               C2ARRAYSTORE_STR_LOCAL_OPT_OPT()
    value = gVar(_AR()\n)\ss
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\ss = value
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ss = value
    ; Copy pointer metadata if present
    If gVar(_AR()\n)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1344,21 +1352,21 @@ Procedure               C2ARRAYSTORE_STR_LOCAL_OPT_STACK()
    vm_DebugFunctionName()
    index = gVar(_AR()\ndx)\i
    sp - 1
-   value = gVar(sp)\ss
+   value = gEvalStack(sp)\ss
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\ss = value
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ss = value
    ; Copy pointer metadata if present
-   If gVar(sp)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1366,25 +1374,26 @@ EndProcedure
 Procedure               C2ARRAYSTORE_STR_LOCAL_OPT_LOPT()
    ; V1.022.115: String array store - local array, GLOBAL opt index, LOCAL opt value
    ; Used when index is constant but value comes from local temp (function scope)
+   ; V1.031.20: Fixed to use gLocal[] for LOCAL value slot
    Protected index.i, valSlot.i
    Protected value.s
    vm_DebugFunctionName()
    index = gVar(_AR()\ndx)\i           ; Read index from GLOBAL slot
    valSlot = _LARRAY(_AR()\n)
-   value = gVar(valSlot)\ss            ; Read value from LOCAL slot
+   value = gLocal(valSlot)\ss          ; Read value from LOCAL slot
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\ss = value
-   If gVar(valSlot)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(valSlot)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(valSlot)\ptrtype
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ss = value
+   If gLocal(valSlot)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gLocal(valSlot)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gLocal(valSlot)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1395,22 +1404,22 @@ Procedure               C2ARRAYSTORE_STR_LOCAL_STACK_OPT()
    Protected value.s
    vm_DebugFunctionName()
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    value = gVar(_AR()\n)\ss
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\ss = value
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ss = value
    ; Copy pointer metadata if present
    If gVar(_AR()\n)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1421,23 +1430,23 @@ Procedure               C2ARRAYSTORE_STR_LOCAL_STACK_STACK()
    Protected value.s
    vm_DebugFunctionName()
    sp - 1
-   index = gVar(sp)\i
+   index = gEvalStack(sp)\i
    sp - 1
-   value = gVar(sp)\ss
+   value = gEvalStack(sp)\ss
    CompilerIf #DEBUG
       Protected arraySize.i
-      arraySize = gVar(_LARRAY(_AR()\i))\dta\size
+      arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(_LARRAY(_AR()\i))\dta\ar(index)\ss = value
+   gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ss = value
    ; Copy pointer metadata if present
-   If gVar(sp)\ptrtype
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gLocal(_LARRAY(_AR()\i))\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1447,228 +1456,237 @@ EndProcedure
 
 Procedure               C2ARRAYSTORE_INT_LOCAL_LOPT_LOPT()
    ; V1.022.113: Integer array store - local array, local index, local value
+   ; V1.031.19: Fixed to use gLocal[] instead of gVar[] for local slots
    Protected arrSlot.i, idxSlot.i, valSlot.i, index.i, value.i
    vm_DebugFunctionName()
    arrSlot = _LARRAY(_AR()\i)
    idxSlot = _LARRAY(_AR()\ndx)
    valSlot = _LARRAY(_AR()\n)
-   index = gVar(idxSlot)\i
-   value = gVar(valSlot)\i
+   index = gLocal(idxSlot)\i
+   value = gLocal(valSlot)\i
    CompilerIf #DEBUG
-      Protected arraySize.i = gVar(arrSlot)\dta\size
+      Protected arraySize.i = gLocal(arrSlot)\dta\size
       If index < 0 Or index >= arraySize
          Debug "LSTOREARRINT_LOLO: Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(arrSlot)\dta\ar(index)\i = value
-   If gVar(valSlot)\ptrtype
-      gVar(arrSlot)\dta\ar(index)\ptr = gVar(valSlot)\ptr
-      gVar(arrSlot)\dta\ar(index)\ptrtype = gVar(valSlot)\ptrtype
+   gLocal(arrSlot)\dta\ar(index)\i = value
+   If gLocal(valSlot)\ptrtype
+      gLocal(arrSlot)\dta\ar(index)\ptr = gLocal(valSlot)\ptr
+      gLocal(arrSlot)\dta\ar(index)\ptrtype = gLocal(valSlot)\ptrtype
    EndIf
    pc + 1
 EndProcedure
 
 Procedure               C2ARRAYSTORE_INT_LOCAL_LOPT_OPT()
    ; V1.022.113: Integer array store - local array, local index, global value
+   ; V1.031.19: Fixed to use gLocal[] for local slots
    Protected arrSlot.i, idxSlot.i, index.i, value.i
    vm_DebugFunctionName()
    arrSlot = _LARRAY(_AR()\i)
    idxSlot = _LARRAY(_AR()\ndx)
-   index = gVar(idxSlot)\i
+   index = gLocal(idxSlot)\i
    value = gVar(_AR()\n)\i
    CompilerIf #DEBUG
-      Protected arraySize.i = gVar(arrSlot)\dta\size
+      Protected arraySize.i = gLocal(arrSlot)\dta\size
       If index < 0 Or index >= arraySize
          Debug "LSTOREARRINT_LOGO: Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(arrSlot)\dta\ar(index)\i = value
+   gLocal(arrSlot)\dta\ar(index)\i = value
    If gVar(_AR()\n)\ptrtype
-      gVar(arrSlot)\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
-      gVar(arrSlot)\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
+      gLocal(arrSlot)\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
+      gLocal(arrSlot)\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
    EndIf
    pc + 1
 EndProcedure
 
 Procedure               C2ARRAYSTORE_INT_LOCAL_LOPT_STACK()
    ; V1.022.113: Integer array store - local array, local index, stack value
+   ; V1.031.19: Fixed to use gLocal[] for local slots
    Protected arrSlot.i, idxSlot.i, index.i, value.i
    vm_DebugFunctionName()
    arrSlot = _LARRAY(_AR()\i)
    idxSlot = _LARRAY(_AR()\ndx)
-   index = gVar(idxSlot)\i
+   index = gLocal(idxSlot)\i
    sp - 1
-   value = gVar(sp)\i
+   value = gEvalStack(sp)\i
    CompilerIf #DEBUG
-      Protected arraySize.i = gVar(arrSlot)\dta\size
+      Protected arraySize.i = gLocal(arrSlot)\dta\size
       If index < 0 Or index >= arraySize
          Debug "LSTOREARRINT_LOST: Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(arrSlot)\dta\ar(index)\i = value
-   If gVar(sp)\ptrtype
-      gVar(arrSlot)\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(arrSlot)\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   gLocal(arrSlot)\dta\ar(index)\i = value
+   If gEvalStack(sp)\ptrtype
+      gLocal(arrSlot)\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gLocal(arrSlot)\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
 
 Procedure               C2ARRAYSTORE_FLOAT_LOCAL_LOPT_LOPT()
    ; V1.022.113: Float array store - local array, local index, local value
+   ; V1.031.19: Fixed to use gLocal[] for local slots
    Protected arrSlot.i, idxSlot.i, valSlot.i, index.i
    Protected value.f
    vm_DebugFunctionName()
    arrSlot = _LARRAY(_AR()\i)
    idxSlot = _LARRAY(_AR()\ndx)
    valSlot = _LARRAY(_AR()\n)
-   index = gVar(idxSlot)\i
-   value = gVar(valSlot)\f
+   index = gLocal(idxSlot)\i
+   value = gLocal(valSlot)\f
    CompilerIf #DEBUG
-      Protected arraySize.i = gVar(arrSlot)\dta\size
+      Protected arraySize.i = gLocal(arrSlot)\dta\size
       If index < 0 Or index >= arraySize
          Debug "LSTOREARFLT_LOLO: Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(arrSlot)\dta\ar(index)\f = value
-   If gVar(valSlot)\ptrtype
-      gVar(arrSlot)\dta\ar(index)\ptr = gVar(valSlot)\ptr
-      gVar(arrSlot)\dta\ar(index)\ptrtype = gVar(valSlot)\ptrtype
+   gLocal(arrSlot)\dta\ar(index)\f = value
+   If gLocal(valSlot)\ptrtype
+      gLocal(arrSlot)\dta\ar(index)\ptr = gLocal(valSlot)\ptr
+      gLocal(arrSlot)\dta\ar(index)\ptrtype = gLocal(valSlot)\ptrtype
    EndIf
    pc + 1
 EndProcedure
 
 Procedure               C2ARRAYSTORE_FLOAT_LOCAL_LOPT_OPT()
    ; V1.022.113: Float array store - local array, local index, global value
+   ; V1.031.19: Fixed to use gLocal[] for local slots
    Protected arrSlot.i, idxSlot.i, index.i
    Protected value.f
    vm_DebugFunctionName()
    arrSlot = _LARRAY(_AR()\i)
    idxSlot = _LARRAY(_AR()\ndx)
-   index = gVar(idxSlot)\i
+   index = gLocal(idxSlot)\i
    value = gVar(_AR()\n)\f
    CompilerIf #DEBUG
-      Protected arraySize.i = gVar(arrSlot)\dta\size
+      Protected arraySize.i = gLocal(arrSlot)\dta\size
       If index < 0 Or index >= arraySize
          Debug "LSTOREARFLT_LOGO: Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(arrSlot)\dta\ar(index)\f = value
+   gLocal(arrSlot)\dta\ar(index)\f = value
    If gVar(_AR()\n)\ptrtype
-      gVar(arrSlot)\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
-      gVar(arrSlot)\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
+      gLocal(arrSlot)\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
+      gLocal(arrSlot)\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
    EndIf
    pc + 1
 EndProcedure
 
 Procedure               C2ARRAYSTORE_FLOAT_LOCAL_LOPT_STACK()
    ; V1.022.113: Float array store - local array, local index, stack value
+   ; V1.031.19: Fixed to use gLocal[] instead of gVar[] for local slots
    Protected arrSlot.i, idxSlot.i, index.i
    Protected value.f
    vm_DebugFunctionName()
    arrSlot = _LARRAY(_AR()\i)
    idxSlot = _LARRAY(_AR()\ndx)
-   index = gVar(idxSlot)\i
+   index = gLocal(idxSlot)\i
    sp - 1
-   value = gVar(sp)\f
+   value = gEvalStack(sp)\f
    CompilerIf #DEBUG
-      Protected arraySize.i = gVar(arrSlot)\dta\size
+      Protected arraySize.i = gLocal(arrSlot)\dta\size
       If index < 0 Or index >= arraySize
          Debug "LSTOREARFLT_LOST: Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(arrSlot)\dta\ar(index)\f = value
-   If gVar(sp)\ptrtype
-      gVar(arrSlot)\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(arrSlot)\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   gLocal(arrSlot)\dta\ar(index)\f = value
+   If gEvalStack(sp)\ptrtype
+      gLocal(arrSlot)\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gLocal(arrSlot)\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
 
 Procedure               C2ARRAYSTORE_STR_LOCAL_LOPT_LOPT()
    ; V1.022.113: String array store - local array, local index, local value
+   ; V1.031.19: Fixed to use gLocal[] instead of gVar[] for local slots
    Protected arrSlot.i, idxSlot.i, valSlot.i, index.i
    Protected value.s
    vm_DebugFunctionName()
    arrSlot = _LARRAY(_AR()\i)
    idxSlot = _LARRAY(_AR()\ndx)
    valSlot = _LARRAY(_AR()\n)
-   index = gVar(idxSlot)\i
-   value = gVar(valSlot)\ss
+   index = gLocal(idxSlot)\i
+   value = gLocal(valSlot)\ss
    CompilerIf #DEBUG
-      Protected arraySize.i = gVar(arrSlot)\dta\size
+      Protected arraySize.i = gLocal(arrSlot)\dta\size
       If index < 0 Or index >= arraySize
          Debug "LSTOREARSTR_LOLO: Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(arrSlot)\dta\ar(index)\ss = value
-   If gVar(valSlot)\ptrtype
-      gVar(arrSlot)\dta\ar(index)\ptr = gVar(valSlot)\ptr
-      gVar(arrSlot)\dta\ar(index)\ptrtype = gVar(valSlot)\ptrtype
+   gLocal(arrSlot)\dta\ar(index)\ss = value
+   If gLocal(valSlot)\ptrtype
+      gLocal(arrSlot)\dta\ar(index)\ptr = gLocal(valSlot)\ptr
+      gLocal(arrSlot)\dta\ar(index)\ptrtype = gLocal(valSlot)\ptrtype
    EndIf
    pc + 1
 EndProcedure
 
 Procedure               C2ARRAYSTORE_STR_LOCAL_LOPT_OPT()
    ; V1.022.113: String array store - local array, local index, global value
+   ; V1.031.19: Fixed to use gLocal[] instead of gVar[] for local slots
    Protected arrSlot.i, idxSlot.i, index.i
    Protected value.s
    vm_DebugFunctionName()
    arrSlot = _LARRAY(_AR()\i)
    idxSlot = _LARRAY(_AR()\ndx)
-   index = gVar(idxSlot)\i
+   index = gLocal(idxSlot)\i
    value = gVar(_AR()\n)\ss
    CompilerIf #DEBUG
-      Protected arraySize.i = gVar(arrSlot)\dta\size
+      Protected arraySize.i = gLocal(arrSlot)\dta\size
       If index < 0 Or index >= arraySize
          Debug "LSTOREARSTR_LOGO: Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(arrSlot)\dta\ar(index)\ss = value
+   gLocal(arrSlot)\dta\ar(index)\ss = value
    If gVar(_AR()\n)\ptrtype
-      gVar(arrSlot)\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
-      gVar(arrSlot)\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
+      gLocal(arrSlot)\dta\ar(index)\ptr = gVar(_AR()\n)\ptr
+      gLocal(arrSlot)\dta\ar(index)\ptrtype = gVar(_AR()\n)\ptrtype
    EndIf
    pc + 1
 EndProcedure
 
 Procedure               C2ARRAYSTORE_STR_LOCAL_LOPT_STACK()
    ; V1.022.113: String array store - local array, local index, stack value
+   ; V1.031.19: Fixed to use gLocal[] instead of gVar[] for local slots
    Protected arrSlot.i, idxSlot.i, index.i
    Protected value.s
    vm_DebugFunctionName()
    arrSlot = _LARRAY(_AR()\i)
    idxSlot = _LARRAY(_AR()\ndx)
-   index = gVar(idxSlot)\i
+   index = gLocal(idxSlot)\i
    sp - 1
-   value = gVar(sp)\ss
+   value = gEvalStack(sp)\ss
    CompilerIf #DEBUG
-      Protected arraySize.i = gVar(arrSlot)\dta\size
+      Protected arraySize.i = gLocal(arrSlot)\dta\size
       If index < 0 Or index >= arraySize
          Debug "LSTOREARSTR_LOST: Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(arrSlot)\dta\ar(index)\ss = value
-   If gVar(sp)\ptrtype
-      gVar(arrSlot)\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(arrSlot)\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   gLocal(arrSlot)\dta\ar(index)\ss = value
+   If gEvalStack(sp)\ptrtype
+      gLocal(arrSlot)\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gLocal(arrSlot)\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -1682,92 +1700,136 @@ EndProcedure
 ;  _AR()\ndx = index variable slot (>= 0) or -1 (index on stack)
 
 Procedure               C2STRUCTARRAY_FETCH_INT()
-   ; Fetch integer from struct array field: gVar[baseSlot + index]\i
+   ; V1.029.58: Updated for \ptr storage - read from struct memory, not gVar slots
+   ; Fetch integer from struct array field using \ptr storage
+   ; _AR()\i = struct slot (or paramOffset for local)
+   ; _AR()\j = isLocal (0 = global, 1 = local)
+   ; _AR()\n = field byte offset (fieldOffset * 8)
+   ; _AR()\ndx = index slot (>= 0) or -1 (index on stack)
    Protected index.i
-   Protected targetSlot.i
+   Protected byteOffset.i
+   Protected *structPtr
    vm_DebugFunctionName()
 
+   ; Get array index
    If _AR()\ndx >= 0
       index = gVar(_AR()\ndx)\i
    Else
       sp - 1
-      index = gVar(sp)\i
+      index = gEvalStack(sp)\i
    EndIf
 
-   ; Calculate target slot based on local/global
+   ; Calculate total byte offset: field offset + index * 8
+   byteOffset = _AR()\n + (index * 8)
+
+   ; Get struct pointer based on local/global
    If _AR()\j
-      ; Local struct - use _LARRAY
-      targetSlot = _LARRAY(_AR()\i) + index
+      ; Local struct - get from LocalVars array
+      *structPtr = gLocal(_LARRAY(_AR()\i))\ptr
    Else
-      ; Global struct - direct slot
-      targetSlot = _AR()\i + index
+      ; Global struct - direct access
+      *structPtr = gVar(_AR()\i)\ptr
    EndIf
 
    ; V1.022.8: Debug output to trace struct array fetch issues
    CompilerIf #DEBUG
-      Debug "SARFETCH_INT: pc=" + Str(pc) + " baseSlot=" + Str(_AR()\i) + " ndx=" + Str(_AR()\ndx) + " j=" + Str(_AR()\j) + " index=" + Str(index) + " targetSlot=" + Str(targetSlot) + " value=" + Str(gVar(targetSlot)\i) + " sp=" + Str(sp)
+      Debug "SARFETCH_INT: pc=" + Str(pc) + " slot=" + Str(_AR()\i) + " ndx=" + Str(_AR()\ndx) + " j=" + Str(_AR()\j) + " fieldOff=" + Str(_AR()\n) + " index=" + Str(index) + " byteOff=" + Str(byteOffset) + " ptr=" + Str(*structPtr) + " value=" + Str(PeekQ(*structPtr + byteOffset))
    CompilerEndIf
 
-   gVar(sp)\i = gVar(targetSlot)\i
+   ; Read value from struct memory
+   gEvalStack(sp)\i = PeekQ(*structPtr + byteOffset)
    sp + 1
    pc + 1
 EndProcedure
 
 Procedure               C2STRUCTARRAY_FETCH_FLOAT()
-   ; Fetch float from struct array field: gVar[baseSlot + index]\f
+   ; V1.029.58: Updated for \ptr storage - read from struct memory, not gVar slots
+   ; Fetch float from struct array field using \ptr storage
+   ; _AR()\i = struct slot (or paramOffset for local)
+   ; _AR()\j = isLocal (0 = global, 1 = local)
+   ; _AR()\n = field byte offset (fieldOffset * 8)
+   ; _AR()\ndx = index slot (>= 0) or -1 (index on stack)
    Protected index.i
-   Protected targetSlot.i
+   Protected byteOffset.i
+   Protected *structPtr
    vm_DebugFunctionName()
 
+   ; Get array index
    If _AR()\ndx >= 0
       index = gVar(_AR()\ndx)\i
    Else
       sp - 1
-      index = gVar(sp)\i
+      index = gEvalStack(sp)\i
    EndIf
 
-   ; Calculate target slot based on local/global
+   ; Calculate total byte offset: field offset + index * 8
+   byteOffset = _AR()\n + (index * 8)
+
+   ; Get struct pointer based on local/global
    If _AR()\j
-      targetSlot = _LARRAY(_AR()\i) + index
+      ; Local struct - get from LocalVars array
+      *structPtr = gLocal(_LARRAY(_AR()\i))\ptr
    Else
-      targetSlot = _AR()\i + index
+      ; Global struct - direct access
+      *structPtr = gVar(_AR()\i)\ptr
    EndIf
 
-   gVar(sp)\f = gVar(targetSlot)\f
+   ; Read float value from struct memory
+   gEvalStack(sp)\f = PeekD(*structPtr + byteOffset)
    sp + 1
    pc + 1
 EndProcedure
 
 Procedure               C2STRUCTARRAY_FETCH_STR()
-   ; Fetch string from struct array field: gVar[baseSlot + index]\ss
+   ; V1.029.58: Updated for \ptr storage - read from struct memory, not gVar slots
+   ; _AR()\i = struct slot (or paramOffset for local)
+   ; _AR()\j = isLocal (0=global, 1=local)
+   ; _AR()\n = field byte offset (fieldOffset * 8)
+   ; _AR()\ndx = index slot (>= 0) or -1 (index on stack)
    Protected index.i
-   Protected targetSlot.i
+   Protected byteOffset.i
+   Protected *structPtr
+   Protected *strPtr
    vm_DebugFunctionName()
 
    If _AR()\ndx >= 0
       index = gVar(_AR()\ndx)\i
    Else
       sp - 1
-      index = gVar(sp)\i
+      index = gEvalStack(sp)\i
    EndIf
 
-   ; Calculate target slot based on local/global
+   ; V1.029.58: Calculate byte offset for \ptr storage
+   byteOffset = _AR()\n + (index * 8)
+
+   ; Get struct pointer (local or global)
    If _AR()\j
-      targetSlot = _LARRAY(_AR()\i) + index
+      *structPtr = gLocal(_LARRAY(_AR()\i))\ptr
    Else
-      targetSlot = _AR()\i + index
+      *structPtr = gVar(_AR()\i)\ptr
    EndIf
 
-   gVar(sp)\ss = gVar(targetSlot)\ss
+   ; V1.029.58: Read string pointer from struct memory, then read string
+   *strPtr = PeekQ(*structPtr + byteOffset)
+   If *strPtr
+      gEvalStack(sp)\ss = PeekS(*strPtr)
+   Else
+      gEvalStack(sp)\ss = ""
+   EndIf
    sp + 1
    pc + 1
 EndProcedure
 
 Procedure               C2STRUCTARRAY_STORE_INT()
-   ; Store integer to struct array field: gVar[baseSlot + index]\i = value
-   ; _AR()\n = value slot (>= 0) or -1 (value on stack)
+   ; V1.029.58: Updated for \ptr storage - write to struct memory, not gVar slots
+   ; _AR()\i = struct slot (or paramOffset for local)
+   ; _AR()\j = isLocal (0=global, 1=local)
+   ; _AR()\n = field byte offset (fieldOffset * 8)
+   ; _AR()\ndx = index slot (>= 0) or -1 (index on stack)
+   ; _AR()\funcid = value slot (>= 0) or -1 (value on stack)
    Protected index.i, value.i
-   Protected targetSlot.i
+   Protected byteOffset.i
+   Protected *structPtr
    vm_DebugFunctionName()
 
    ; Get index
@@ -1775,39 +1837,43 @@ Procedure               C2STRUCTARRAY_STORE_INT()
       index = gVar(_AR()\ndx)\i
    Else
       sp - 1
-      index = gVar(sp)\i
+      index = gEvalStack(sp)\i
    EndIf
 
-   ; Get value
-   If _AR()\n >= 0
-      value = gVar(_AR()\n)\i
+   ; Get value (V1.029.58: now uses funcid instead of n)
+   If _AR()\funcid >= 0
+      value = gVar(_AR()\funcid)\i
    Else
       sp - 1
-      value = gVar(sp)\i
+      value = gEvalStack(sp)\i
    EndIf
 
-   ; Calculate target slot based on local/global
+   ; V1.029.58: Calculate byte offset for \ptr storage
+   byteOffset = _AR()\n + (index * 8)
+
+   ; Get struct pointer (local or global)
    If _AR()\j
-      targetSlot = _LARRAY(_AR()\i) + index
+      *structPtr = gLocal(_LARRAY(_AR()\i))\ptr
    Else
-      targetSlot = _AR()\i + index
+      *structPtr = gVar(_AR()\i)\ptr
    EndIf
 
-   ; V1.022.8: Debug output to trace struct array store issues
-   CompilerIf #DEBUG
-      Debug "SARSTORE_INT: pc=" + Str(pc) + " baseSlot=" + Str(_AR()\i) + " ndx=" + Str(_AR()\ndx) + " n=" + Str(_AR()\n) + " j=" + Str(_AR()\j) + " index=" + Str(index) + " value=" + Str(value) + " targetSlot=" + Str(targetSlot)
-   CompilerEndIf
-
-   gVar(targetSlot)\i = value
+   ; V1.029.58: Write value to struct memory
+   PokeQ(*structPtr + byteOffset, value)
    pc + 1
 EndProcedure
 
 Procedure               C2STRUCTARRAY_STORE_FLOAT()
-   ; Store float to struct array field: gVar[baseSlot + index]\f = value
-   ; _AR()\n = value slot (>= 0) or -1 (value on stack)
+   ; V1.029.58: Updated for \ptr storage - write to struct memory, not gVar slots
+   ; _AR()\i = struct slot (or paramOffset for local)
+   ; _AR()\j = isLocal (0=global, 1=local)
+   ; _AR()\n = field byte offset (fieldOffset * 8)
+   ; _AR()\ndx = index slot (>= 0) or -1 (index on stack)
+   ; _AR()\funcid = value slot (>= 0) or -1 (value on stack)
    Protected index.i
-   Protected value.f
-   Protected targetSlot.i
+   Protected value.d
+   Protected byteOffset.i
+   Protected *structPtr
    vm_DebugFunctionName()
 
    ; Get index
@@ -1815,34 +1881,44 @@ Procedure               C2STRUCTARRAY_STORE_FLOAT()
       index = gVar(_AR()\ndx)\i
    Else
       sp - 1
-      index = gVar(sp)\i
+      index = gEvalStack(sp)\i
    EndIf
 
-   ; Get value
-   If _AR()\n >= 0
-      value = gVar(_AR()\n)\f
+   ; Get value (V1.029.58: now uses funcid instead of n)
+   If _AR()\funcid >= 0
+      value = gVar(_AR()\funcid)\f
    Else
       sp - 1
-      value = gVar(sp)\f
+      value = gEvalStack(sp)\f
    EndIf
 
-   ; Calculate target slot based on local/global
+   ; V1.029.58: Calculate byte offset for \ptr storage
+   byteOffset = _AR()\n + (index * 8)
+
+   ; Get struct pointer (local or global)
    If _AR()\j
-      targetSlot = _LARRAY(_AR()\i) + index
+      *structPtr = gLocal(_LARRAY(_AR()\i))\ptr
    Else
-      targetSlot = _AR()\i + index
+      *structPtr = gVar(_AR()\i)\ptr
    EndIf
 
-   gVar(targetSlot)\f = value
+   ; V1.029.58: Write value to struct memory
+   PokeD(*structPtr + byteOffset, value)
    pc + 1
 EndProcedure
 
 Procedure               C2STRUCTARRAY_STORE_STR()
-   ; Store string to struct array field: gVar[baseSlot + index]\ss = value
-   ; _AR()\n = value slot (>= 0) or -1 (value on stack)
+   ; V1.029.58: Updated for \ptr storage - write to struct memory, not gVar slots
+   ; _AR()\i = struct slot (or paramOffset for local)
+   ; _AR()\j = isLocal (0=global, 1=local)
+   ; _AR()\n = field byte offset (fieldOffset * 8)
+   ; _AR()\ndx = index slot (>= 0) or -1 (index on stack)
+   ; _AR()\funcid = value slot (>= 0) or -1 (value on stack)
    Protected index.i
    Protected value.s
-   Protected targetSlot.i
+   Protected byteOffset.i
+   Protected *structPtr
+   Protected *oldStr, *newStr, strLen.i
    vm_DebugFunctionName()
 
    ; Get index
@@ -1850,25 +1926,36 @@ Procedure               C2STRUCTARRAY_STORE_STR()
       index = gVar(_AR()\ndx)\i
    Else
       sp - 1
-      index = gVar(sp)\i
+      index = gEvalStack(sp)\i
    EndIf
 
-   ; Get value
-   If _AR()\n >= 0
-      value = gVar(_AR()\n)\ss
+   ; Get value (V1.029.58: now uses funcid instead of n)
+   If _AR()\funcid >= 0
+      value = gVar(_AR()\funcid)\ss
    Else
       sp - 1
-      value = gVar(sp)\ss
+      value = gEvalStack(sp)\ss
    EndIf
 
-   ; Calculate target slot based on local/global
+   ; V1.029.58: Calculate byte offset for \ptr storage
+   byteOffset = _AR()\n + (index * 8)
+
+   ; Get struct pointer (local or global)
    If _AR()\j
-      targetSlot = _LARRAY(_AR()\i) + index
+      *structPtr = gLocal(_LARRAY(_AR()\i))\ptr
    Else
-      targetSlot = _AR()\i + index
+      *structPtr = gVar(_AR()\i)\ptr
    EndIf
 
-   gVar(targetSlot)\ss = value
+   ; V1.029.58: Free old string if exists
+   *oldStr = PeekQ(*structPtr + byteOffset)
+   If *oldStr : FreeMemory(*oldStr) : EndIf
+
+   ; Allocate and copy new string
+   strLen = StringByteLength(value) + SizeOf(Character)
+   *newStr = AllocateMemory(strLen)
+   PokeS(*newStr, value)
+   PokeQ(*structPtr + byteOffset, *newStr)
    pc + 1
 EndProcedure
 
@@ -1908,7 +1995,7 @@ Procedure               C2ARRAYOFSTRUCT_FETCH_INT()
       Debug "AOSFETCH_INT: base=" + Str(baseSlot) + " idx=" + Str(index) + " elemSz=" + Str(elementSize) + " fldOff=" + Str(fieldOffset) + " target=" + Str(targetSlot) + " val=" + Str(gVar(targetSlot)\i)
    CompilerEndIf
 
-   gVar(sp)\i = gVar(targetSlot)\i
+   gEvalStack(sp)\i = gVar(targetSlot)\i
    sp + 1
    pc + 1
 EndProcedure
@@ -1932,7 +2019,7 @@ Procedure               C2ARRAYOFSTRUCT_FETCH_FLOAT()
    EndIf
 
    targetSlot = baseSlot + (index * elementSize) + fieldOffset
-   gVar(sp)\f = gVar(targetSlot)\f
+   gEvalStack(sp)\f = gVar(targetSlot)\f
    sp + 1
    pc + 1
 EndProcedure
@@ -1956,7 +2043,7 @@ Procedure               C2ARRAYOFSTRUCT_FETCH_STR()
    EndIf
 
    targetSlot = baseSlot + (index * elementSize) + fieldOffset
-   gVar(sp)\ss = gVar(targetSlot)\ss
+   gEvalStack(sp)\ss = gVar(targetSlot)\ss
    sp + 1
    pc + 1
 EndProcedure
@@ -1973,7 +2060,7 @@ Procedure               C2ARRAYOFSTRUCT_STORE_INT()
 
    ; Pop value from stack
    sp - 1
-   value = gVar(sp)\i
+   value = gEvalStack(sp)\i
 
    ; Get index from slot
    index = gVar(_AR()\ndx)\i
@@ -2007,7 +2094,7 @@ Procedure               C2ARRAYOFSTRUCT_STORE_FLOAT()
 
    ; Pop value from stack
    sp - 1
-   value = gVar(sp)\f
+   value = gEvalStack(sp)\f
 
    ; Get index from slot
    index = gVar(_AR()\ndx)\i
@@ -2036,7 +2123,7 @@ Procedure               C2ARRAYOFSTRUCT_STORE_STR()
 
    ; Pop value from stack
    sp - 1
-   value = gVar(sp)\ss
+   value = gEvalStack(sp)\ss
 
    ; Get index from slot
    index = gVar(_AR()\ndx)\i
@@ -2065,7 +2152,7 @@ Procedure               C2ARRAYOFSTRUCT_FETCH_INT_LOPT()
    vm_DebugFunctionName()
 
    ; Get index from LOCAL slot
-   index = gVar(_LARRAY(_AR()\ndx))\i
+   index = gLocal(_LARRAY(_AR()\ndx))\i
    elementSize = _AR()\j
    fieldOffset = _AR()\n
 
@@ -2076,7 +2163,7 @@ Procedure               C2ARRAYOFSTRUCT_FETCH_INT_LOPT()
    EndIf
 
    targetSlot = baseSlot + (index * elementSize) + fieldOffset
-   gVar(sp)\i = gVar(targetSlot)\i
+   gEvalStack(sp)\i = gVar(targetSlot)\i
    sp + 1
    pc + 1
 EndProcedure
@@ -2087,7 +2174,7 @@ Procedure               C2ARRAYOFSTRUCT_FETCH_FLOAT_LOPT()
    Protected elementSize.i, fieldOffset.i
    vm_DebugFunctionName()
 
-   index = gVar(_LARRAY(_AR()\ndx))\i
+   index = gLocal(_LARRAY(_AR()\ndx))\i
    elementSize = _AR()\j
    fieldOffset = _AR()\n
 
@@ -2098,7 +2185,7 @@ Procedure               C2ARRAYOFSTRUCT_FETCH_FLOAT_LOPT()
    EndIf
 
    targetSlot = baseSlot + (index * elementSize) + fieldOffset
-   gVar(sp)\f = gVar(targetSlot)\f
+   gEvalStack(sp)\f = gVar(targetSlot)\f
    sp + 1
    pc + 1
 EndProcedure
@@ -2109,7 +2196,7 @@ Procedure               C2ARRAYOFSTRUCT_FETCH_STR_LOPT()
    Protected elementSize.i, fieldOffset.i
    vm_DebugFunctionName()
 
-   index = gVar(_LARRAY(_AR()\ndx))\i
+   index = gLocal(_LARRAY(_AR()\ndx))\i
    elementSize = _AR()\j
    fieldOffset = _AR()\n
 
@@ -2120,7 +2207,7 @@ Procedure               C2ARRAYOFSTRUCT_FETCH_STR_LOPT()
    EndIf
 
    targetSlot = baseSlot + (index * elementSize) + fieldOffset
-   gVar(sp)\ss = gVar(targetSlot)\ss
+   gEvalStack(sp)\ss = gVar(targetSlot)\ss
    sp + 1
    pc + 1
 EndProcedure
@@ -2132,9 +2219,9 @@ Procedure               C2ARRAYOFSTRUCT_STORE_INT_LOPT()
    vm_DebugFunctionName()
 
    sp - 1
-   value = gVar(sp)\i
+   value = gEvalStack(sp)\i
 
-   index = gVar(_LARRAY(_AR()\ndx))\i
+   index = gLocal(_LARRAY(_AR()\ndx))\i
    elementSize = _AR()\j
    fieldOffset = _AR()\n
 
@@ -2157,9 +2244,9 @@ Procedure               C2ARRAYOFSTRUCT_STORE_FLOAT_LOPT()
    vm_DebugFunctionName()
 
    sp - 1
-   value = gVar(sp)\f
+   value = gEvalStack(sp)\f
 
-   index = gVar(_LARRAY(_AR()\ndx))\i
+   index = gLocal(_LARRAY(_AR()\ndx))\i
    elementSize = _AR()\j
    fieldOffset = _AR()\n
 
@@ -2182,9 +2269,9 @@ Procedure               C2ARRAYOFSTRUCT_STORE_STR_LOPT()
    vm_DebugFunctionName()
 
    sp - 1
-   value = gVar(sp)\ss
+   value = gEvalStack(sp)\ss
 
-   index = gVar(_LARRAY(_AR()\ndx))\i
+   index = gLocal(_LARRAY(_AR()\ndx))\i
    elementSize = _AR()\j
    fieldOffset = _AR()\n
 
@@ -2208,7 +2295,7 @@ EndProcedure
 Procedure               C2ARRAYRESIZE()
    ; Resize array using ReDim - preserves existing elements up to new size
    ; For global arrays: ReDim gVar(arrSlot)\dta\ar(newSize - 1)
-   ; For local arrays: ReDim gVar(_LARRAY(paramOffset))\dta\ar(newSize - 1)
+   ; For local arrays: ReDim gLocal(_LARRAY(paramOffset))\dta\ar(newSize - 1)
    Protected arrSlot.i, newSize.i, isLocal.i, actualSlot.i
    vm_DebugFunctionName()
 
@@ -2246,7 +2333,8 @@ Procedure               C2ARRAYFETCH_INT_GLOBAL_LOPT()
    arrIdx = _AR()\i
    idxOffset = _AR()\ndx
    idxSlot = _LARRAY(idxOffset)
-   index = gVar(idxSlot)\i   ; Read index from LOCAL slot
+   ; V1.031.13: Fix - read from gLocal[] not gVar[] for Isolated Variable System
+   index = gLocal(idxSlot)\i   ; Read index from LOCAL slot
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       ; V1.022.95: Bounds check BEFORE debug output to avoid crash on OOB access
@@ -2256,14 +2344,14 @@ Procedure               C2ARRAYFETCH_INT_GLOBAL_LOPT()
          ProcedureReturn
       EndIf
       ; V1.022.92: Detailed LOPT debug trace for recursion debugging
-      Debug "  LOPT_FETCH_I: depth=" + Str(gStackDepth) + " localStart=" + Str(gStack(gStackDepth)\localSlotStart) + " idxOff=" + Str(idxOffset) + " idxSlot=" + Str(idxSlot) + " index=" + Str(index) + " value=" + Str(gVar(arrIdx)\dta\ar(index)\i) + " pc=" + Str(pc)
+      Debug "  LOPT_FETCH_I: depth=" + Str(gStackDepth) + " localStart=" + Str(gStack(gStackDepth)\localBase) + " idxOff=" + Str(idxOffset) + " idxSlot=" + Str(idxSlot) + " index=" + Str(index) + " value=" + Str(gVar(arrIdx)\dta\ar(index)\i) + " pc=" + Str(pc)
    CompilerEndIf
-   gVar(sp)\i = gVar(arrIdx)\dta\ar(index)\i
+   gEvalStack(sp)\i = gVar(arrIdx)\dta\ar(index)\i
    If gVar(arrIdx)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -2277,7 +2365,8 @@ Procedure               C2ARRAYFETCH_FLOAT_GLOBAL_LOPT()
    arrIdx = _AR()\i
    idxOffset = _AR()\ndx
    idxSlot = _LARRAY(idxOffset)
-   index = gVar(idxSlot)\i   ; Read index from LOCAL slot
+   ; V1.031.13: Fix - read from gLocal[] not gVar[] for Isolated Variable System
+   index = gLocal(idxSlot)\i   ; Read index from LOCAL slot
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       ; V1.022.95: Bounds check BEFORE debug output to avoid crash on OOB access
@@ -2287,14 +2376,14 @@ Procedure               C2ARRAYFETCH_FLOAT_GLOBAL_LOPT()
          ProcedureReturn
       EndIf
       ; V1.022.92: Detailed LOPT debug trace for recursion debugging
-      Debug "  LOPT_FETCH_F: depth=" + Str(gStackDepth) + " localStart=" + Str(gStack(gStackDepth)\localSlotStart) + " idxOff=" + Str(idxOffset) + " idxSlot=" + Str(idxSlot) + " index=" + Str(index) + " value=" + StrF(gVar(arrIdx)\dta\ar(index)\f, 2) + " pc=" + Str(pc)
+      Debug "  LOPT_FETCH_F: depth=" + Str(gStackDepth) + " localStart=" + Str(gStack(gStackDepth)\localBase) + " idxOff=" + Str(idxOffset) + " idxSlot=" + Str(idxSlot) + " index=" + Str(index) + " value=" + StrF(gVar(arrIdx)\dta\ar(index)\f, 2) + " pc=" + Str(pc)
    CompilerEndIf
-   gVar(sp)\f = gVar(arrIdx)\dta\ar(index)\f
+   gEvalStack(sp)\f = gVar(arrIdx)\dta\ar(index)\f
    If gVar(arrIdx)\dta\ar(index)\ptrtype
-      gVar(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
-      gVar(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
+      gEvalStack(sp)\ptr = gVar(arrIdx)\dta\ar(index)\ptr
+      gEvalStack(sp)\ptrtype = gVar(arrIdx)\dta\ar(index)\ptrtype
    Else
-      gVar(sp)\ptrtype = 0
+      gEvalStack(sp)\ptrtype = 0
    EndIf
    sp + 1
    pc + 1
@@ -2305,7 +2394,7 @@ Procedure               C2ARRAYFETCH_STR_GLOBAL_LOPT()
    Protected arrIdx.i, index.i
    vm_DebugFunctionName()
    arrIdx = _AR()\i
-   index = gVar(_LARRAY(_AR()\ndx))\i   ; Read index from LOCAL slot
+   index = gLocal(_LARRAY(_AR()\ndx))\i   ; Read index from LOCAL slot
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -2314,7 +2403,7 @@ Procedure               C2ARRAYFETCH_STR_GLOBAL_LOPT()
          ProcedureReturn
       EndIf
    CompilerEndIf
-   gVar(sp)\ss = gVar(arrIdx)\dta\ar(index)\ss
+   gEvalStack(sp)\ss = gVar(arrIdx)\dta\ar(index)\ss
    sp + 1
    pc + 1
 EndProcedure
@@ -2329,12 +2418,13 @@ Procedure               C2ARRAYSTORE_INT_GLOBAL_LOPT_LOPT()
    valOffset = _AR()\n
    idxSlot = _LARRAY(idxOffset)
    valSlot = _LARRAY(valOffset)
-   index = gVar(idxSlot)\i   ; Read index from LOCAL slot
-   value = gVar(valSlot)\i   ; Read value from LOCAL slot
+   ; V1.031.13: Fix - read from gLocal[] not gVar[] for Isolated Variable System
+   index = gLocal(idxSlot)\i   ; Read index from LOCAL slot
+   value = gLocal(valSlot)\i   ; Read value from LOCAL slot
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       ; V1.022.92: Detailed LOPT debug trace for recursion debugging
-      Debug "  LOPT_STORE_I: depth=" + Str(gStackDepth) + " localStart=" + Str(gStack(gStackDepth)\localSlotStart) + " idxOff=" + Str(idxOffset) + " valOff=" + Str(valOffset) + " idxSlot=" + Str(idxSlot) + " valSlot=" + Str(valSlot) + " index=" + Str(index) + " value=" + Str(value) + " pc=" + Str(pc)
+      Debug "  LOPT_STORE_I: depth=" + Str(gStackDepth) + " localStart=" + Str(gStack(gStackDepth)\localBase) + " idxOff=" + Str(idxOffset) + " valOff=" + Str(valOffset) + " idxSlot=" + Str(idxSlot) + " valSlot=" + Str(valSlot) + " index=" + Str(index) + " value=" + Str(value) + " pc=" + Str(pc)
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
@@ -2342,9 +2432,9 @@ Procedure               C2ARRAYSTORE_INT_GLOBAL_LOPT_LOPT()
       EndIf
    CompilerEndIf
    gVar(arrIdx)\dta\ar(index)\i = value
-   If gVar(valSlot)\ptrtype
-      gVar(arrIdx)\dta\ar(index)\ptr = gVar(valSlot)\ptr
-      gVar(arrIdx)\dta\ar(index)\ptrtype = gVar(valSlot)\ptrtype
+   If gLocal(valSlot)\ptrtype
+      gVar(arrIdx)\dta\ar(index)\ptr = gLocal(valSlot)\ptr
+      gVar(arrIdx)\dta\ar(index)\ptrtype = gLocal(valSlot)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -2354,7 +2444,7 @@ Procedure               C2ARRAYSTORE_INT_GLOBAL_LOPT_OPT()
    Protected arrIdx.i, index.i, value.i
    vm_DebugFunctionName()
    arrIdx = _AR()\i
-   index = gVar(_LARRAY(_AR()\ndx))\i   ; Read index from LOCAL slot
+   index = gLocal(_LARRAY(_AR()\ndx))\i   ; Read index from LOCAL slot
    value = gVar(_AR()\n)\i              ; Read value from GLOBAL slot
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
@@ -2377,9 +2467,9 @@ Procedure               C2ARRAYSTORE_INT_GLOBAL_LOPT_STACK()
    Protected arrIdx.i, index.i, value.i
    vm_DebugFunctionName()
    arrIdx = _AR()\i
-   index = gVar(_LARRAY(_AR()\ndx))\i   ; Read index from LOCAL slot
+   index = gLocal(_LARRAY(_AR()\ndx))\i   ; Read index from LOCAL slot
    sp - 1
-   value = gVar(sp)\i
+   value = gEvalStack(sp)\i
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -2389,9 +2479,9 @@ Procedure               C2ARRAYSTORE_INT_GLOBAL_LOPT_STACK()
       EndIf
    CompilerEndIf
    gVar(arrIdx)\dta\ar(index)\i = value
-   If gVar(sp)\ptrtype
-      gVar(arrIdx)\dta\ar(index)\ptr = gVar(sp)\ptr
-      gVar(arrIdx)\dta\ar(index)\ptrtype = gVar(sp)\ptrtype
+   If gEvalStack(sp)\ptrtype
+      gVar(arrIdx)\dta\ar(index)\ptr = gEvalStack(sp)\ptr
+      gVar(arrIdx)\dta\ar(index)\ptrtype = gEvalStack(sp)\ptrtype
    EndIf
    pc + 1
 EndProcedure
@@ -2407,12 +2497,13 @@ Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_LOPT_LOPT()
    valOffset = _AR()\n
    idxSlot = _LARRAY(idxOffset)
    valSlot = _LARRAY(valOffset)
-   index = gVar(idxSlot)\i   ; Read index from LOCAL slot
-   value = gVar(valSlot)\f   ; Read value from LOCAL slot
+   ; V1.031.13: Fix - read from gLocal[] not gVar[] for Isolated Variable System
+   index = gLocal(idxSlot)\i   ; Read index from LOCAL slot
+   value = gLocal(valSlot)\f   ; Read value from LOCAL slot
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       ; V1.022.92: Detailed LOPT debug trace for recursion debugging
-      Debug "  LOPT_STORE_F: depth=" + Str(gStackDepth) + " localStart=" + Str(gStack(gStackDepth)\localSlotStart) + " idxOff=" + Str(idxOffset) + " valOff=" + Str(valOffset) + " idxSlot=" + Str(idxSlot) + " valSlot=" + Str(valSlot) + " index=" + Str(index) + " value=" + StrF(value, 2) + " pc=" + Str(pc)
+      Debug "  LOPT_STORE_F: depth=" + Str(gStackDepth) + " localStart=" + Str(gStack(gStackDepth)\localBase) + " idxOff=" + Str(idxOffset) + " valOff=" + Str(valOffset) + " idxSlot=" + Str(idxSlot) + " valSlot=" + Str(valSlot) + " index=" + Str(index) + " value=" + StrF(value, 2) + " pc=" + Str(pc)
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
@@ -2432,12 +2523,13 @@ Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_LOPT_OPT()
    arrIdx = _AR()\i
    idxOffset = _AR()\ndx
    idxSlot = _LARRAY(idxOffset)
-   index = gVar(idxSlot)\i   ; Read index from LOCAL slot
+   ; V1.031.13: Fix - read index from gLocal[] not gVar[] for Isolated Variable System
+   index = gLocal(idxSlot)\i   ; Read index from LOCAL slot
    value = gVar(_AR()\n)\f   ; Read value from GLOBAL slot
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       ; V1.022.92: Detailed LOPT debug trace for recursion debugging
-      Debug "  LOPT_STORE_F_G: depth=" + Str(gStackDepth) + " localStart=" + Str(gStack(gStackDepth)\localSlotStart) + " idxOff=" + Str(idxOffset) + " idxSlot=" + Str(idxSlot) + " index=" + Str(index) + " valSlot=" + Str(_AR()\n) + " value=" + StrF(value, 2) + " pc=" + Str(pc)
+      Debug "  LOPT_STORE_F_G: depth=" + Str(gStackDepth) + " localStart=" + Str(gStack(gStackDepth)\localBase) + " idxOff=" + Str(idxOffset) + " idxSlot=" + Str(idxSlot) + " index=" + Str(index) + " valSlot=" + Str(_AR()\n) + " value=" + StrF(value, 2) + " pc=" + Str(pc)
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
@@ -2457,13 +2549,14 @@ Procedure               C2ARRAYSTORE_FLOAT_GLOBAL_LOPT_STACK()
    arrIdx = _AR()\i
    idxOffset = _AR()\ndx
    idxSlot = _LARRAY(idxOffset)
-   index = gVar(idxSlot)\i   ; Read index from LOCAL slot
+   ; V1.031.13: Fix - read index from gLocal[] not gVar[] for Isolated Variable System
+   index = gLocal(idxSlot)\i   ; Read index from LOCAL slot
    sp - 1
-   value = gVar(sp)\f
+   value = gEvalStack(sp)\f
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       ; V1.022.92: Detailed LOPT debug trace for recursion debugging
-      Debug "  LOPT_STORE_F_STK: depth=" + Str(gStackDepth) + " localStart=" + Str(gStack(gStackDepth)\localSlotStart) + " idxOff=" + Str(idxOffset) + " idxSlot=" + Str(idxSlot) + " index=" + Str(index) + " value=" + StrF(value, 2) + " pc=" + Str(pc)
+      Debug "  LOPT_STORE_F_STK: depth=" + Str(gStackDepth) + " localStart=" + Str(gStack(gStackDepth)\localBase) + " idxOff=" + Str(idxOffset) + " idxSlot=" + Str(idxSlot) + " index=" + Str(index) + " value=" + StrF(value, 2) + " pc=" + Str(pc)
       If index < 0 Or index >= arraySize
          Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
          gExitApplication = #True
@@ -2480,8 +2573,8 @@ Procedure               C2ARRAYSTORE_STR_GLOBAL_LOPT_LOPT()
    Protected value.s
    vm_DebugFunctionName()
    arrIdx = _AR()\i
-   index = gVar(_LARRAY(_AR()\ndx))\i   ; Read index from LOCAL slot
-   value = gVar(_LARRAY(_AR()\n))\ss    ; Read value from LOCAL slot
+   index = gLocal(_LARRAY(_AR()\ndx))\i   ; Read index from LOCAL slot
+   value = gLocal(_LARRAY(_AR()\n))\ss    ; Read value from LOCAL slot
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -2500,7 +2593,7 @@ Procedure               C2ARRAYSTORE_STR_GLOBAL_LOPT_OPT()
    Protected value.s
    vm_DebugFunctionName()
    arrIdx = _AR()\i
-   index = gVar(_LARRAY(_AR()\ndx))\i   ; Read index from LOCAL slot
+   index = gLocal(_LARRAY(_AR()\ndx))\i   ; Read index from LOCAL slot
    value = gVar(_AR()\n)\ss             ; Read value from GLOBAL slot
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
@@ -2520,9 +2613,9 @@ Procedure               C2ARRAYSTORE_STR_GLOBAL_LOPT_STACK()
    Protected value.s
    vm_DebugFunctionName()
    arrIdx = _AR()\i
-   index = gVar(_LARRAY(_AR()\ndx))\i   ; Read index from LOCAL slot
+   index = gLocal(_LARRAY(_AR()\ndx))\i   ; Read index from LOCAL slot
    sp - 1
-   value = gVar(sp)\ss
+   value = gEvalStack(sp)\ss
    CompilerIf #DEBUG
       Protected arraySize.i = gVar(arrIdx)\dta\size
       If index < 0 Or index >= arraySize
@@ -2538,9 +2631,9 @@ EndProcedure
 ;- End Array Operations
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 403
-; FirstLine = 376
-; Folding = ---------------------
+; CursorPosition = 538
+; FirstLine = 529
+; Folding = ----------------------------
 ; EnableAsm
 ; EnableThread
 ; EnableXP

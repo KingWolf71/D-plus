@@ -1,4 +1,4 @@
-﻿; -- lexical parser to VM for a simplified C Language 
+﻿; -- lexical parser to VM for a simplified C Language
 ; Tested in UTF8
 ; PBx64 v6.20
 ;
@@ -6,13 +6,50 @@
 ; And
 ; https://rosettacode.org/wiki/Compiler/syntax_analyzer
 ; Distribute and use freely
-; 
+;
 ; Kingwolf71 May/2025
-; 
+;
 ;
 ;  Compiler
 ;- Fixes code and optimizer
 ;
+
+; V1.029.35: Helper to generate field type bitmap for struct collections
+; Encodes field types as 2 bits each: 00=int, 01=float, 10=string
+; Recursively flattens nested structs
+; Returns: bitmap (64-bit) and updates fieldIndex
+Procedure.q GenerateStructTypeBitmap(structType.s, *fieldIndex.Integer)
+   Protected bitmap.q = 0
+   Protected idx.i, fieldType.w, nestedBitmap.q
+
+   If FindMapElement(mapStructDefs(), structType)
+      ForEach mapStructDefs()\fields()
+         If mapStructDefs()\fields()\structType <> ""
+            ; Nested struct - recursively process
+            PushMapPosition(mapStructDefs())
+            nestedBitmap = GenerateStructTypeBitmap(mapStructDefs()\fields()\structType, *fieldIndex)
+            PopMapPosition(mapStructDefs())
+            bitmap = bitmap | nestedBitmap
+         Else
+            ; Primitive field - encode type
+            idx = *fieldIndex\i
+            If idx < 32  ; Max 32 fields with 2 bits each
+               fieldType = mapStructDefs()\fields()\fieldType
+               If fieldType & #C2FLAG_FLOAT
+                  bitmap = bitmap | (1 << (idx * 2))  ; 01 = float
+               ElseIf fieldType & #C2FLAG_STR
+                  bitmap = bitmap | (2 << (idx * 2))  ; 10 = string
+               EndIf
+               ; 00 = int (default, no bits set)
+            EndIf
+            *fieldIndex\i + 1
+         EndIf
+      Next
+   EndIf
+
+   ProcedureReturn bitmap
+EndProcedure
+
 Procedure            InitJumpTracker()
       ; V1.020.077: Initialize jump tracker BEFORE PostProcessor runs
       ; This allows optimization passes to call AdjustJumpsForNOOP() with populated tracker
@@ -664,7 +701,8 @@ Procedure            PostProcessor()
 
                ; Find the next STORE/POP to see which variable gets this pointer
                If NextElement(llObjects())
-                  If llObjects()\code = #ljStore Or llObjects()\code = #ljSTORES Or llObjects()\code = #ljSTOREF Or
+                  ; V1.029.84: Include STORE_STRUCT for struct variable pointer tracking
+                  If llObjects()\code = #ljStore Or llObjects()\code = #ljSTORES Or llObjects()\code = #ljSTOREF Or llObjects()\code = #ljSTORE_STRUCT Or
                      llObjects()\code = #ljPOP Or llObjects()\code = #ljPOPS Or llObjects()\code = #ljPOPF
                      ptrVarSlot = llObjects()\i
 
@@ -714,7 +752,8 @@ Procedure            PostProcessor()
                ; These operations leave a pointer on the stack
                ; Find the next STORE/POP to see which variable gets this pointer
                If NextElement(llObjects())
-                  If llObjects()\code = #ljStore Or llObjects()\code = #ljSTORES Or llObjects()\code = #ljSTOREF Or
+                  ; V1.029.84: Include STORE_STRUCT for struct variable pointer tracking
+                  If llObjects()\code = #ljStore Or llObjects()\code = #ljSTORES Or llObjects()\code = #ljSTOREF Or llObjects()\code = #ljSTORE_STRUCT Or
                      llObjects()\code = #ljPOP Or llObjects()\code = #ljPOPS Or llObjects()\code = #ljPOPF
                      ptrVarSlot = llObjects()\i
 
@@ -1757,7 +1796,7 @@ Procedure            PostProcessor()
       Next
 
       ;- ==================================================================
-      ;- Enhanced Instruction Fusion Optimizations (backward compatible)
+      ;- Enhanced Instruction Fusion Optimizations
       ;- ==================================================================
 
       ; Check if optimizations are enabled (default ON)
@@ -2419,7 +2458,7 @@ Procedure            PostProcessor()
       ; V1.020.050: Only eliminate FETCH+STORE, NOT PUSH+STORE (different index spaces!)
       ForEach llObjects()
          Select llObjects()\code
-            Case #ljStore, #ljSTORES, #ljSTOREF
+            Case #ljStore, #ljSTORES, #ljSTOREF, #ljSTORE_STRUCT  ; V1.029.84: Include STORE_STRUCT
                ; Check if previous instruction fetches the same variable
                ; NOTE: PUSH opcodes reference constants in same index space as variables!
                ; We must NOT compare PUSH constant indices with STORE variable indices!
@@ -3500,8 +3539,16 @@ Procedure            PostProcessor()
                   collectionType = 0
 
                   ; Get type from gVarMeta
+                  Protected collectionStructType.s = ""
+                  Protected collectionStructSize.i = 0
                   If collectionSlot >= 0 And collectionSlot < gnLastVariable
                      collectionType = gVarMeta(collectionSlot)\flags & (#C2FLAG_INT | #C2FLAG_FLOAT | #C2FLAG_STR)
+                     ; V1.029.28: Check for struct element type
+                     ; V1.029.31: Use totalSize for flattened struct size (supports nested structs)
+                     collectionStructType = gVarMeta(collectionSlot)\structType
+                     If collectionStructType <> "" And FindMapElement(mapStructDefs(), collectionStructType)
+                        collectionStructSize = mapStructDefs()\totalSize
+                     EndIf
                   EndIf
 
                   ; Restore to collection opcode
@@ -3510,7 +3557,15 @@ Procedure            PostProcessor()
                   ; Convert based on type and opcode
                   Select llObjects()\code
                      Case #ljLIST_ADD
-                        If collectionType & #C2FLAG_STR
+                        ; V1.029.28: Check for struct type first
+                        ; V1.029.65: Use _PTR variant for \ptr storage model
+                        If collectionStructType <> "" And collectionStructSize > 0
+                           llObjects()\code = #ljLIST_ADD_STRUCT_PTR
+                           llObjects()\i = collectionStructSize * 8  ; Byte size (8 bytes per field)
+                           ; V1.031.33: Generate string field bitmap for deep copy
+                           Protected listAddFieldIdx.i = 0
+                           llObjects()\j = GenerateStructTypeBitmap(collectionStructType, @listAddFieldIdx)
+                        ElseIf collectionType & #C2FLAG_STR
                            llObjects()\code = #ljLIST_ADD_STR
                         ElseIf collectionType & #C2FLAG_FLOAT
                            llObjects()\code = #ljLIST_ADD_FLOAT
@@ -3528,7 +3583,48 @@ Procedure            PostProcessor()
                         EndIf
                         collTypedCount + 1
                      Case #ljLIST_GET
-                        If collectionType & #C2FLAG_STR
+                        ; V1.029.28: Check for struct type first
+                        ; V1.029.65: Use _PTR variant for \ptr storage model
+                        If collectionStructType <> "" And collectionStructSize > 0
+                           llObjects()\code = #ljLIST_GET_STRUCT_PTR
+                           llObjects()\i = collectionStructSize * 8  ; Byte size
+                           ; V1.029.31: Find following STORE and get destination slot
+                           ; V1.029.66: Look ahead up to 3 elements for STORE (in case of type conversion ops)
+                           ;            Also include struct store opcodes in check
+                           Protected *listGetPos = @llObjects()
+                           Protected listStoreFound.b = #False
+                           Protected listLookAhead.i = 0
+                           While NextElement(llObjects()) And listLookAhead < 3 And Not listStoreFound
+                              ; V1.031.32: Check for any STORE variant (regular, struct, or local)
+                              If llObjects()\code = #ljStore Or llObjects()\code = #ljSTOREF Or llObjects()\code = #ljSTORES Or llObjects()\code = #ljSTRUCT_STORE_INT Or llObjects()\code = #ljSTRUCT_STORE_FLOAT Or llObjects()\code = #ljSTRUCT_STORE_STR Or llObjects()\code = #ljSTORE_STRUCT
+                                 ; Found global STORE - capture destination slot
+                                 Protected listDestSlot.i = llObjects()\i
+                                 llObjects()\code = #ljNOOP  ; Remove STORE
+                                 ; Go back to LIST_GET_STRUCT_PTR and set destination
+                                 ChangeCurrentElement(llObjects(), *listGetPos)
+                                 llObjects()\j = listDestSlot
+                                 listStoreFound = #True
+                              ElseIf llObjects()\code = #ljLSTORE_STRUCT Or llObjects()\code = #ljLSTORE Or llObjects()\code = #ljLSTOREF Or llObjects()\code = #ljLSTORES
+                                 ; V1.031.32: Found LOCAL STORE - capture offset with local flag
+                                 listDestSlot = llObjects()\i | #C2_LOCAL_COLLECTION_FLAG
+                                 llObjects()\code = #ljNOOP  ; Remove STORE
+                                 ; Go back to LIST_GET_STRUCT_PTR and set destination with local flag
+                                 ChangeCurrentElement(llObjects(), *listGetPos)
+                                 llObjects()\j = listDestSlot
+                                 listStoreFound = #True
+                              ElseIf llObjects()\code = #ljNOOP
+                                 ; Skip NOOPs
+                                 listLookAhead + 1
+                              Else
+                                 ; Found non-STORE, non-NOOP - stop looking
+                                 listLookAhead = 3
+                              EndIf
+                           Wend
+                           If Not listStoreFound
+                              ; No STORE found - restore position
+                              ChangeCurrentElement(llObjects(), *listGetPos)
+                           EndIf
+                        ElseIf collectionType & #C2FLAG_STR
                            llObjects()\code = #ljLIST_GET_STR
                         ElseIf collectionType & #C2FLAG_FLOAT
                            llObjects()\code = #ljLIST_GET_FLOAT
@@ -3537,7 +3633,14 @@ Procedure            PostProcessor()
                         EndIf
                         collTypedCount + 1
                      Case #ljLIST_SET
-                        If collectionType & #C2FLAG_STR
+                        ; V1.029.35: Check for struct type first
+                        If collectionStructType <> "" And collectionStructSize > 0
+                           llObjects()\code = #ljLIST_SET_STRUCT
+                           llObjects()\i = collectionStructSize
+                           ; V1.029.35: Generate field type bitmap
+                           Protected listSetFieldIdx.i = 0
+                           llObjects()\n = GenerateStructTypeBitmap(collectionStructType, @listSetFieldIdx)
+                        ElseIf collectionType & #C2FLAG_STR
                            llObjects()\code = #ljLIST_SET_STR
                         ElseIf collectionType & #C2FLAG_FLOAT
                            llObjects()\code = #ljLIST_SET_FLOAT
@@ -3605,15 +3708,28 @@ Procedure            PostProcessor()
                   collectionSlot = checkSlot
                   collectionType = 0
 
+                  ; V1.029.28: Check for struct element type
+                  ; V1.029.35: Use totalSize for flattened struct size (supports nested structs)
+                  Protected mapStructType.s = ""
+                  Protected mapStructSize.i = 0
                   If collectionSlot >= 0 And collectionSlot < gnLastVariable
                      collectionType = gVarMeta(collectionSlot)\flags & (#C2FLAG_INT | #C2FLAG_FLOAT | #C2FLAG_STR)
+                     mapStructType = gVarMeta(collectionSlot)\structType
+                     If mapStructType <> "" And FindMapElement(mapStructDefs(), mapStructType)
+                        mapStructSize = mapStructDefs()\totalSize
+                     EndIf
                   EndIf
 
                   ChangeCurrentElement(llObjects(), *fetchInstr)
 
                   Select llObjects()\code
                      Case #ljMAP_PUT
-                        If collectionType & #C2FLAG_STR
+                        ; V1.029.28: Check for struct type first
+                        ; V1.029.65: Use _PTR variant for \ptr storage model
+                        If mapStructType <> "" And mapStructSize > 0
+                           llObjects()\code = #ljMAP_PUT_STRUCT_PTR
+                           llObjects()\i = mapStructSize * 8  ; Byte size
+                        ElseIf collectionType & #C2FLAG_STR
                            llObjects()\code = #ljMAP_PUT_STR
                         ElseIf collectionType & #C2FLAG_FLOAT
                            llObjects()\code = #ljMAP_PUT_FLOAT
@@ -3622,7 +3738,37 @@ Procedure            PostProcessor()
                         EndIf
                         collTypedCount + 1
                      Case #ljMAP_GET
-                        If collectionType & #C2FLAG_STR
+                        ; V1.029.28: Check for struct type first
+                        ; V1.029.65: Use _PTR variant for \ptr storage model
+                        If mapStructType <> "" And mapStructSize > 0
+                           llObjects()\code = #ljMAP_GET_STRUCT_PTR
+                           llObjects()\i = mapStructSize * 8  ; Byte size
+                           ; V1.029.31: Find following STORE and get destination slot
+                           ; V1.029.66: Look ahead up to 3 elements for STORE (in case of type conversion ops)
+                           ;            Also include struct store opcodes in check
+                           Protected *mapGetPos = @llObjects()
+                           Protected mapStoreFound.b = #False
+                           Protected mapLookAhead.i = 0
+                           While NextElement(llObjects()) And mapLookAhead < 3 And Not mapStoreFound
+                              ; Check for any STORE variant (regular or struct)
+                              If llObjects()\code = #ljStore Or llObjects()\code = #ljSTOREF Or llObjects()\code = #ljSTORES Or llObjects()\code = #ljSTRUCT_STORE_INT Or llObjects()\code = #ljSTRUCT_STORE_FLOAT Or llObjects()\code = #ljSTRUCT_STORE_STR
+                                 Protected mapDestSlot.i = llObjects()\i
+                                 llObjects()\code = #ljNOOP  ; Remove STORE
+                                 ChangeCurrentElement(llObjects(), *mapGetPos)
+                                 llObjects()\j = mapDestSlot  ; Destination base slot
+                                 mapStoreFound = #True
+                              ElseIf llObjects()\code = #ljNOOP
+                                 ; Skip NOOPs
+                                 mapLookAhead + 1
+                              Else
+                                 ; Found non-STORE, non-NOOP - stop looking
+                                 mapLookAhead = 3
+                              EndIf
+                           Wend
+                           If Not mapStoreFound
+                              ChangeCurrentElement(llObjects(), *mapGetPos)
+                           EndIf
+                        ElseIf collectionType & #C2FLAG_STR
                            llObjects()\code = #ljMAP_GET_STR
                         ElseIf collectionType & #C2FLAG_FLOAT
                            llObjects()\code = #ljMAP_GET_FLOAT
@@ -3631,7 +3777,14 @@ Procedure            PostProcessor()
                         EndIf
                         collTypedCount + 1
                      Case #ljMAP_VALUE
-                        If collectionType & #C2FLAG_STR
+                        ; V1.029.28: Check for struct type first
+                        If mapStructType <> "" And mapStructSize > 0
+                           llObjects()\code = #ljMAP_VALUE_STRUCT
+                           llObjects()\i = mapStructSize
+                           ; V1.029.35: Generate field type bitmap
+                           Protected mapValueFieldIdx.i = 0
+                           llObjects()\n = GenerateStructTypeBitmap(mapStructType, @mapValueFieldIdx)
+                        ElseIf collectionType & #C2FLAG_STR
                            llObjects()\code = #ljMAP_VALUE_STR
                         ElseIf collectionType & #C2FLAG_FLOAT
                            llObjects()\code = #ljMAP_VALUE_FLOAT
@@ -3671,6 +3824,46 @@ Procedure            PostProcessor()
       Next
       Debug "========================================="
       CompilerEndIf
+
+      ; V1.030.10: Debug - check ALL STRUCT_* opcodes (both local and global) after postprocessor
+      Debug "=== POSTPROCESSOR: Checking ALL STRUCT_* opcodes ==="
+      Protected ppCheckIdx.i = 0
+      ForEach llObjects()
+         Select llObjects()\code
+            ; LOCAL variants
+            Case #ljSTRUCT_ALLOC_LOCAL
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_ALLOC_LOCAL .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            Case #ljSTRUCT_FETCH_INT_LOCAL
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_FETCH_INT_LOCAL .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            Case #ljSTRUCT_FETCH_FLOAT_LOCAL
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_FETCH_FLOAT_LOCAL .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            Case #ljSTRUCT_FETCH_STR_LOCAL
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_FETCH_STR_LOCAL .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            Case #ljSTRUCT_STORE_INT_LOCAL
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_STORE_INT_LOCAL .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            Case #ljSTRUCT_STORE_FLOAT_LOCAL
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_STORE_FLOAT_LOCAL .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            Case #ljSTRUCT_STORE_STR_LOCAL
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_STORE_STR_LOCAL .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            ; GLOBAL variants (no LOCAL suffix)
+            Case #ljSTRUCT_ALLOC
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_ALLOC (GLOBAL) .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            Case #ljSTRUCT_FETCH_INT
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_FETCH_INT (GLOBAL) .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            Case #ljSTRUCT_FETCH_FLOAT
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_FETCH_FLOAT (GLOBAL) .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            Case #ljSTRUCT_FETCH_STR
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_FETCH_STR (GLOBAL) .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            Case #ljSTRUCT_STORE_INT
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_STORE_INT (GLOBAL) .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            Case #ljSTRUCT_STORE_FLOAT
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_STORE_FLOAT (GLOBAL) .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+            Case #ljSTRUCT_STORE_STR
+               Debug "  [" + Str(ppCheckIdx) + "] STRUCT_STORE_STR (GLOBAL) .i=" + Str(llObjects()\i) + " .j=" + Str(llObjects()\j)
+         EndSelect
+         ppCheckIdx + 1
+      Next
+      Debug "=== END POSTPROCESSOR CHECK ==="
 
    EndProcedure
 

@@ -1,0 +1,68 @@
+// Minimal Local Struct Test (V1.031.27)
+// Debug test to isolate LSTORE bounds error
+
+#pragma appname "Local-Struct-Debug"
+#pragma decimals 2
+#pragma console on
+#pragma consolesize "600x400"
+#pragma consoleposition "30,50"
+#pragma version on
+#pragma ListASM on
+
+print("=== MINIMAL LOCAL STRUCT TEST ===");
+print("");
+
+// Simple struct definition
+struct Point {
+    x.f;
+    y.f;
+}
+
+// TEST 1: Global struct (should work)
+print("TEST 1: Global struct");
+globalPt.Point = { };
+globalPt.x = 10.0;
+globalPt.y = 20.0;
+print("  globalPt.x = ", globalPt.x);
+print("  globalPt.y = ", globalPt.y);
+print("  PASS");
+print("");
+
+// TEST 2: Simple function with local int (should work)
+print("TEST 2: Function with local int");
+func testLocalInt(a.i) {
+    localVal.i = a + 5;
+    return localVal;
+}
+result1.i = testLocalInt(10);
+print("  testLocalInt(10) = ", result1, " (expected 15)");
+print("");
+
+// TEST 3: Simple function with local float (should work)
+print("TEST 3: Function with local float");
+func testLocalFloat(a.f) {
+    localF.f = a * 2.0;
+    return localF;
+}
+result2.f = testLocalFloat(5.5);
+print("  testLocalFloat(5.5) = ", result2, " (expected 11.0)");
+print("");
+
+// TEST 4: Function with local struct - THE CRITICAL TEST
+print("TEST 4: Function with local struct");
+func testLocalStruct.f(px.f, py.f) {
+    print("    Inside testLocalStruct...");
+    local.Point = { };
+    print("    Struct allocated");
+    local.x = px;
+    print("    local.x set to ", px);
+    local.y = py;
+    print("    local.y set to ", py);
+    return local.x + local.y;
+}
+print("  Calling testLocalStruct(3.0, 4.0)...");
+result3.f = testLocalStruct(3.0, 4.0);
+print("  Result = ", result3, " (expected 7.0)");
+print("");
+
+print("=== TEST COMPLETE ===");

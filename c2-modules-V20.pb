@@ -83,6 +83,7 @@ Module C2Lang
       col.l
       function.l
       typeHint.w          ; Type suffix: 0=none, #ljFLOAT, #ljSTRING
+      hasDot.b            ; V1.030.16: True if identifier contains dot (e.g., "local.x")
    EndStructure
    
    Structure stPrec
@@ -421,6 +422,12 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          ; Without this, uninitialized memory could cause AST to incorrectly match
          ; variables as struct pointers when searching for ptr\field patterns
          gVarMeta(i)\pointsToStructType = ""
+         ; V1.029.37: Initialize struct field metadata for \ptr storage
+         gVarMeta(i)\structFieldBase = -1   ; -1 means not a struct field
+         gVarMeta(i)\structFieldOffset = 0
+         ; V1.030.3: CRITICAL - Reset structAllocEmitted to prevent stale state between compiles
+         ; Without this, subsequent runs skip STRUCT_ALLOC_LOCAL because flag is still True
+         gVarMeta(i)\structAllocEmitted = #False
       Next
 
       ; Reserve slot 0 as the discard slot for unused return values
@@ -1020,8 +1027,8 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
    ; Strip comments from source while preserving strings
    Procedure.s          StripComments( source.s )
       Protected.s       result, char, nextChar
-      Protected.i       i, len, inString, inChar, inLineComment, inBlockComment
-      Protected.i       escaped
+      Protected.i       i6, len, inString, inChar, inLineComment, inBlockComment
+      Protected.i       escaped, i
 
       result = ""
       len = Len(source)
@@ -1134,6 +1141,140 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       ProcedureReturn result
    EndProcedure
 
+   ; V1.029.91: Auto-declare struct variables at function start
+   ; Scans token stream for struct variable uses and inserts declarations
+   Procedure            AutoDeclareStructVars()
+      Protected.i funcStartIdx, funcEndIdx, tokenIdx, insertIdx
+      Protected.s varName, typeName, funcName
+      Protected NewMap structTypes.b()
+      Protected NewMap declaredVars.b()
+      Protected NewList varsToDecl.s()
+      Protected.i braceDepth, inFunction
+
+      ; Pass 1: Collect struct type names
+      ForEach llTokenList()
+         If llTokenList()\TokenType = #ljSTRUCT
+            ; Next token should be the struct name
+            NextElement(llTokenList())
+            If llTokenList()\TokenType = #ljIDENT
+               structTypes(llTokenList()\value) = #True
+               CompilerIf #DEBUG
+                  Debug "V1.029.91: Found struct type: " + llTokenList()\value
+               CompilerEndIf
+            EndIf
+         EndIf
+      Next
+
+      ; Pass 2: Process each function
+      ForEach llTokenList()
+         If llTokenList()\TokenType = #ljfunction
+            funcStartIdx = ListIndex(llTokenList())
+            ClearList(varsToDecl())
+            ClearMap(declaredVars())
+
+            ; Get function name
+            NextElement(llTokenList())
+            If llTokenList()\TokenType = #ljIDENT
+               funcName = llTokenList()\value
+               CompilerIf #DEBUG
+                  Debug "V1.029.91: Processing function: " + funcName
+               CompilerEndIf
+            EndIf
+
+            ; Find function body (between opening { and closing })
+            braceDepth = 0
+            inFunction = #False
+
+            While NextElement(llTokenList())
+               If llTokenList()\TokenType = #ljLeftBrace
+                  braceDepth + 1
+                  If braceDepth = 1
+                     inFunction = #True
+                     insertIdx = ListIndex(llTokenList()) + 1  ; Insert after opening brace
+                  EndIf
+               ElseIf llTokenList()\TokenType = #ljRightBrace
+                  braceDepth - 1
+                  If braceDepth = 0
+                     ; End of function
+                     Break
+                  EndIf
+               EndIf
+
+               ; Look for identifier.StructType patterns (tokenized as single IDENT)
+               If inFunction And llTokenList()\TokenType = #ljIDENT
+                  Protected.s fullName = llTokenList()\value
+                  Protected.i dotPos = FindString(fullName, ".")
+
+                  ; Check if this IDENT contains a dot (varName.TypeName pattern)
+                  If dotPos > 0
+                     varName = Left(fullName, dotPos - 1)
+                     typeName = Mid(fullName, dotPos + 1)
+
+                     ; Check if TypeName is a known struct type
+                     If FindMapElement(structTypes(), typeName)
+                        ; Check if followed by semicolon (manual declaration)
+                        Protected.i isManualDecl = #False
+                        tokenIdx = ListIndex(llTokenList())
+
+                        If NextElement(llTokenList())
+                           If llTokenList()\TokenType = #ljSemi
+                              isManualDecl = #True
+                              declaredVars(varName) = #True
+                              CompilerIf #DEBUG
+                                 Debug "V1.029.91: Found manual declaration: " + fullName
+                              CompilerEndIf
+                           EndIf
+                           SelectElement(llTokenList(), tokenIdx)  ; Restore position
+                        EndIf
+
+                        ; If not manually declared and not yet in list, add to varsToDecl
+                        If Not isManualDecl And Not FindMapElement(declaredVars(), varName)
+                           AddElement(varsToDecl())
+                           varsToDecl() = fullName
+                           declaredVars(varName) = #True
+                           CompilerIf #DEBUG
+                              Debug "V1.029.91: Will auto-declare: " + fullName
+                           CompilerEndIf
+                        EndIf
+                     EndIf
+                  EndIf
+               EndIf
+            Wend
+
+            ; Insert declarations at start of function
+            If ListSize(varsToDecl()) > 0
+               SelectElement(llTokenList(), insertIdx)
+               ForEach varsToDecl()
+                  ; Insert: varName.TypeName; (two tokens: IDENT + SEMICOLON)
+
+                  ; Insert SEMICOLON
+                  InsertElement(llTokenList())
+                  llTokenList()\TokenType = #ljSemi
+                  llTokenList()\TokenExtra = #ljSemi
+                  llTokenList()\name = ";"
+                  llTokenList()\value = ";"
+                  llTokenList()\function = #C2FUNCSTART + funcStartIdx
+
+                  ; Insert IDENT with full varName.TypeName
+                  InsertElement(llTokenList())
+                  llTokenList()\TokenType = #ljIDENT
+                  llTokenList()\TokenExtra = #ljIDENT
+                  llTokenList()\name = varsToDecl()
+                  llTokenList()\value = varsToDecl()
+                  llTokenList()\function = #C2FUNCSTART + funcStartIdx
+
+                  CompilerIf #DEBUG
+                     Debug "V1.029.91: Inserted auto-declaration: " + varsToDecl() + ";"
+                  CompilerEndIf
+               Next
+            EndIf
+
+            ; Reset to function start to continue outer loop
+            SelectElement(llTokenList(), funcStartIdx)
+         EndIf
+      Next
+   EndProcedure
+
    ; Finds and expands macros and functions
    Procedure            Preprocessor()
       Protected         i
@@ -1200,6 +1341,111 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          i + 1
          line = StringField( szNewBody, i, #LF$ )
          If line = "" : Break : EndIf
+
+         ; V1.030.16: Convert DOT notation to backslash for struct field access
+         ; Convert patterns like "local.x" to "local\x", but preserve:
+         ; - Decimal numbers (10.5)
+         ; - Type suffixes (.i, .f, .s, .d)
+         ; - Type annotations (local.Point = where Point starts with capital)
+         Protected convertedLine.s = ""
+         Protected charIdx.i, ch.s, nextCh.s, prevCh.s
+         Protected inString.b = #False, inChar.b = #False
+         For charIdx = 1 To Len(line)
+            ch = Mid(line, charIdx, 1)
+            If charIdx < Len(line)
+               nextCh = Mid(line, charIdx + 1, 1)
+            Else
+               nextCh = ""
+            EndIf
+            If charIdx > 1
+               prevCh = Mid(line, charIdx - 1, 1)
+            Else
+               prevCh = ""
+            EndIf
+
+            ; Track string/char literals
+            If ch = Chr(34) And prevCh <> "\"  ; Double quote
+               inString = ~inString
+            ElseIf ch = "'" And prevCh <> "\"
+               inChar = ~inChar
+            EndIf
+
+            ; Convert dot to backslash if:
+            ; - Not in string/char literal
+            ; - Not a decimal (prev/next not digit)
+            ; - Not a type suffix (.i .f .s .d followed by space/semicolon/operator)
+            ; - Not a type annotation (.TypeName where TypeName starts with capital)
+            If ch = "." And Not inString And Not inChar
+               Protected isDecimal.b = #False
+               Protected isTypeSuffix.b = #False
+               Protected isTypeAnnotation.b = #False
+
+               ; Check if decimal number
+               ; V1.030.23: Fixed decimal detection - require digit AFTER dot (fractional part)
+               ; Old check was too broad: rect1.topLeft matched because prevCh="1" is digit
+               ; Correct: 10.5 (nextCh="5"), .5 (nextCh="5") are decimals
+               ; Not decimal: rect1.topLeft (nextCh="t"), arr1.field (nextCh="f")
+               If nextCh >= "0" And nextCh <= "9"
+                  isDecimal = #True
+               EndIf
+
+               ; Check if type suffix (.i .f .s .d)
+               If (LCase(nextCh) = "i" Or LCase(nextCh) = "f" Or LCase(nextCh) = "s" Or LCase(nextCh) = "d")
+                  Protected charAfterSuffix.s = ""
+                  If charIdx + 1 < Len(line)
+                     charAfterSuffix = Mid(line, charIdx + 2, 1)
+                  EndIf
+                  ; V1.030.17: Added "[" for array declarations like data.i[5]
+                  ; V1.030.22: Added "(" for function return types like func name.f(params)
+                  If charAfterSuffix = "" Or charAfterSuffix = " " Or charAfterSuffix = ";" Or charAfterSuffix = "=" Or charAfterSuffix = ")" Or charAfterSuffix = "," Or charAfterSuffix = "+" Or charAfterSuffix = "-" Or charAfterSuffix = "*" Or charAfterSuffix = "/" Or charAfterSuffix = "<" Or charAfterSuffix = ">" Or charAfterSuffix = "!" Or charAfterSuffix = "&" Or charAfterSuffix = "|" Or charAfterSuffix = "[" Or charAfterSuffix = "("
+                     isTypeSuffix = #True
+                  EndIf
+               EndIf
+
+               ; V1.030.18/V1.030.19/V1.030.20/V1.030.21/V1.030.22: Check if type annotation (.TypeName where first letter is uppercase)
+               ; Preserve if followed by '=', ';', '[', ')', or ',' (declarations and function parameters)
+               ; Convert to backslash otherwise (field access like point.x where x is lowercase)
+               If nextCh >= "A" And nextCh <= "Z"
+                  ; Look ahead to see if this type annotation is followed by delimiter
+                  ; Scan forward from current position to find delimiter
+                  Protected lookAheadIdx.i = charIdx + 2  ; Start after the capital letter
+                  Protected foundTypeDelim.b = #False
+                  While lookAheadIdx <= Len(line)
+                     Protected lookCh.s = Mid(line, lookAheadIdx, 1)
+                     ; V1.030.22: Added ')' and ',' for function parameters like func foo(r.Rectangle, p.Point)
+                     ; V1.031.23: Added '\' for auto-declare syntax like rect.Rectangle\pos\x = 10
+                     If lookCh = "=" Or lookCh = ";" Or lookCh = "[" Or lookCh = ")" Or lookCh = "," Or lookCh = "\"
+                        foundTypeDelim = #True
+                        Break
+                     ElseIf lookCh = " " Or lookCh = Chr(9)  ; Space or tab - skip
+                        lookAheadIdx + 1
+                     ElseIf (lookCh >= "A" And lookCh <= "Z") Or (lookCh >= "a" And lookCh <= "z") Or (lookCh >= "0" And lookCh <= "9") Or lookCh = "_"
+                        ; Part of identifier - continue
+                        lookAheadIdx + 1
+                     Else
+                        ; Hit delimiter that's not a valid type terminator - stop looking
+                        Break
+                     EndIf
+                  Wend
+
+                  ; V1.030.22: Preserve dot for type annotations (declarations AND function parameters)
+                  ; Only convert to backslash for field access (lowercase after dot)
+                  If foundTypeDelim
+                     isTypeAnnotation = #True
+                  EndIf
+               EndIf
+
+               If Not isDecimal And Not isTypeSuffix And Not isTypeAnnotation
+                  convertedLine + "\"  ; Replace dot with backslash
+               Else
+                  convertedLine + ch
+               EndIf
+            Else
+               convertedLine + ch
+            EndIf
+         Next
+         line = convertedLine
+
          gszFileText + line + #LF$
 
          If FindString( line, "func", #PB_String_NoCase ) Or FindString( line, "function", #PB_String_NoCase )
@@ -1321,9 +1567,14 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       ; V1.022.21: Pre-allocate slots for all constants (enables slot-only optimization)
       ExtractConstants()
 
+      ; V1.029.91: Auto-declare struct variables at function start
+      Debug " -- Auto-declaring struct variables..."
+      AutoDeclareStructVars()
+
       ;par_DebugParser()
       Debug " -- AST pass: Building abstract syntax tree..."
       ReorderTokens()
+
       FirstElement( TOKEN() )
       total = ListSize( TOKEN() ) - 1
 
@@ -1341,7 +1592,10 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
 
       If gExit >= 0
          ;- DisplayNode( *p )
-         Debug " -- Code generator pass: Generating bytecode from AST..."
+         ; V1.030.0: Run variable metadata verification pass before codegen
+         ; This catches and auto-fixes common issues like missing STRUCT flags
+         VerifyVariableMetadata()
+
          CodeGenerator( *p )
 
          ; V1.023.26: Check for errors after code generation (e.g., type conflicts)
@@ -1373,6 +1627,29 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
 
          ;- This is a "hack" to merge with VM
          vm_ListToArray( llObjects, arCode )
+
+         ; V1.030.9: Debug - verify STRUCT_*_LOCAL opcodes in arCode after conversion
+         Debug "=== ARCODE: Checking STRUCT_*_LOCAL opcodes ==="
+         Protected acCheckIdx.i
+         For acCheckIdx = 0 To ArraySize(arCode()) - 1
+            Select arCode(acCheckIdx)\code
+               Case #ljSTRUCT_ALLOC_LOCAL
+                  Debug "  [" + Str(acCheckIdx) + "] STRUCT_ALLOC_LOCAL .i=" + Str(arCode(acCheckIdx)\i) + " .j=" + Str(arCode(acCheckIdx)\j)
+               Case #ljSTRUCT_FETCH_INT_LOCAL
+                  Debug "  [" + Str(acCheckIdx) + "] STRUCT_FETCH_INT_LOCAL .i=" + Str(arCode(acCheckIdx)\i) + " .j=" + Str(arCode(acCheckIdx)\j)
+               Case #ljSTRUCT_FETCH_FLOAT_LOCAL
+                  Debug "  [" + Str(acCheckIdx) + "] STRUCT_FETCH_FLOAT_LOCAL .i=" + Str(arCode(acCheckIdx)\i) + " .j=" + Str(arCode(acCheckIdx)\j)
+               Case #ljSTRUCT_FETCH_STR_LOCAL
+                  Debug "  [" + Str(acCheckIdx) + "] STRUCT_FETCH_STR_LOCAL .i=" + Str(arCode(acCheckIdx)\i) + " .j=" + Str(arCode(acCheckIdx)\j)
+               Case #ljSTRUCT_STORE_INT_LOCAL
+                  Debug "  [" + Str(acCheckIdx) + "] STRUCT_STORE_INT_LOCAL .i=" + Str(arCode(acCheckIdx)\i) + " .j=" + Str(arCode(acCheckIdx)\j)
+               Case #ljSTRUCT_STORE_FLOAT_LOCAL
+                  Debug "  [" + Str(acCheckIdx) + "] STRUCT_STORE_FLOAT_LOCAL .i=" + Str(arCode(acCheckIdx)\i) + " .j=" + Str(arCode(acCheckIdx)\j)
+               Case #ljSTRUCT_STORE_STR_LOCAL
+                  Debug "  [" + Str(acCheckIdx) + "] STRUCT_STORE_STR_LOCAL .i=" + Str(arCode(acCheckIdx)\i) + " .j=" + Str(arCode(acCheckIdx)\j)
+            EndSelect
+         Next
+         Debug "=== END ARCODE CHECK ==="
 
          ; List assembly if requested (check pragma listasm - default OFF)
          If FindMapElement(mapPragmas(), "dumpasm")
@@ -1414,7 +1691,9 @@ CompilerIf #PB_Compiler_IsMainFile
    EnableExplicit   
 
    Define         err
-   Define.s       filename
+   Define.s       filename, lookpath
+   
+   lookpath  = ".\Examples\"
    
    ;filename = ".\Examples\07 floats and macros.lj"
    ;filename = ".\Examples\00 comprehensive test.lj"
@@ -1425,15 +1704,29 @@ CompilerIf #PB_Compiler_IsMainFile
    ;filename = ".\Examples\23 test increment operators.lj"
    ;filename = ".\Examples\29 test type inference comprehensive.lj"
    ;filename = ".\Examples\31 test advanced pointers.lj":n
-   ;filename = ".\Examples\32 test advanced pointers working.lj"
+   ;filename = ".\Examples\32 test advanced pointers working.lj" 
    ;filename = ".\Examples\33 test mixed type pointers.lj"
+   
    ;filename = ".\Examples\28 test pointers comprehensive.lj"
    ;filename = ".\Examples\27 test function pointers.lj"
    ;filename = ".\Examples\38 test struct arrays.lj"
+   ;filename = ".\Examples\106 address book.lj"
    
    filename = ".\Examples\001 Simple while.lj"
+   filename = ".\Examples\002 if else.lj"
+   
+   ; V1.031.32: Command line argument support
+   If CountProgramParameters() > 0
+      filename = ProgramParameter(0)
+   Else
+      ; V1.031.28: Cross-platform path handling (default test file)
+      CompilerIf #PB_Compiler_OS <> #PB_OS_Windows
+          filename = ReplaceString( filename, "\", "/" )
+          lookpath = ReplaceString( lookpath, "\", "/" )
+      CompilerEndIf
+   EndIf
    ;filename = ".\Examples\bug fix2.lj"
-   ;filename = OpenFileRequester( "Please choose source", ".\Examples\", "LJ Files|*.lj", 0 )
+   ;filename = OpenFileRequester( "Please choose source", lookpath, "LJ Files|*.lj", 0 )
 
    If filename > ""
       Debug "==========================================="
@@ -1455,18 +1748,18 @@ CompilerIf #PB_Compiler_IsMainFile
    EndIf
 
 CompilerEndIf
-
-
-; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 959
-; FirstLine = 955
-; Folding = ------4
+; IDE Options = PureBasic 6.21 (Linux - x64)
+; CursorPosition = 1714
+; FirstLine = 1707
+; Folding = --------
 ; Markers = 570,719
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; CPU = 1
-; EnableCompileCount = 1935
+; CompileSourceDirectory
+; Warnings = Display
+; EnableCompileCount = 2317
 ; EnableBuildCount = 0
 ; EnableExeConstant
 ; IncludeVersionInfo

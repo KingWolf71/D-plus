@@ -6,7 +6,7 @@
 #pragma optimizecode on
 #pragma ListASM on
 #pragma FastPrint on
-#pragma RunThreaded on
+#pragma RunThreaded off
 #pragma ftoi "truncate"
 #pragma version on
 #pragma modulename on

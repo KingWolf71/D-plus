@@ -473,12 +473,28 @@
 
                      ; V1.022.123: If not found as local, search for global struct (skip slot 0)
                      If structVarSlot < 0
+                        CompilerIf #DEBUG
+                           Debug "AST struct field search: looking for '" + identName + "' with STRUCT flag in slots 1 to " + Str(gnLastVariable - 1)
+                        CompilerEndIf
                         For structVarIdx = 1 To gnLastVariable - 1
                            If LCase(gVarMeta(structVarIdx)\name) = LCase(identName) And (gVarMeta(structVarIdx)\flags & #C2FLAG_STRUCT)
                               structVarSlot = structVarIdx
+                              CompilerIf #DEBUG
+                                 Debug "AST struct field search: FOUND at slot " + Str(structVarSlot) + " structType='" + gVarMeta(structVarSlot)\structType + "'"
+                              CompilerEndIf
                               Break
                            EndIf
                         Next
+                        CompilerIf #DEBUG
+                           If structVarSlot < 0
+                              Debug "AST struct field search: NOT FOUND - checking if name exists without STRUCT flag..."
+                              For structVarIdx = 1 To gnLastVariable - 1
+                                 If LCase(gVarMeta(structVarIdx)\name) = LCase(identName)
+                                    Debug "  Found name at slot " + Str(structVarIdx) + " but flags=" + Str(gVarMeta(structVarIdx)\flags) + " (STRUCT=" + Str(#C2FLAG_STRUCT) + ")"
+                                 EndIf
+                              Next
+                           EndIf
+                        CompilerEndIf
                      EndIf
 
                      If structVarSlot >= 0
@@ -615,13 +631,9 @@
                                     EndIf
                                  Wend
 
-                                 ; V1.022.14: Preserve struct base slot metadata for offset 0
-                                 ; FetchVarOffset needs struct name to find it
-                                 If actualFieldSlot <> structVarSlot
-                                    gVarMeta(actualFieldSlot)\name = fieldVarName
-                                    gVarMeta(actualFieldSlot)\flags = chainedFieldType | #C2FLAG_IDENT
-                                    gVarMeta(actualFieldSlot)\paramOffset = -1
-                                 EndIf
+                                 ; V1.029.42: REMOVED field slot metadata writing - incompatible with V1.029.40 \ptr storage
+                                 ; With \ptr storage, each struct uses only 1 slot. Field access is handled
+                                 ; through the base slot's structType lookup in codegen/FetchVarOffset.
 
                                  *p = Makeleaf(#ljIDENT, fieldVarName)
 
@@ -648,26 +660,28 @@
                         Protected ptrStructTypeName.s = ""
                         Protected mangledPtrName.s = ""
 
-                        ; V1.023.14: Debug output for struct pointer parsing
-                        Debug "AST PTRSTRUCTFETCH: identName='" + identName + "' fieldName='" + structFieldName + "' gCurrentFunctionName='" + gCurrentFunctionName + "'"
-
                         ; V1.022.121: Inside functions, ALWAYS use deferred format
                         ; Local pointer variables won't exist in gVarMeta during AST building
                         ; (they're only created during codegen). Searching here can match
                         ; wrong slots due to uninitialized data. Codegen will resolve correctly.
                         If gCurrentFunctionName = ""
-                           ; Global scope: search for GLOBAL pointer variables only
-                           Debug "AST PTRSTRUCTFETCH: At global scope, searching for '" + identName + "' in gVarMeta..."
+                           ; Global scope: search for GLOBAL pointer/struct variables only
                            For structVarIdx = 1 To gnLastVariable - 1  ; Skip slot 0 (reserved)
-                              If LCase(gVarMeta(structVarIdx)\name) = LCase(identName) And gVarMeta(structVarIdx)\pointsToStructType <> ""
-                                 ptrVarSlot = structVarIdx
-                                 ptrStructTypeName = gVarMeta(structVarIdx)\pointsToStructType
-                                 Debug "AST PTRSTRUCTFETCH: Found global pointer at slot " + Str(ptrVarSlot) + " type=" + ptrStructTypeName
-                                 Break
+                              If LCase(gVarMeta(structVarIdx)\name) = LCase(identName)
+                                 ; V1.029.40: Check for struct pointer OR struct variable
+                                 If gVarMeta(structVarIdx)\pointsToStructType <> ""
+                                    ; Struct pointer: ptr\field
+                                    ptrVarSlot = structVarIdx
+                                    ptrStructTypeName = gVarMeta(structVarIdx)\pointsToStructType
+                                    Break
+                                 ElseIf gVarMeta(structVarIdx)\structType <> ""
+                                    ; Struct variable: var\field (direct field access)
+                                    ptrVarSlot = structVarIdx
+                                    ptrStructTypeName = gVarMeta(structVarIdx)\structType
+                                    Break
+                                 EndIf
                               EndIf
                            Next
-                        Else
-                           Debug "AST PTRSTRUCTFETCH: Inside function, using deferred format"
                         EndIf
                         ; Inside functions: ptrVarSlot stays -1, forcing deferred path
 
@@ -699,7 +713,6 @@
                                  EndIf
 
                                  ; Create node: value = "ptrVarSlot|fieldOffset"
-                                 Debug "AST PTRSTRUCTFETCH: Creating RESOLVED node '" + Str(ptrVarSlot) + "|" + Str(ptrFieldOffset) + "'"
                                  *p = Makeleaf(ptrFetchNodeType, Str(ptrVarSlot) + "|" + Str(ptrFieldOffset))
 
                                  ; Set type hint based on field type
@@ -726,7 +739,6 @@
                            NextToken()  ; Move past field name
 
                            ; Create a deferred struct pointer fetch node (use INT as default, codegen will fix)
-                           Debug "AST PTRSTRUCTFETCH: Creating DEFERRED node '" + identName + "|" + structFieldName + "'"
                            *p = Makeleaf(#ljPTRSTRUCTFETCH_INT, identName + "|" + structFieldName)
                            *p\TypeHint = #ljINT  ; Default, codegen will determine actual type
                         EndIf
@@ -926,6 +938,69 @@
                AddElement( llParams() )
                llParams() = *e  ; Store pointer as integer
                nParams + 1
+
+               ; V1.029.82: For function definitions (op=#ljPOP), pre-create struct parameter variables
+               ; With \ptr storage model, struct params use 1 slot (NOT inflated by field count)
+               If op = #ljPOP And *e\NodeType = #ljIDENT And *e\value <> ""
+                  Protected epStructDotPos.i = FindString(*e\value, ".")
+                  Debug "V1.030.45: expand_params IDENT value='" + *e\value + "' dotPos=" + Str(epStructDotPos)
+                  If epStructDotPos > 0 And epStructDotPos < Len(*e\value)
+                     Protected epStructTypeName.s = Mid(*e\value, epStructDotPos + 1)
+                     Debug "V1.030.45: expand_params structTypeName='" + epStructTypeName + "' gCurrentFunctionName='" + gCurrentFunctionName + "'"
+                     ; Check if suffix is a known struct type (not primitive .i, .f, .s, .d)
+                     If LCase(epStructTypeName) <> "i" And LCase(epStructTypeName) <> "f" And LCase(epStructTypeName) <> "s" And LCase(epStructTypeName) <> "d"
+                        Debug "V1.030.45: expand_params checking mapStructDefs for '" + epStructTypeName + "' exists=" + Str(Bool(FindMapElement(mapStructDefs(), epStructTypeName)))
+                        If FindMapElement(mapStructDefs(), epStructTypeName)
+                           ; V1.029.82: Get struct size for metadata but DON'T inflate nParams
+                           ; With \ptr storage, struct params use 1 slot (pass by reference)
+                           Protected epStructSize.i = mapStructDefs()\totalSize
+
+                           ; V1.029.19: Pre-create struct parameter variable with proper flags
+                           ; This allows DOT handler to find struct params when parsing function body
+                           Protected epBaseName.s = Left(*e\value, epStructDotPos - 1)
+                           Protected epMangledName.s = ""
+                           Protected epBaseSlot.i
+
+                           ; Apply mangling for local parameters (inside function)
+                           If gCurrentFunctionName <> ""
+                              epMangledName = gCurrentFunctionName + "_" + epBaseName
+                           Else
+                              epMangledName = epBaseName
+                           EndIf
+
+                           ; Check if variable already exists (case-insensitive)
+                           epBaseSlot = -1
+                           Protected epSearchIdx.i
+                           For epSearchIdx = 0 To gnLastVariable - 1
+                              If LCase(gVarMeta(epSearchIdx)\name) = LCase(epMangledName)
+                                 epBaseSlot = epSearchIdx
+                                 Break
+                              EndIf
+                           Next
+
+                           ; Create if not exists
+                           If epBaseSlot < 0
+                              epBaseSlot = gnLastVariable
+                              gnLastVariable + 1
+                              gVarMeta(epBaseSlot)\name = epMangledName
+                              gVarMeta(epBaseSlot)\structFieldBase = -1  ; V1.029.44: Init to -1
+                              gVarMeta(epBaseSlot)\paramOffset = -1      ; V1.029.44: Init to -1
+                           EndIf
+
+                           ; Set struct flags so DOT handler can find it
+                           gVarMeta(epBaseSlot)\flags = #C2FLAG_STRUCT | #C2FLAG_IDENT | #C2FLAG_PARAM
+                           gVarMeta(epBaseSlot)\structType = epStructTypeName
+                           gVarMeta(epBaseSlot)\elementSize = epStructSize
+                           Debug "V1.030.45: expand_params SET structType='" + epStructTypeName + "' for slot=" + Str(epBaseSlot) + " name='" + gVarMeta(epBaseSlot)\name + "'"
+                           ; paramOffset will be set properly in codegen
+
+                           ; V1.029.82: With \ptr storage, DON'T reserve field slots
+                           ; Struct data accessed via pointer, not through gVar slots
+                           ; (Field slot reservation removed)
+                        EndIf
+                     EndIf
+                  EndIf
+               EndIf
             ElseIf *e And *e <= 65536
                ; DEBUG: Invalid small pointer value detected
                SetError( "expand_params: expr() returned suspicious pointer value: " + Str(*e), #C2ERR_EXPECTED_PRIMARY )
@@ -1093,6 +1168,39 @@
          SetError( "Stack overflow", #C2ERR_STACK_OVERFLOW )
          gStack - 1
          ProcedureReturn 0
+      EndIf
+
+      ; V1.029.86: Auto-initialize struct declarations: var.Struct; becomes var.Struct = {}
+      ; Check if current token is identifier with struct type annotation followed by semicolon
+      If TOKEN()\TokenType = #ljIDENT
+         Protected autoInitIdentName.s = TOKEN()\value
+         Protected autoInitDotPos.i = FindString(autoInitIdentName, ".")
+         If autoInitDotPos > 0
+            Protected autoInitStructType.s = Mid(autoInitIdentName, autoInitDotPos + 1)
+            ; Check if it's a known struct type (not primitive .i, .f, .s, .d)
+            If LCase(autoInitStructType) <> "i" And LCase(autoInitStructType) <> "f" And LCase(autoInitStructType) <> "s" And LCase(autoInitStructType) <> "d"
+               If FindMapElement(mapStructDefs(), autoInitStructType)
+                  ; Peek ahead to see if next token is semicolon
+                  Protected autoInitSavedIndex.i = ListIndex(llTokenList())
+                  NextToken()
+                  If TOKEN()\TokenType = #ljSemi
+                     ; This is var.Struct; pattern - transform to var.Struct = {}
+                     ; Restore position and create assignment AST node
+                     SelectElement(llTokenList(), autoInitSavedIndex)
+                     Protected *autoInitLHS.stTree = Makeleaf(#ljIDENT, autoInitIdentName)
+                     Protected *autoInitRHS.stTree = Makeleaf(#ljStructInit, "")
+                     *p = MakeNode(#ljAssign, *autoInitLHS, *autoInitRHS)
+                     NextToken()  ; Skip identifier
+                     NextToken()  ; Skip semicolon
+                     gStack - 1
+                     ProcedureReturn *p
+                  Else
+                     ; Not followed by semicolon - restore and continue normal parsing
+                     SelectElement(llTokenList(), autoInitSavedIndex)
+                  EndIf
+               EndIf
+            EndIf
+         EndIf
       EndIf
 
       Select TOKEN()\TokenType
@@ -1588,6 +1696,7 @@
                ; Add field to structure definition
                AddElement(mapStructDefs()\fields())
                mapStructDefs()\fields()\name = fieldName
+               ; fieldType is already converted to #C2FLAG_* format at lines 1613-1621 above
                mapStructDefs()\fields()\fieldType = fieldType
                mapStructDefs()\fields()\offset = fieldOffset
                mapStructDefs()\fields()\isArray = fieldIsArray
@@ -1645,6 +1754,7 @@
             Protected listName.s
             Protected listTypeHint.w
             Protected listVarSlot.i
+            Protected listStructType.s = ""
 
             NextToken()
 
@@ -1656,6 +1766,16 @@
 
             listName = TOKEN()\value
             listTypeHint = TOKEN()\typeHint
+
+            ; V1.029.14: Check for struct type suffix (e.g., list pointList.Point)
+            Protected listDotPos.i = FindString(listName, ".")
+            If listDotPos > 0 And listTypeHint = 0
+               listStructType = Mid(listName, listDotPos + 1)
+               listName = Left(listName, listDotPos - 1)
+               If FindMapElement(mapStructDefs(), listStructType)
+                  listTypeHint = #ljStructType
+               EndIf
+            EndIf
 
             ; Default to integer if no type specified
             If listTypeHint = 0
@@ -1679,6 +1799,11 @@
                gVarMeta(listVarSlot)\flags = gVarMeta(listVarSlot)\flags | #C2FLAG_FLOAT
             ElseIf listTypeHint = #ljSTRING
                gVarMeta(listVarSlot)\flags = gVarMeta(listVarSlot)\flags | #C2FLAG_STR
+            ElseIf listTypeHint = #ljStructType
+               ; V1.029.14: Struct list - set STRUCT flag and struct type
+               gVarMeta(listVarSlot)\flags = gVarMeta(listVarSlot)\flags | #C2FLAG_STRUCT
+               gVarMeta(listVarSlot)\structType = listStructType
+               gVarMeta(listVarSlot)\elementSize = mapStructDefs()\totalSize
             Else
                gVarMeta(listVarSlot)\flags = gVarMeta(listVarSlot)\flags | #C2FLAG_INT
             EndIf
@@ -1686,12 +1811,19 @@
             ; Create LIST_NEW AST node
             *p = Makeleaf(#ljLIST_NEW, listName)
             *p\TypeHint = listTypeHint
+            ; V1.029.14: Store struct type info in AST for codegen
+            If listStructType <> ""
+               *p\value = listName
+               ; Use paramCount to store element size for struct lists
+               *p\paramCount = gVarMeta(listVarSlot)\elementSize
+            EndIf
 
          ; V1.026.0: Map declaration: map myMap.type;
          Case #ljMap
             Protected mapName.s
             Protected mapTypeHint.w
             Protected mapVarSlot.i
+            Protected mapStructType.s = ""
 
             NextToken()
 
@@ -1703,6 +1835,16 @@
 
             mapName = TOKEN()\value
             mapTypeHint = TOKEN()\typeHint
+
+            ; V1.029.14: Check for struct type suffix (e.g., map pointMap.Point)
+            Protected mapDotPos.i = FindString(mapName, ".")
+            If mapDotPos > 0 And mapTypeHint = 0
+               mapStructType = Mid(mapName, mapDotPos + 1)
+               mapName = Left(mapName, mapDotPos - 1)
+               If FindMapElement(mapStructDefs(), mapStructType)
+                  mapTypeHint = #ljStructType
+               EndIf
+            EndIf
 
             ; Default to integer if no type specified
             If mapTypeHint = 0
@@ -1726,6 +1868,11 @@
                gVarMeta(mapVarSlot)\flags = gVarMeta(mapVarSlot)\flags | #C2FLAG_FLOAT
             ElseIf mapTypeHint = #ljSTRING
                gVarMeta(mapVarSlot)\flags = gVarMeta(mapVarSlot)\flags | #C2FLAG_STR
+            ElseIf mapTypeHint = #ljStructType
+               ; V1.029.14: Struct map - set STRUCT flag and struct type
+               gVarMeta(mapVarSlot)\flags = gVarMeta(mapVarSlot)\flags | #C2FLAG_STRUCT
+               gVarMeta(mapVarSlot)\structType = mapStructType
+               gVarMeta(mapVarSlot)\elementSize = mapStructDefs()\totalSize
             Else
                gVarMeta(mapVarSlot)\flags = gVarMeta(mapVarSlot)\flags | #C2FLAG_INT
             EndIf
@@ -1733,6 +1880,12 @@
             ; Create MAP_NEW AST node
             *p = Makeleaf(#ljMAP_NEW, mapName)
             *p\TypeHint = mapTypeHint
+            ; V1.029.14: Store struct type info in AST for codegen
+            If mapStructType <> ""
+               *p\value = mapName
+               ; Use paramCount to store element size for struct maps
+               *p\paramCount = gVarMeta(mapVarSlot)\elementSize
+            EndIf
 
          ; V1.022.71: 'local' keyword removed - type annotation creates local automatically
 
@@ -1833,17 +1986,18 @@
                   ; Syntax: varName.StructType\field = value
                   If TOKEN()\TokenType = #ljBackslash
                      ; Auto-declare struct variable and handle field assignment
-                     Protected autoDeclBaseSlot.i = FetchVarOffset(structVarName, 0, 0)
+                     ; V1.029.89: Force local creation when struct type annotation present
+                     ; V1.030.14: Debug - check gCurrentFunctionName during AST struct creation
+                     Debug "V1.030.14: AST STRUCT FIELD - structVarName='" + structVarName + "' gCurrentFunctionName='" + gCurrentFunctionName + "' gCodeGenFunction=" + Str(gCodeGenFunction) + " TOKEN().function=" + Str(TOKEN()\function)
+                     Protected autoDeclBaseSlot.i = FetchVarOffset(structVarName, 0, 0, #True)
+                     Debug "V1.030.14: AST STRUCT CREATED at slot=" + Str(autoDeclBaseSlot) + " name='" + gVarMeta(autoDeclBaseSlot)\name + "' paramOffset=" + Str(gVarMeta(autoDeclBaseSlot)\paramOffset)
                      gVarMeta(autoDeclBaseSlot)\flags = #C2FLAG_STRUCT | #C2FLAG_IDENT
                      gVarMeta(autoDeclBaseSlot)\structType = structTypeName
                      gVarMeta(autoDeclBaseSlot)\elementSize = structDef\totalSize
 
-                     ; Allocate slots for total struct size
-                     Protected autoDeclSlotIdx.i = 1
-                     While autoDeclSlotIdx < structDef\totalSize
-                        gnLastVariable + 1
-                        autoDeclSlotIdx + 1
-                     Wend
+                     ; V1.029.42: REMOVED multi-slot allocation - incompatible with V1.029.40 \ptr storage
+                     ; With \ptr storage, each struct uses only 1 slot (base slot stores pointer to data).
+                     ; Field access is handled through the base slot's structType lookup.
 
                      CompilerIf #DEBUG
                         Debug "V1.022.48: Auto-declared struct '" + structVarName + "' of type '" + structTypeName + "' at slot " + Str(autoDeclBaseSlot)
@@ -1978,43 +2132,57 @@
                      NextToken()
 
                      ; V1.023.24: Support struct copy syntax: v2.StructType = v1
+                     ; V1.029.2: Also support function call: v.StructType = funcCall()
                      If TOKEN()\TokenType = #ljIDENT
-                        ; Struct copy: varName.StructType = srcStruct
+                        ; Peek ahead to see if it's a function call
                         Protected copyStructSrcName.s = TOKEN()\value
+                        Protected savedCopyIdx.i = ListIndex(llTokenList())
                         NextToken()
 
+                        If TOKEN()\TokenExtra = #ljLeftParent
+                           ; V1.029.2: It's a function call - parse as expression
+                           ; Restore position and parse full expression
+                           SelectElement(llTokenList(), savedCopyIdx)
+
+                           ; Allocate base slot for destination struct first
+                           ; V1.029.89: Force local creation when struct type annotation present
+                           Protected funcCallStructSlot.i = FetchVarOffset(structVarName, 0, 0, #True)
+
+                           ; V1.029.87: Struct variables should ONLY have STRUCT + IDENT flags
+                           ; Do NOT include first field's primitive type - that was causing "(String)" display
+                           gVarMeta(funcCallStructSlot)\flags = #C2FLAG_STRUCT | #C2FLAG_IDENT
+                           gVarMeta(funcCallStructSlot)\structType = structTypeName
+                           gVarMeta(funcCallStructSlot)\elementSize = structDef\totalSize
+
+                           ; V1.029.42: REMOVED field slot metadata writing - incompatible with V1.029.40 \ptr storage
+                           ; With \ptr storage, each struct uses only 1 slot. Field access is handled
+                           ; through the base slot's structType lookup in codegen/FetchVarOffset.
+
+                           ; Parse function call as expression
+                           Protected *funcCallExpr.stTree = expr(0)
+
+                           ; Create assignment: structVar = funcCallResult
+                           Protected *funcCallDest.stTree = Makeleaf(#ljIDENT, structVarName)
+                           *p = MakeNode(#ljASSIGN, *funcCallDest, *funcCallExpr)
+
+                           Expect("struct init from function", #ljSemi)
+                           autoDeclarredStruct = #True
+                        Else
+                           ; Regular struct copy: varName.StructType = srcStruct
+
                         ; Allocate base slot for destination struct
-                        Protected copyStructDestSlot.i = FetchVarOffset(structVarName, 0, 0)
+                        ; V1.029.89: Force local creation when struct type annotation present
+                        Protected copyStructDestSlot.i = FetchVarOffset(structVarName, 0, 0, #True)
 
-                        ; V1.023.24: Get first field's type for the base slot
-                        ; Base slot needs both STRUCT flag and first field's type flag for field access
-                        Protected copyFirstFieldType.w = #C2FLAG_INT  ; Default
-                        ResetList(structDef\fields())
-                        If FirstElement(structDef\fields())
-                           copyFirstFieldType = structDef\fields()\fieldType
-                        EndIf
-
-                        gVarMeta(copyStructDestSlot)\flags = #C2FLAG_STRUCT | #C2FLAG_IDENT | copyFirstFieldType
+                        ; V1.029.87: Struct variables should ONLY have STRUCT + IDENT flags
+                        ; Do NOT include first field's primitive type - that was causing "(String)" display
+                        gVarMeta(copyStructDestSlot)\flags = #C2FLAG_STRUCT | #C2FLAG_IDENT
                         gVarMeta(copyStructDestSlot)\structType = structTypeName
                         gVarMeta(copyStructDestSlot)\elementSize = structDef\totalSize
 
-                        ; V1.023.24: Set up field metadata for remaining struct fields
-                        ; This is needed so field access knows the correct types
-                        Protected copyFieldOffset.i = 0
-                        ForEach structDef\fields()
-                           Protected copyFieldSlot.i = copyStructDestSlot + copyFieldOffset
-                           Protected copyFieldName.s = structVarName + "\" + structDef\fields()\name
-
-                           ; Only set metadata for non-base slots (base slot already set above)
-                           If copyFieldOffset > 0
-                              gVarMeta(copyFieldSlot)\name = copyFieldName
-                              gVarMeta(copyFieldSlot)\flags = structDef\fields()\fieldType | #C2FLAG_IDENT
-                              gVarMeta(copyFieldSlot)\paramOffset = -1
-                              gnLastVariable + 1
-                           EndIf
-
-                           copyFieldOffset + 1
-                        Next
+                        ; V1.029.42: REMOVED field slot metadata writing - incompatible with V1.029.40 \ptr storage
+                        ; With \ptr storage, each struct uses only 1 slot. Field access is handled
+                        ; through the base slot's structType lookup in codegen/FetchVarOffset.
 
                         ; Create assignment node: destStruct = srcStruct
                         ; Codegen will detect this is struct-to-struct and emit STRUCTCOPY
@@ -2024,6 +2192,7 @@
 
                         Expect("struct copy", #ljSemi)
                         autoDeclarredStruct = #True
+                        EndIf  ; End of If function call / Else struct copy
                      ElseIf TOKEN()\TokenType <> #ljLeftBrace
                         SetError("Expected '{' for struct initialization or identifier for struct copy", #C2ERR_EXPECTED_STATEMENT)
                         gStack - 1
@@ -2032,20 +2201,21 @@
                      NextToken()
 
                      ; Allocate base slot for struct
-                     Protected structBaseSlot.i = FetchVarOffset(structVarName, 0, 0)
+                     ; V1.029.89: Force local creation when struct type annotation present
+                     Protected structBaseSlot.i = FetchVarOffset(structVarName, 0, 0, #True)
+                     ; V1.029.87: Struct variables should ONLY have STRUCT + IDENT flags (no primitive type)
                      gVarMeta(structBaseSlot)\flags = #C2FLAG_STRUCT | #C2FLAG_IDENT
                      gVarMeta(structBaseSlot)\structType = structTypeName
                      gVarMeta(structBaseSlot)\elementSize = structDef\totalSize
 
-                     ; V1.022.0: Allocate slots for total struct size (including array fields)
-                     ; totalSize already accounts for array field sizes
-                     Protected slotIdx.i = 1
-                     While slotIdx < structDef\totalSize
-                        gnLastVariable + 1
-                        slotIdx + 1
-                     Wend
+                     ; V1.029.40: With \ptr storage, only 1 slot needed (data stored in \ptr)
+                     ; Codegen will emit STRUCT_ALLOC lazily on first field access via EmitInt
+                     ; V1.029.89: Check if local by variable name (mangled), not paramOffset
+                     ; During AST phase, paramOffset may not be assigned yet (happens in codegen)
+                     Protected structIsLocal.i = Bool(gCurrentFunctionName <> "" And LCase(Left(gVarMeta(structBaseSlot)\name, Len(gCurrentFunctionName) + 1)) = LCase(gCurrentFunctionName + "_"))
+                     Protected structBaseParamOffset.i = gVarMeta(structBaseSlot)\paramOffset
 
-                     ; Build initialization sequence
+                     ; Build initialization sequence (STRUCT_ALLOC emitted lazily by codegen)
                      *p = 0
                      Protected initSlotOffset.i = 0  ; V1.022.0: Track actual slot offset, not field index
 
@@ -2138,19 +2308,17 @@
                         ; Regular scalar field - parse value expression
                         Protected *initVal.stTree = expr(0)
 
-                        ; Create store to field slot using proper variable name
+                        ; Create store to field slot using backslash notation
+                        ; V1.029.40: With \ptr storage, codegen will emit STRUCT_STORE_* lazily
                         Protected fieldSlot.i = structBaseSlot + initSlotOffset
                         Protected fieldStoreVarName.s = structVarName + "\" + structDef\fields()\name
 
-                        ; V1.022.14: Preserve struct base slot metadata (name + STRUCT flag) for offset 0
-                        ; Only set field metadata for non-base slots
-                        If initSlotOffset > 0
-                           gVarMeta(fieldSlot)\name = fieldStoreVarName
-                           gVarMeta(fieldSlot)\flags = structDef\fields()\fieldType | #C2FLAG_IDENT
-                           gVarMeta(fieldSlot)\paramOffset = -1
-                        EndIf
-                        ; Note: Base slot (offset 0) keeps original struct name and STRUCT flag
-                        ; FetchVarOffset("c1\id") will find struct "c1" and return structSlot + fieldOffset
+                        ; V1.029.42: REMOVED field slot metadata writing - incompatible with V1.029.40 \ptr storage
+                        ; With \ptr storage, each struct uses only 1 slot (base slot stores pointer to data).
+                        ; Writing to base+offset slots was corrupting subsequent struct variables.
+                        ; Field access is now handled through the base slot's structType lookup.
+                        ; The old code (V1.022.14) wrote to fieldSlot = structBaseSlot + initSlotOffset
+                        ; which overwrote the next struct's slot when initSlotOffset > 0.
 
                         Protected *storeNode.stTree = MakeNode(#ljASSIGN, Makeleaf(#ljIDENT, fieldStoreVarName), *initVal)
 
@@ -2175,6 +2343,16 @@
                      ProcedureReturn 0
                   EndIf
                   NextToken()
+
+                  ; V1.030.64: If no fields were initialized (empty braces {}), create ASSIGN with #ljStructInit
+                  ; This tells codegen to emit STRUCT_ALLOC only, without any store operation
+                  ; Previously (V1.029.88), we created a fake field assignment which caused unwanted stores
+                  ; The ASSIGN wrapper is needed so codegen's #ljASSIGN handler can process the struct init
+                  If *p = 0
+                     Protected *structInitLHS.stTree = Makeleaf(#ljIDENT, structVarName)
+                     Protected *structInitRHS.stTree = Makeleaf(#ljStructInit, "")
+                     *p = MakeNode(#ljASSIGN, *structInitLHS, *structInitRHS)
+                  EndIf
 
                   Expect("struct init", #ljSemi)
 
@@ -2466,6 +2644,49 @@
                         Protected stmtStructVarIdx.i
                         Protected stmtStructVarName.s = *v\value
                         Protected stmtMangledStructName.s = ""
+
+                        ; V1.030.37: Handle combined declaration+field access (e.g., "rect.Rectangle\x")
+                        ; If stmtStructVarName contains a DOT, it's a type annotation that needs auto-creation
+                        Protected stmtTypeAnnotationDot.i = FindString(stmtStructVarName, ".")
+                        If stmtTypeAnnotationDot > 0 And stmtTypeAnnotationDot < Len(stmtStructVarName)
+                           Protected stmtTypeBaseName.s = Left(stmtStructVarName, stmtTypeAnnotationDot - 1)
+                           Protected stmtTypeTypeName.s = Mid(stmtStructVarName, stmtTypeAnnotationDot + 1)
+                           ; Check if type part is a known struct type (not primitive .i, .f, .s, .d)
+                           If LCase(stmtTypeTypeName) <> "i" And LCase(stmtTypeTypeName) <> "f" And LCase(stmtTypeTypeName) <> "s" And LCase(stmtTypeTypeName) <> "d"
+                              If FindMapElement(mapStructDefs(), stmtTypeTypeName)
+                                 ; This IS a struct type annotation - auto-create the struct variable
+                                 Protected stmtAutoCreateName.s = stmtTypeBaseName
+                                 If gCurrentFunctionName <> ""
+                                    stmtAutoCreateName = gCurrentFunctionName + "_" + stmtTypeBaseName
+                                 EndIf
+                                 ; Check if variable already exists
+                                 Protected stmtAutoSlot.i = -1
+                                 Protected stmtAutoIdx.i
+                                 For stmtAutoIdx = 1 To gnLastVariable - 1
+                                    If LCase(gVarMeta(stmtAutoIdx)\name) = LCase(stmtAutoCreateName)
+                                       stmtAutoSlot = stmtAutoIdx
+                                       Break
+                                    EndIf
+                                 Next
+                                 ; Create if not exists
+                                 If stmtAutoSlot < 0
+                                    stmtAutoSlot = gnLastVariable
+                                    gnLastVariable + 1
+                                    gVarMeta(stmtAutoSlot)\name = stmtAutoCreateName
+                                    gVarMeta(stmtAutoSlot)\flags = #C2FLAG_STRUCT | #C2FLAG_IDENT
+                                    gVarMeta(stmtAutoSlot)\structType = stmtTypeTypeName
+                                    gVarMeta(stmtAutoSlot)\elementSize = mapStructDefs()\totalSize
+                                    gVarMeta(stmtAutoSlot)\structFieldBase = -1
+                                    gVarMeta(stmtAutoSlot)\paramOffset = -1
+                                    CompilerIf #DEBUG
+                                       Debug "V1.030.37: Auto-created struct '" + stmtAutoCreateName + "' of type " + stmtTypeTypeName + " at slot " + Str(stmtAutoSlot)
+                                    CompilerEndIf
+                                 EndIf
+                                 ; Update stmtStructVarName to just the base name for subsequent lookup
+                                 stmtStructVarName = stmtTypeBaseName
+                              EndIf
+                           EndIf
+                        EndIf
 
                         ; V1.022.123: Search for struct variable - LOCAL (mangled) name FIRST, then global
                         ; Skip slot 0 (reserved for ?discard?)

@@ -59,6 +59,7 @@ EndProcedure
 ; random(max)      -> 0 to max-1
 ; random(min, max) -> min to max-1
 Procedure C2BUILTIN_RANDOM()
+   ; V1.31.0: Read params from gEvalStack[]
    vm_DebugFunctionName()
    Protected paramCount.i = vm_GetParamCount()
    Protected minVal.i, maxVal.i, result.i
@@ -67,13 +68,13 @@ Procedure C2BUILTIN_RANDOM()
       Case 0
          result = Random(2147483647)
       Case 1
-         maxVal = gVar(sp - 1)\i
+         maxVal = gEvalStack(sp - 1)\i
          If maxVal <= 0 : maxVal = 1 : EndIf
          result = Random(maxVal - 1)
          vm_PopParams(1)
       Case 2
-         maxVal = gVar(sp - 1)\i
-         minVal = gVar(sp - 2)\i
+         maxVal = gEvalStack(sp - 1)\i
+         minVal = gEvalStack(sp - 2)\i
          If maxVal <= minVal : maxVal = minVal + 1 : EndIf
          result = Random(maxVal - minVal - 1) + minVal
          vm_PopParams(2)
@@ -87,12 +88,13 @@ EndProcedure
 
 ; abs(x) - Absolute value
 Procedure C2BUILTIN_ABS()
+   ; V1.31.0: Read params from gEvalStack[]
    vm_DebugFunctionName()
    Protected paramCount.i = vm_GetParamCount()
    Protected result.i
 
    If paramCount > 0
-      result = Abs(gVar(sp - 1)\i)
+      result = Abs(gEvalStack(sp - 1)\i)
       vm_PopParams(paramCount)
    Else
       result = 0
@@ -103,13 +105,14 @@ EndProcedure
 
 ; min(a, b) - Minimum of two values
 Procedure C2BUILTIN_MIN()
+   ; V1.31.0: Read params from gEvalStack[]
    vm_DebugFunctionName()
    Protected paramCount.i = vm_GetParamCount()
    Protected a.i, b.i, result.i
 
    If paramCount >= 2
-      b = gVar(sp - 1)\i
-      a = gVar(sp - 2)\i
+      b = gEvalStack(sp - 1)\i
+      a = gEvalStack(sp - 2)\i
       If a < b
          result = a
       Else
@@ -126,13 +129,14 @@ EndProcedure
 
 ; max(a, b) - Maximum of two values
 Procedure C2BUILTIN_MAX()
+   ; V1.31.0: Read params from gEvalStack[]
    vm_DebugFunctionName()
    Protected paramCount.i = vm_GetParamCount()
    Protected a.i, b.i, result.i
 
    If paramCount >= 2
-      b = gVar(sp - 1)\i
-      a = gVar(sp - 2)\i
+      b = gEvalStack(sp - 1)\i
+      a = gEvalStack(sp - 2)\i
       If a > b
          result = a
       Else
@@ -149,14 +153,15 @@ EndProcedure
 
 ; assertEqual(expected, actual) - Assert integers are equal
 Procedure C2BUILTIN_ASSERT_EQUAL()
+   ; V1.31.0: Read params from gEvalStack[]
    vm_DebugFunctionName()
    Protected paramCount.i = vm_GetParamCount()
    Protected expected.i, actual.i, result.i
    Protected message.s
 
    If paramCount >= 2
-      actual = gVar(sp - 1)\i
-      expected = gVar(sp - 2)\i
+      actual = gEvalStack(sp - 1)\i
+      expected = gEvalStack(sp - 2)\i
 
       If expected = actual
          message = "[PASS] assertEqual: " + Str(expected) + " == " + Str(actual)
@@ -180,6 +185,7 @@ EndProcedure
 ; assertFloatEqual(expected, actual, tolerance) - Assert floats are equal within tolerance
 ; If tolerance is omitted, uses #pragma floattolerance value (default: 0.00001)
 Procedure C2BUILTIN_ASSERT_FLOAT()
+   ; V1.31.0: Read params from gEvalStack[]
    vm_DebugFunctionName()
    Protected paramCount.i = vm_GetParamCount()
    Protected expected.d, actual.d, tolerance.d, result.i
@@ -187,13 +193,13 @@ Procedure C2BUILTIN_ASSERT_FLOAT()
 
    If paramCount >= 2
       If paramCount >= 3
-         tolerance = gVar(sp - 1)\f
-         actual = gVar(sp - 2)\f
-         expected = gVar(sp - 3)\f
+         tolerance = gEvalStack(sp - 1)\f
+         actual = gEvalStack(sp - 2)\f
+         expected = gEvalStack(sp - 3)\f
       Else
          tolerance = gFloatTolerance
-         actual = gVar(sp - 1)\f
-         expected = gVar(sp - 2)\f
+         actual = gEvalStack(sp - 1)\f
+         expected = gEvalStack(sp - 2)\f
       EndIf
 
       If Abs(expected - actual) <= tolerance
@@ -217,14 +223,15 @@ EndProcedure
 
 ; assertStringEqual(expected, actual) - Assert strings are equal
 Procedure C2BUILTIN_ASSERT_STRING()
+   ; V1.31.0: Read params from gEvalStack[]
    vm_DebugFunctionName()
    Protected paramCount.i = vm_GetParamCount()
    Protected expected.s, actual.s, result.i
    Protected message.s
 
    If paramCount >= 2
-      actual = gVar(sp - 1)\ss
-      expected = gVar(sp - 2)\ss
+      actual = gEvalStack(sp - 1)\ss
+      expected = gEvalStack(sp - 2)\ss
 
       If expected = actual
          message = ~"[PASS] assertStringEqual: \"" + expected + ~"\" == \"" + actual + ~"\""
@@ -247,12 +254,13 @@ EndProcedure
 
 ; sqrt(x) - Square root (returns float)
 Procedure C2BUILTIN_SQRT()
+   ; V1.31.0: Read params from gEvalStack[]
    vm_DebugFunctionName()
    Protected paramCount.i = vm_GetParamCount()
    Protected result.d
 
    If paramCount > 0
-      result = Sqr(gVar(sp - 1)\f)
+      result = Sqr(gEvalStack(sp - 1)\f)
       vm_PopParams(paramCount)
    Else
       result = 0.0
@@ -263,13 +271,14 @@ EndProcedure
 
 ; pow(base, exp) - Power function (returns float)
 Procedure C2BUILTIN_POW()
+   ; V1.31.0: Read params from gEvalStack[]
    vm_DebugFunctionName()
    Protected paramCount.i = vm_GetParamCount()
    Protected base.d, exp.d, result.d
 
    If paramCount >= 2
-      exp = gVar(sp - 1)\f
-      base = gVar(sp - 2)\f
+      exp = gEvalStack(sp - 1)\f
+      base = gEvalStack(sp - 2)\f
       result = Pow(base, exp)
       vm_PopParams(paramCount)
    Else
@@ -282,12 +291,13 @@ EndProcedure
 
 ; len(s) - String length (returns integer)
 Procedure C2BUILTIN_LEN()
+   ; V1.31.0: Read params from gEvalStack[]
    vm_DebugFunctionName()
    Protected paramCount.i = vm_GetParamCount()
    Protected result.i
 
    If paramCount > 0
-      result = Len(gVar(sp - 1)\ss)
+      result = Len(gEvalStack(sp - 1)\ss)
       vm_PopParams(paramCount)
    Else
       result = 0
@@ -299,14 +309,15 @@ EndProcedure
 ; strcmp(a, b) - String compare (PureBasic & SpiderBasic compatible)
 ; Returns: -1 if a < b, 0 if a == b, 1 if a > b
 Procedure C2BUILTIN_STRCMP()
+   ; V1.31.0: Read params from gEvalStack[]
    vm_DebugFunctionName()
    Protected paramCount.i = vm_GetParamCount()
    Protected result.i
    Protected a.s, b.s
 
    If paramCount >= 2
-      b = gVar(sp - 1)\ss
-      a = gVar(sp - 2)\ss
+      b = gEvalStack(sp - 1)\ss
+      a = gEvalStack(sp - 2)\ss
       ; Use native string comparison (works in both PB and SB)
       If a < b
          result = -1
@@ -328,15 +339,16 @@ EndProcedure
 ; Returns: ASCII/Unicode value of character, or 0 if out of bounds
 ; Uses direct memory access for speed (works in both PB and SB)
 Procedure C2BUILTIN_GETC()
+   ; V1.31.0: Read params from gEvalStack[]
    vm_DebugFunctionName()
    Protected paramCount.i = vm_GetParamCount()
    Protected result.i
    Protected *s, idx.i, slen.i
 
    If paramCount >= 2
-      idx = gVar(sp - 1)\i
-      *s = @gVar(sp - 2)\ss
-      slen = Len(gVar(sp - 2)\ss)
+      idx = gEvalStack(sp - 1)\i
+      *s = @gEvalStack(sp - 2)\ss
+      slen = Len(gEvalStack(sp - 2)\ss)
       If idx >= 0 And idx < slen
          result = PeekC(*s + idx * SizeOf(Character))  ; Direct memory access
       Else

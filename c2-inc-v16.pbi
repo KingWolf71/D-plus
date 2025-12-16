@@ -13,27 +13,34 @@
 ;
 ; Common constants and structures
 ;
-; V1.18.0 - UNIFIED VARIABLE SYSTEM
-; ===================================
-; All variables (global and local) now use the same gVar[] array and opcodes.
-; Local variables are allocated as temporary gVar[] slots during function calls.
-; Benefits: Simpler code, one method for all variables, easier to understand.
+; V1.31.0 - ISOLATED VARIABLE SYSTEM (replaces Unified V1.18.0)
+; ==============================================================
+; Complete isolation between global variables, local variables, and evaluation stack.
+; Three separate arrays prevent any possibility of stack/local overlap bugs.
 ;
-; Variable Allocation:
-;   - gVar[0 to gnLastVariable-1]              : Permanent global variables
-;   - gVar[gnLastVariable to gCurrentMaxLocal] : Active local variables (nested calls)
-;   - gVar[gCurrentMaxLocal onwards]           : Evaluation stack (sp starts here)
+; Storage Model:
+;   - gVar[]      : Global variables ONLY (permanent, indexed by slot)
+;   - gLocal[]    : Local variables ONLY (per-function frame, indexed by offset)
+;   - gEvalStack[]: Evaluation stack ONLY (sp-indexed, completely isolated)
+;
+; Opcode Categories (LL/GG/LG/GL):
+;   - GG: Global to Global - MOV, MOVF, MOVS
+;   - LL: Local to Local   - LLMOV, LLMOVF, LLMOVS
+;   - GL: Global to Local  - LMOV, LMOVF, LMOVS
+;   - LG: Local to Global  - LGMOV, LGMOVF, LGMOVS
+;   - GS: Global to Stack  - FETCH, FETCHF, FETCHS
+;   - LS: Local to Stack   - LFETCH, LFETCHF, LFETCHS
+;   - SG: Stack to Global  - STORE, STOREF, STORES
+;   - SL: Stack to Local   - LSTORE, LSTOREF, LSTORES
 ;
 ; Local variable access:
-;   - paramOffset >= 0: actualSlot = localSlotStart + paramOffset
-;   - paramOffset = -1: use varSlot directly (global)
-;   - All variables use FETCH/STORE/MOV opcodes (no separate LFETCH/LSTORE/LMOV)
+;   - paramOffset >= 0: index into gLocal[] from current frame's localBase
+;   - paramOffset = -1: global variable (use gVar[slot] directly)
 ;
 ; V1.18.12 - paramOffset Space Allocation:
 ;   - Regular local variables: paramOffset = 0 to nLocals-1
 ;   - Local arrays: paramOffset = 1000 to 1000+nLocalArrays-1
-;   - Separation needed because arrays use gVar[slot].dta.ar() while variables use gVar[slot].i/.f/.ss
-;   - A gVar[] slot can hold EITHER a scalar value OR an array, but not both
+;   - Separation needed because arrays use .dta.ar() while variables use .i/.f/.ss
 
 ; ======================================================================================================
 ;- Constants
@@ -42,8 +49,12 @@
 #INV$             = ~"\""
 #DEBUG            = 0
 
-#C2MAXTOKENS      = 500   ; Legacy, use #C2TOKENCOUNT for actual count   
+#C2MAXTOKENS      = 500   ; Legacy, use #C2TOKENCOUNT for actual count
 #C2MAXCONSTANTS   = 8192
+
+; V1.31.0: Isolated Variable System array sizes
+#C2MAXLOCALS      = 8192  ; gLocal[] size - local variable slots across nested calls
+#C2MAXEVALSTACK   = 4096  ; gEvalStack[] size - evaluation stack (separate from gVar/gLocal)
 
 #C2FLAG_TYPE      = 28   ; Mask for type bits only (INT | FLOAT | STR = 4|8|16 = 28)
 #C2FLAG_CONST     = 1
@@ -64,6 +75,10 @@
 
 ; V1.026.0: Default max maps - can be changed via #pragma maxmaps
 #C2_DEFAULT_MAX_MAPS = 64
+
+; V1.031.32: Local variable slot flags (for runtime local detection)
+#C2_LOCAL_COLLECTION_FLAG = $40000000  ; High bit indicates local slot
+#C2_SLOT_MASK = $3FFFFFFF              ; Mask to extract real slot number
 
 Enumeration
    #C2HOLE_START
@@ -201,7 +216,7 @@ Enumeration
    #ljNOOPIF       ; Marker for ternary fix() positions (removed after FixJMP)
 
    ; V1.024.0: New opcodes for switch statement
-   #ljDUP          ; Duplicate top of stack (generic, kept for compatibility)
+   #ljDUP          ; Duplicate top of stack (generic)
    #ljDUP_I        ; V1.024.4: Duplicate integer (also pointers, arrays, structs)
    #ljDUP_F        ; V1.024.4: Duplicate float
    #ljDUP_S        ; V1.024.4: Duplicate string
@@ -215,26 +230,26 @@ Enumeration
    #ljSTORES
    #ljSTOREF
 
-   ;- Local Variable Opcodes (V1.022.31: Restored and expanded)
-   ; V1.18.0 had marked these deprecated, but they're needed for proper local variable handling
-   ; LMOV/LFETCH/LSTORE = Global-to-Local or Local-to-Stack operations (kept for compatibility)
-   #ljLMOV       ; GL MOV: gVar[localBase+i] = gVar[j] (Global → Local)
+   ;- Local Variable Opcodes (V1.31.0: Isolated Variable System)
+   ; V1.31.0: Locals stored in gLocal[], globals in gVar[], eval stack in gEvalStack[]
+   ; LMOV/LFETCH/LSTORE operate on gLocal[] array (isolated from gVar[])
+   #ljLMOV       ; GL MOV: gLocal[offset] = gVar[slot] (Global → Local)
    #ljLMOVS      ; GL MOVS: string variant
    #ljLMOVF      ; GL MOVF: float variant
-   #ljLFETCH     ; Local FETCH: push gVar[localBase+i] to stack
+   #ljLFETCH     ; Local FETCH: push gLocal[offset] to gEvalStack
    #ljLFETCHS    ; Local FETCHS: string variant
    #ljLFETCHF    ; Local FETCHF: float variant
-   #ljLSTORE     ; Local STORE: pop stack to gVar[localBase+i]
+   #ljLSTORE     ; Local STORE: pop gEvalStack to gLocal[offset]
    #ljLSTORES    ; Local STORES: string variant
    #ljLSTOREF    ; Local STOREF: float variant
 
-   ;- V1.022.31: New cross-locality MOV opcodes for complete local/global transfer matrix
-   ; Format: [src][dst]MOV where L=Local, G=Global
-   ; LMOV above is actually GLMOV (kept for compatibility)
-   #ljLGMOV      ; LG MOV: gVar[i] = gVar[localBase+j] (Local → Global)
+   ;- Cross-locality MOV opcodes (LL/LG/GL matrix)
+   ; Format: [src][dst]MOV where L=Local (gLocal[]), G=Global (gVar[])
+   ; LMOV is GL (Global → Local), use LGMOV for Local → Global
+   #ljLGMOV      ; LG MOV: gVar[slot] = gLocal[offset] (Local → Global)
    #ljLGMOVS     ; LG MOVS: string variant
    #ljLGMOVF     ; LG MOVF: float variant
-   #ljLLMOV      ; LL MOV: gVar[localBase+i] = gVar[localBase+j] (Local → Local)
+   #ljLLMOV      ; LL MOV: gLocal[dst] = gLocal[src] (Local → Local)
    #ljLLMOVS     ; LL MOVS: string variant
    #ljLLMOVF     ; LL MOVF: float variant
 
@@ -246,13 +261,13 @@ Enumeration
    #ljINC_VAR_POST   ; Post-increment: push old value and increment
    #ljDEC_VAR_POST   ; Post-decrement: push old value and decrement
 
-   ;- DEPRECATED: Local increment/decrement opcodes (kept for compatibility)
-   #ljLINC_VAR       ; DEPRECATED - Use #ljINC_VAR with unified slot calculation
-   #ljLDEC_VAR       ; DEPRECATED - Use #ljDEC_VAR with unified slot calculation
-   #ljLINC_VAR_PRE   ; DEPRECATED - Use #ljINC_VAR_PRE with unified slot calculation
-   #ljLDEC_VAR_PRE   ; DEPRECATED - Use #ljDEC_VAR_PRE with unified slot calculation
-   #ljLINC_VAR_POST  ; DEPRECATED - Use #ljINC_VAR_POST with unified slot calculation
-   #ljLDEC_VAR_POST  ; DEPRECATED - Use #ljDEC_VAR_POST with unified slot calculation
+   ;- Local increment/decrement opcodes (operate on gLocal[])
+   #ljLINC_VAR       ; Increment local variable in place
+   #ljLDEC_VAR       ; Decrement local variable in place
+   #ljLINC_VAR_PRE   ; Pre-increment local: increment and push new value
+   #ljLDEC_VAR_PRE   ; Pre-decrement local: decrement and push new value
+   #ljLINC_VAR_POST  ; Post-increment local: push old value and increment
+   #ljLDEC_VAR_POST  ; Post-decrement local: push old value and decrement
 
    ;- Pointer increment/decrement opcodes (V1.20.36: pointer arithmetic)
    #ljPTRINC         ; Increment pointer by sizeof(basetype) (no stack operation)
@@ -261,6 +276,10 @@ Enumeration
    #ljPTRDEC_PRE     ; Pre-decrement pointer: decrement and push new value
    #ljPTRINC_POST    ; Post-increment pointer: push old value and increment
    #ljPTRDEC_POST    ; Post-decrement pointer: push old value and decrement
+
+   ;- Struct storage opcode (V1.029.84)
+   #ljSTORE_STRUCT   ; Store to struct variable: pops stack, copies both \i and \ptr (for pointer semantics)
+   #ljLSTORE_STRUCT  ; V1.031.32: Local variant - stores to gLocal[offset] instead of gVar[]
 
    ;- In-place compound assignment opcodes (optimized by post-processor)
    #ljADD_ASSIGN_VAR     ; Pop stack, add to variable, store (var = var + stack)
@@ -529,6 +548,29 @@ Enumeration
    ;  _AR()\i = dest base slot, _AR()\j = source base slot, _AR()\n = size (slots)
    #ljSTRUCTCOPY                  ; Copy struct: destStruct = srcStruct
 
+   ;- V1.029.36: Struct Pointer Opcodes - unified \ptr storage
+   ;  All struct variables use gVar(slot)\ptr for contiguous memory storage
+   ;  Field offset = field_index * 8 (8 bytes per field: int=Q, float=D)
+   #ljSTRUCT_ALLOC                ; Allocate global struct: _AR()\i = slot, _AR()\j = byte size
+   #ljSTRUCT_ALLOC_LOCAL          ; Allocate local struct: _AR()\i = paramOffset, _AR()\j = byte size
+   #ljSTRUCT_FREE                 ; Free struct memory: _AR()\i = slot
+   #ljSTRUCT_FETCH_INT            ; Fetch int from global struct: _AR()\i = slot, _AR()\j = byte offset
+   #ljSTRUCT_FETCH_FLOAT          ; Fetch float from global struct: _AR()\i = slot, _AR()\j = byte offset
+   #ljSTRUCT_FETCH_INT_LOCAL      ; Fetch int from local struct: _AR()\i = paramOffset, _AR()\j = byte offset
+   #ljSTRUCT_FETCH_FLOAT_LOCAL    ; Fetch float from local struct: _AR()\i = paramOffset, _AR()\j = byte offset
+   #ljSTRUCT_STORE_INT            ; Store int to global struct: _AR()\i = slot, _AR()\j = byte offset, value on stack
+   #ljSTRUCT_STORE_FLOAT          ; Store float to global struct: _AR()\i = slot, _AR()\j = byte offset, value on stack
+   #ljSTRUCT_STORE_INT_LOCAL      ; Store int to local struct: _AR()\i = paramOffset, _AR()\j = byte offset, value on stack
+   #ljSTRUCT_STORE_FLOAT_LOCAL    ; Store float to local struct: _AR()\i = paramOffset, _AR()\j = byte offset, value on stack
+   ; V1.029.55: String variants for struct fields
+   #ljSTRUCT_FETCH_STR            ; Fetch string from global struct: _AR()\i = slot, _AR()\j = byte offset
+   #ljSTRUCT_FETCH_STR_LOCAL      ; Fetch string from local struct: _AR()\i = paramOffset, _AR()\j = byte offset
+   #ljSTRUCT_STORE_STR            ; Store string to global struct: _AR()\i = slot, _AR()\j = byte offset, value on stack
+   #ljSTRUCT_STORE_STR_LOCAL      ; Store string to local struct: _AR()\i = paramOffset, _AR()\j = byte offset, value on stack
+   #ljSTRUCT_COPY_PTR             ; Copy struct memory: _AR()\i = dest slot, _AR()\j = src slot, _AR()\n = byte size
+   #ljFETCH_STRUCT                ; V1.029.38: Fetch global struct for parameter passing (copies \i AND \ptr)
+   #ljLFETCH_STRUCT               ; V1.029.38: Fetch local struct for parameter passing (copies \i AND \ptr)
+
    ;- V1.026.0: List Operations - Keywords and Generic Opcodes
    ;  V1.026.8: Pool slot popped from stack (via FETCH/LFETCH), no gVar lookup needed
    ;  Generic opcodes converted to typed by postprocessor
@@ -565,6 +607,13 @@ Enumeration
    #ljLIST_SET_FLOAT              ; Set current float element - pool slot, value on stack
    #ljLIST_SET_STR                ; Set current string element - pool slot, value on stack
 
+   ;- V1.029.28: Struct List Opcodes
+   ;  Stack: [..., pool_slot, field1, field2, ...] for add/set
+   ;  _AR()\i = struct size (number of fields), _AR()\j = base slot for field types
+   #ljLIST_ADD_STRUCT             ; Add struct element - pool slot + N fields on stack
+   #ljLIST_GET_STRUCT             ; Get current struct - pool slot on stack, push N fields
+   #ljLIST_SET_STRUCT             ; Set current struct - pool slot + N fields on stack
+
    ;- V1.026.0: Map Operations - Keywords and Generic Opcodes
    ;  V1.026.8: Pool slot popped from stack (via FETCH/LFETCH), no gVar lookup needed
    ;  Keys are always strings, generic value opcodes converted to typed by postprocessor
@@ -592,6 +641,22 @@ Enumeration
    #ljMAP_VALUE_INT               ; Push current int value - pool slot on stack
    #ljMAP_VALUE_FLOAT             ; Push current float value - pool slot on stack
    #ljMAP_VALUE_STR               ; Push current string value - pool slot on stack
+
+   ;- V1.029.28: Struct Map Opcodes
+   ;  Stack: [..., pool_slot, key, field1, field2, ...] for put
+   ;  _AR()\i = struct size (number of fields), _AR()\j = base slot for field types
+   #ljMAP_PUT_STRUCT              ; Put struct value - pool slot, key, N fields on stack
+   #ljMAP_GET_STRUCT              ; Get struct by key - pool slot, key on stack, push N fields
+   #ljMAP_VALUE_STRUCT            ; Push current struct value - pool slot on stack, push N fields
+
+   ;- V1.029.65: \ptr-based Struct Collection Opcodes (for V1.029.40+ \ptr storage)
+   ;  These read/write struct data directly from/to gVar(slot)\ptr memory
+   ;  Stack: [pool_slot, struct_slot] for add/put (struct data read from \ptr)
+   ;  _AR()\i = byte size of struct
+   #ljLIST_ADD_STRUCT_PTR         ; Add struct from \ptr storage - pool slot, struct slot on stack
+   #ljLIST_GET_STRUCT_PTR         ; Get struct to \ptr storage - pool slot on stack, dest slot in \j
+   #ljMAP_PUT_STRUCT_PTR          ; Put struct from \ptr storage - pool slot, key, struct slot on stack
+   #ljMAP_GET_STRUCT_PTR          ; Get struct to \ptr storage - pool slot, key on stack, dest slot in \j
 
    ; V1.026.0: Special opcode for collection function first parameter
    ; V1.026.8: DEPRECATED - use FETCH/LFETCH instead (pool slot stored in gVar[slot]\i or LOCAL[offset])
@@ -756,11 +821,19 @@ Enumeration  ; Pointer Types
    #PTR_INT = 1            ; Pointer to integer variable
    #PTR_FLOAT = 2          ; Pointer to float variable
    #PTR_STRING = 3         ; Pointer to string variable
-   #PTR_ARRAY_INT = 4      ; Pointer to integer array element
-   #PTR_ARRAY_FLOAT = 5    ; Pointer to float array element
-   #PTR_ARRAY_STRING = 6   ; Pointer to string array element
+   #PTR_ARRAY_INT = 4      ; Pointer to integer array element (GLOBAL array in gVar[])
+   #PTR_ARRAY_FLOAT = 5    ; Pointer to float array element (GLOBAL array in gVar[])
+   #PTR_ARRAY_STRING = 6   ; Pointer to string array element (GLOBAL array in gVar[])
    #PTR_FUNCTION = 7       ; Pointer to function (PC address)
    #PTR_STRUCT = 8         ; V1.022.54: Pointer to struct (base slot in ptr field)
+   ; V1.031.22: LOCAL array pointer types (array stored in gLocal[], not gVar[])
+   #PTR_LOCAL_ARRAY_INT = 9      ; Pointer to local integer array element
+   #PTR_LOCAL_ARRAY_FLOAT = 10   ; Pointer to local float array element
+   #PTR_LOCAL_ARRAY_STRING = 11  ; Pointer to local string array element
+   ; V1.031.34: LOCAL simple variable pointer types (for pointers to local int/float/string variables)
+   #PTR_LOCAL_INT = 12           ; Pointer to local integer variable (uses gLocal[])
+   #PTR_LOCAL_FLOAT = 13         ; Pointer to local float variable (uses gLocal[])
+   #PTR_LOCAL_STRING = 14        ; Pointer to local string variable (uses gLocal[])
 EndEnumeration
 
 ; Runtime value arrays - separated by type for maximum VM performance
@@ -768,8 +841,8 @@ Structure stVarMeta  ; Compile-time metadata and constant values
    name.s
    flags.w
    paramOffset.i        ; -1 = global variable (use varSlot directly)
-                        ; >= 0 = local variable (offset from localSlotStart)
-                        ; Used at runtime to compute: actualSlot = localSlotStart + paramOffset
+                        ; >= 0 = local variable (offset from localBase)
+                        ; V1.31.0: Used at runtime to compute: actualSlot = localBase + paramOffset
    typeSpecificIndex.i  ; For local arrays: index within function's local array list
    ; Array metadata (compile-time only)
    arraySize.i          ; Number of elements (0 if not array)
@@ -782,6 +855,11 @@ Structure stVarMeta  ; Compile-time metadata and constant values
    structType.s         ; For struct vars: name of struct type (key in mapStructDefs)
    ; Pointer metadata (V1.022.54)
    pointsToStructType.s ; For struct pointers: struct type that pointer points to
+   ; V1.029.37: Struct field access metadata (for \ptr storage)
+   structFieldBase.i    ; Base slot of parent struct (-1 if not a struct field)
+   structFieldOffset.i  ; Byte offset within struct memory (field_index * 8)
+   ; V1.029.40: Track if STRUCT_ALLOC has been emitted for this struct
+   structAllocEmitted.b ; True if STRUCT_ALLOC has been emitted for this struct base slot
 EndStructure
 
 Structure stATR
@@ -865,6 +943,8 @@ Global               gnGlobalVariables.i  ; V1.020.057: Count of global variable
 Global               gnTotalTokens.i
 Global               gPtrFetchExpectedType.w  ; V1.20.5: Expected type for PTRFETCH (0=use generic)
 Global               gnTempSlotCounter.i  ; V1.022.20: Counter for temp slot names ($sar0, $sar1, etc.)
+Global               gExtraStructSlots.i  ; V1.029.5: Extra slots pushed for struct parameters
+Global               gDotFieldType.w      ; V1.029.19: Field type from DOT notation handler (for typed LFETCH)
 
 ;- Macros
 Macro          _ASMLineHelper1(view, uvar)
@@ -1101,7 +1181,9 @@ Macro                   _AR()
    arCode(pc)
 EndMacro
 Macro                   _LARRAY(offset)
-   (gStack(gStackDepth)\localSlotStart + offset)
+   ; V1.031.14: Use global gLocalBase, NOT stack frame's localBase
+   ; Stack frame stores CALLER's base for restoration, not current function's base
+   (gLocalBase + offset)
 EndMacro
 ;- End of file
 
@@ -1415,51 +1497,55 @@ c2tokens:
    Data.i   0, 0
    Data.s   "LDEC_VAR"
    Data.i   0, 0
-   Data.s   "LINC_VAR_PRE"
+   Data.s   "LINCV_PRE"
    Data.i   0, 0
-   Data.s   "LDEC_VAR_PRE"
+   Data.s   "LDECV_PRE"
    Data.i   0, 0
-   Data.s   "LINC_VAR_POST"
+   Data.s   "LINCV_POST"
    Data.i   0, 0
-   Data.s   "LDEC_VAR_POST"
+   Data.s   "LDECV_POST"
    Data.i   0, 0
 
    ; Pointer increment/decrement opcodes (V1.20.36)
-   Data.s   "PTRINC"
+   Data.s   "INCP"
    Data.i   0, 0
-   Data.s   "PTRDEC"
+   Data.s   "DECP"
    Data.i   0, 0
-   Data.s   "PTRINC_PRE"
+   Data.s   "INCP_PRE"
    Data.i   0, 0
-   Data.s   "PTRDEC_PRE"
+   Data.s   "DECP_PRE"
    Data.i   0, 0
-   Data.s   "PTRINC_POST"
+   Data.s   "INCP_POST"
    Data.i   0, 0
-   Data.s   "PTRDEC_POST"
+   Data.s   "DECP_POST"
    Data.i   0, 0
 
-   ; In-place compound assignment opcodes
-   Data.s   "ADD_ASSVAR"
+   ; V1.029.84: Struct storage opcode
+   Data.s   "STOSTRUCT"
    Data.i   0, 0
-   Data.s   "SUB_ASSVAR"         ; ASS = ASSIGN
+
+   ; In-place compound assignment opcodes (renamed V1.029.61)
+   Data.s   "ADDASS"
    Data.i   0, 0
-   Data.s   "MUL_ASSVAR"
+   Data.s   "SUBASS"
    Data.i   0, 0
-   Data.s   "DIV_ASSVAR"
+   Data.s   "MULASS"
    Data.i   0, 0
-   Data.s   "MOD_ASSVAR"
+   Data.s   "DIVASS"
    Data.i   0, 0
-   Data.s   "FLADD_ASSVAR"
+   Data.s   "MODASS"
    Data.i   0, 0
-   Data.s   "FLSUB_ASSVAR"
+   Data.s   "ADDASSF"
    Data.i   0, 0
-   Data.s   "FLMUL_ASSVAR"
+   Data.s   "SUBASSF"
    Data.i   0, 0
-   Data.s   "FLDIV_ASSVAR"
+   Data.s   "MULASSF"
    Data.i   0, 0
-   Data.s   "PTRADD_ASSIGN"
+   Data.s   "DIVASSF"
    Data.i   0, 0
-   Data.s   "PTRSUB_ASSIGN"
+   Data.s   "ADDPTRA"
+   Data.i   0, 0
+   Data.s   "SUBPTRA"
    Data.i   0, 0
 
    ; Built-in functions
@@ -1508,185 +1594,185 @@ c2tokens:
    Data.s   "SARRSTORE"
    Data.i   0, 0
 
-   ; Specialized array fetch opcodes (no runtime branching)
-   Data.s   "GFETCHARINT_O"
+   ; Specialized array fetch opcodes (renamed V1.029.61 - FCHR=fetch char)
+   Data.s   "GFCHR_O"
    Data.i   0, 0
-   Data.s   "GFETCHARINT_K"
+   Data.s   "GFCHR_K"
    Data.i   0, 0
-   Data.s   "LFETCHARINT_O"
+   Data.s   "LFCHR_O"
    Data.i   0, 0
-   Data.s   "LFETCHARINT_K"
+   Data.s   "LFCHR_K"
    Data.i   0, 0
-   Data.s   "GFETCHARFLT_O"
+   Data.s   "GFCHRF_O"
    Data.i   0, 0
-   Data.s   "GFETCHARFLT_K"
+   Data.s   "GFCHRF_K"
    Data.i   0, 0
-   Data.s   "LFETCHARFLT_O"
+   Data.s   "LFCHRF_O"
    Data.i   0, 0
-   Data.s   "LFETCHARFLT_K"
+   Data.s   "LFCHRF_K"
    Data.i   0, 0
-   Data.s   "GFETCHARSTR_O"
+   Data.s   "GFCHRS_O"
    Data.i   0, 0
-   Data.s   "GFETCHARSTR_K"
+   Data.s   "GFCHRS_K"
    Data.i   0, 0
-   Data.s   "LFETCHARSTR_O"
+   Data.s   "LFCHRS_O"
    Data.i   0, 0
-   Data.s   "LFETCHARSTR_K"
-   Data.i   0, 0
-
-   ; Specialized array store opcodes (no runtime branching)
-   Data.s   "GISTOREAR_OO"
-   Data.i   0, 0
-   Data.s   "GISTOREAR_OS"
-   Data.i   0, 0
-   Data.s   "GISTOREAR_SO"
-   Data.i   0, 0
-   Data.s   "GISTOREAR_SS"
-   Data.i   0, 0
-   Data.s   "LISTOREAR_OO"
-   Data.i   0, 0
-   Data.s   "LISTOREAR_OS"
-   Data.i   0, 0
-   Data.s   "LISTOREAR_SO"
-   Data.i   0, 0
-   Data.s   "LISTOREAR_SS"
-   Data.i   0, 0
-   Data.s   "GFSTOREAR_OO"
-   Data.i   0, 0
-   Data.s   "GFSTOREAR_OS"
-   Data.i   0, 0
-   Data.s   "GFSTOREAR_SO"
-   Data.i   0, 0
-   Data.s   "GFSTOREAR_SS"
-   Data.i   0, 0
-   Data.s   "LFSTOREAR_OO"
-   Data.i   0, 0
-   Data.s   "LFSTOREAR_OS"
-   Data.i   0, 0
-   Data.s   "LFSTOREAR_SO"
-   Data.i   0, 0
-   Data.s   "LFSTOREAR_SS"
-   Data.i   0, 0
-   Data.s   "GSSTOREAR_OO"
-   Data.i   0, 0
-   Data.s   "GSSTOREAR_OS"
-   Data.i   0, 0
-   Data.s   "GSSTOREAR_SO"
-   Data.i   0, 0
-   Data.s   "GSSTOREAR_SS"
-   Data.i   0, 0
-   Data.s   "LSSTOREAR_OO"
-   Data.i   0, 0
-   Data.s   "LSSTOREAR_OS"
-   Data.i   0, 0
-   Data.s   "LSSTOREAR_SO"
-   Data.i   0, 0
-   Data.s   "LSSTOREAR_SS"
+   Data.s   "LFCHRS_K"
    Data.i   0, 0
 
-   ; V1.022.114: OPT_LOPT opcodes (global index, local value)
-   Data.s   "GISTOREAR_OLO"
+   ; Specialized array store opcodes (renamed V1.029.61 - STAR=store array)
+   Data.s   "GSTAR_OO"
    Data.i   0, 0
-   Data.s   "GFSTOREAR_OLO"
+   Data.s   "GSTAR_OS"
    Data.i   0, 0
-   Data.s   "GSSTOREAR_OLO"
+   Data.s   "GSTAR_SO"
    Data.i   0, 0
-
-   ; V1.022.115: LOCAL OPT_LOPT opcodes (local array, global index, local value)
-   Data.s   "LISTOREAR_OLO"
+   Data.s   "GSTAR_SS"
    Data.i   0, 0
-   Data.s   "LFSTOREAR_OLO"
+   Data.s   "LSTAR_OO"
    Data.i   0, 0
-   Data.s   "LSSTOREAR_OLO"
+   Data.s   "LSTAR_OS"
    Data.i   0, 0
-
-   ; V1.022.86: Local-Index Array Opcodes
-   Data.s   "GFETCHARINT_LO"
+   Data.s   "LSTAR_SO"
    Data.i   0, 0
-   Data.s   "GFETCHARFLT_LO"
+   Data.s   "LSTAR_SS"
    Data.i   0, 0
-   Data.s   "GFETCHARSTR_LO"
+   Data.s   "GSTARF_OO"
    Data.i   0, 0
-   Data.s   "GISTOREAR_LOLO"
+   Data.s   "GSTARF_OS"
    Data.i   0, 0
-   Data.s   "GISTOREAR_LOO"
+   Data.s   "GSTARF_SO"
    Data.i   0, 0
-   Data.s   "GISTOREAR_LOS"
+   Data.s   "GSTARF_SS"
    Data.i   0, 0
-   Data.s   "GFSTOREAR_LOLO"
+   Data.s   "LSTARF_OO"
    Data.i   0, 0
-   Data.s   "GFSTOREAR_LOO"
+   Data.s   "LSTARF_OS"
    Data.i   0, 0
-   Data.s   "GFSTOREAR_LOS"
+   Data.s   "LSTARF_SO"
    Data.i   0, 0
-   Data.s   "GSSTOREAR_LOLO"
+   Data.s   "LSTARF_SS"
    Data.i   0, 0
-   Data.s   "GSSTOREAR_LOO"
+   Data.s   "GSTARS_OO"
    Data.i   0, 0
-   Data.s   "GSSTOREAR_LOS"
+   Data.s   "GSTARS_OS"
    Data.i   0, 0
-
-   ; V1.022.113: Local-Index Array Opcodes for LOCAL arrays
-   Data.s   "LFETCHARINT_LO"
+   Data.s   "GSTARS_SO"
    Data.i   0, 0
-   Data.s   "LFETCHARFLT_LO"
+   Data.s   "GSTARS_SS"
    Data.i   0, 0
-   Data.s   "LFETCHARSTR_LO"
+   Data.s   "LSTARS_OO"
    Data.i   0, 0
-   Data.s   "LISTOREAR_LOLO"
+   Data.s   "LSTARS_OS"
    Data.i   0, 0
-   Data.s   "LISTOREAR_LOO"
+   Data.s   "LSTARS_SO"
    Data.i   0, 0
-   Data.s   "LISTOREAR_LOS"
-   Data.i   0, 0
-   Data.s   "LFSTOREAR_LOLO"
-   Data.i   0, 0
-   Data.s   "LFSTOREAR_LOO"
-   Data.i   0, 0
-   Data.s   "LFSTOREAR_LOS"
-   Data.i   0, 0
-   Data.s   "LSSTOREAR_LOLO"
-   Data.i   0, 0
-   Data.s   "LSSTOREAR_LOO"
-   Data.i   0, 0
-   Data.s   "LSSTOREAR_LOS"
+   Data.s   "LSTARS_SS"
    Data.i   0, 0
 
-   ; Pointer operations
-   Data.s   "GETADDR"
+   ; V1.022.114: OPT_LOPT opcodes (renamed V1.029.61)
+   Data.s   "GSTAR_OLO"
    Data.i   0, 0
-   Data.s   "GETADDRF"
+   Data.s   "GSTARF_OLO"
    Data.i   0, 0
-   Data.s   "GETADDRS"
+   Data.s   "GSTARS_OLO"
    Data.i   0, 0
-   ; V1.027.2: Local variable address opcodes
-   Data.s   "GETLOCALADDR"
+
+   ; V1.022.115: LOCAL OPT_LOPT opcodes (renamed V1.029.61)
+   Data.s   "LSTAR_OLO"
    Data.i   0, 0
-   Data.s   "GETLOCALADDRF"
+   Data.s   "LSTARF_OLO"
    Data.i   0, 0
-   Data.s   "GETLOCALADDRS"
+   Data.s   "LSTARS_OLO"
    Data.i   0, 0
-   Data.s   "PTRFETCH"
+
+   ; V1.022.86: Local-Index Array Opcodes (renamed V1.029.61)
+   Data.s   "GFCHR_LO"
+   Data.i   0, 0
+   Data.s   "GFCHRF_LO"
+   Data.i   0, 0
+   Data.s   "GFCHRS_LO"
+   Data.i   0, 0
+   Data.s   "GSTAR_LOLO"
+   Data.i   0, 0
+   Data.s   "GSTAR_LOO"
+   Data.i   0, 0
+   Data.s   "GSTAR_LOS"
+   Data.i   0, 0
+   Data.s   "GSTARF_LOLO"
+   Data.i   0, 0
+   Data.s   "GSTARF_LOO"
+   Data.i   0, 0
+   Data.s   "GSTARF_LOS"
+   Data.i   0, 0
+   Data.s   "GSTARS_LOLO"
+   Data.i   0, 0
+   Data.s   "GSTARS_LOO"
+   Data.i   0, 0
+   Data.s   "GSTARS_LOS"
+   Data.i   0, 0
+
+   ; V1.022.113: Local-Index Array Opcodes for LOCAL arrays (renamed V1.029.61)
+   Data.s   "LFCHR_LO"
+   Data.i   0, 0
+   Data.s   "LFCHRF_LO"
+   Data.i   0, 0
+   Data.s   "LFCHRS_LO"
+   Data.i   0, 0
+   Data.s   "LSTAR_LOLO"
+   Data.i   0, 0
+   Data.s   "LSTAR_LOO"
+   Data.i   0, 0
+   Data.s   "LSTAR_LOS"
+   Data.i   0, 0
+   Data.s   "LSTARF_LOLO"
+   Data.i   0, 0
+   Data.s   "LSTARF_LOO"
+   Data.i   0, 0
+   Data.s   "LSTARF_LOS"
+   Data.i   0, 0
+   Data.s   "LSTARS_LOLO"
+   Data.i   0, 0
+   Data.s   "LSTARS_LOO"
+   Data.i   0, 0
+   Data.s   "LSTARS_LOS"
+   Data.i   0, 0
+
+   ; Pointer operations (renamed V1.029.61)
+   Data.s   "ADDR"
+   Data.i   0, 0
+   Data.s   "ADDRF"
+   Data.i   0, 0
+   Data.s   "ADDRS"
+   Data.i   0, 0
+   ; V1.027.2: Local variable address opcodes (renamed V1.029.61)
+   Data.s   "LADDR"
+   Data.i   0, 0
+   Data.s   "LADDRF"
+   Data.i   0, 0
+   Data.s   "LADDRS"
+   Data.i   0, 0
+   Data.s   "FETPTR"
    Data.i   #ljPTRFETCH_FLOAT, #ljPTRFETCH_STR
-   Data.s   "IPTRFETCH"
+   Data.s   "FETPTR_I"
    Data.i   0, 0
-   Data.s   "FPTRFETCH"
+   Data.s   "FETPTRF"
    Data.i   0, 0
-   Data.s   "SPTRFETCH"
+   Data.s   "FETPTRS"
    Data.i   0, 0
-   Data.s   "PTRSTORE"
+   Data.s   "STOPTR"
    Data.i   #ljPTRSTORE_FLOAT, #ljPTRSTORE_STR
-   Data.s   "IPTRSTORE"
+   Data.s   "STOPTR_I"
    Data.i   0, 0
-   Data.s   "FPTRSTORE"
+   Data.s   "STOPTRF"
    Data.i   0, 0
-   Data.s   "SPTRSTORE"
+   Data.s   "STOPTRS"
    Data.i   0, 0
-   Data.s   "PTRFIELD_I"
+   Data.s   "FLDPTR"
    Data.i   0, 0
-   Data.s   "PTRFIELD_F"
+   Data.s   "FLDPTRF"
    Data.i   0, 0
-   Data.s   "PTRFIELD_S"
+   Data.s   "FLDPTRS"
    Data.i   0, 0
    ; V1.022.44: AST node types for struct array field access (in enumeration, need entries)
    Data.s   "SAFLD_I"
@@ -1699,24 +1785,24 @@ c2tokens:
    Data.i   0, 0
    Data.s   "PTRSUB"
    Data.i   0, 0
-   Data.s   "GETFUNCADDR"
+   Data.s   "ADDRFN"
    Data.i   0, 0
-   Data.s   "CALLFUNCPTR"
+   Data.s   "CALLFP"
    Data.i   0, 0
 
-   ; Array pointer opcodes
-   Data.s   "GETARRAYADDR"
+   ; Array pointer opcodes (renamed V1.029.61)
+   Data.s   "ADDRAR"
    Data.i   0, 0
-   Data.s   "GETARRAYADDRF"
+   Data.s   "ADDRARF"
    Data.i   0, 0
-   Data.s   "GETARRAYADDRS"
+   Data.s   "ADDRARS"
    Data.i   0, 0
-   ; V1.027.2: Local array address opcodes
-   Data.s   "GETLOCALARRAYADDR"
+   ; V1.027.2: Local array address opcodes (renamed V1.029.61)
+   Data.s   "LADDRAR"
    Data.i   0, 0
-   Data.s   "GETLOCALARRAYADDRF"
+   Data.s   "LADDRARF"
    Data.i   0, 0
-   Data.s   "GETLOCALARRAYADDRS"
+   Data.s   "LADDRARS"
    Data.i   0, 0
 
    Data.s   "PRTPTR"
@@ -1746,102 +1832,102 @@ c2tokens:
    Data.s   "CAST_STR"
    Data.i   0, 0
 
-   ; V1.021.0: Structure support
+   ; V1.021.0: Structure support (renamed V1.029.61)
    Data.s   "STRUCT"
    Data.i   0, 0
-   Data.s   "STRUCTFIELD"
+   Data.s   "STFIELD"
    Data.i   0, 0
-   Data.s   "STRUCTINIT"
-   Data.i   0, 0
-
-   ; V1.022.0: Struct array field opcodes
-   Data.s   "SARFETCH_I_OK"
-   Data.i   0, 0
-   Data.s   "SARFETCH_F"
-   Data.i   0, 0
-   Data.s   "SARFETCH_S"
-   Data.i   0, 0
-   Data.s   "SARSTORE_I"
-   Data.i   0, 0
-   Data.s   "SARSTORE_F"
-   Data.i   0, 0
-   Data.s   "SARSTORE_S"
+   Data.s   "INITST"
    Data.i   0, 0
 
-   ; V1.022.44: Array of structs opcodes
-   Data.s   "AOSFETCH_I"
+   ; V1.022.0: Struct array field opcodes (renamed V1.029.61 - STAR=struct's array)
+   Data.s   "FETSTAR"
    Data.i   0, 0
-   Data.s   "AOSFETCH_F"
+   Data.s   "FETSTARF"
    Data.i   0, 0
-   Data.s   "AOSFETCH_S"
+   Data.s   "FETSTARS"
    Data.i   0, 0
-   Data.s   "AOSSTORE_I"
+   Data.s   "STOSTAR"
    Data.i   0, 0
-   Data.s   "AOSSTORE_F"
+   Data.s   "STOSTARF"
    Data.i   0, 0
-   Data.s   "AOSSTORE_S"
-   Data.i   0, 0
-
-   ; V1.022.118: ARRAYOFSTRUCT LOPT opcodes (index from local slot)
-   Data.s   "AOSFETCH_I_LO"
-   Data.i   0, 0
-   Data.s   "AOSFETCH_F_LO"
-   Data.i   0, 0
-   Data.s   "AOSFETCH_S_LO"
-   Data.i   0, 0
-   Data.s   "AOSSTORE_I_LO"
-   Data.i   0, 0
-   Data.s   "AOSSTORE_F_LO"
-   Data.i   0, 0
-   Data.s   "AOSSTORE_S_LO"
+   Data.s   "STOSTARS"
    Data.i   0, 0
 
-   ; V1.022.54: Struct pointer opcodes
-   Data.s   "GETSADDR"
+   ; V1.022.44: Array of structs opcodes (renamed V1.029.61 - ARST=array's struct)
+   Data.s   "FETARST"
    Data.i   0, 0
-   Data.s   "PSFETCH_I"
+   Data.s   "FETARSTF"
    Data.i   0, 0
-   Data.s   "PSFETCH_F"
+   Data.s   "FETARSTS"
    Data.i   0, 0
-   Data.s   "PSFETCH_S"
+   Data.s   "STOARST"
    Data.i   0, 0
-   Data.s   "PSSTORE_I"
+   Data.s   "STOARSTF"
    Data.i   0, 0
-   Data.s   "PSSTORE_F"
-   Data.i   0, 0
-   Data.s   "PSSTORE_S"
+   Data.s   "STOARSTS"
    Data.i   0, 0
 
-   ; V1.022.117: PTRSTRUCTSTORE LOPT opcodes (value from local slot)
-   Data.s   "PSSTORE_I_LO"
+   ; V1.022.118: Array of struct LOPT opcodes (renamed V1.029.61 - LI=local index)
+   Data.s   "FETARST_LI"
    Data.i   0, 0
-   Data.s   "PSSTORE_F_LO"
+   Data.s   "FETARSTF_LI"
    Data.i   0, 0
-   Data.s   "PSSTORE_S_LO"
+   Data.s   "FETARSTS_LI"
    Data.i   0, 0
-
-   ; V1.022.119: PTRSTRUCTFETCH LPTR opcodes (pointer from local slot)
-   Data.s   "PSFETCH_I_LP"
+   Data.s   "STOARST_LI"
    Data.i   0, 0
-   Data.s   "PSFETCH_F_LP"
+   Data.s   "STOARSTF_LI"
    Data.i   0, 0
-   Data.s   "PSFETCH_S_LP"
+   Data.s   "STOARSTS_LI"
    Data.i   0, 0
 
-   ; V1.022.119: PTRSTRUCTSTORE LPTR opcodes (pointer from local slot)
-   Data.s   "PSSTORE_I_LP"
+   ; V1.022.54: Struct pointer opcodes (renamed V1.029.61)
+   Data.s   "ADDRST"
    Data.i   0, 0
-   Data.s   "PSSTORE_F_LP"
+   Data.s   "FETPST"
    Data.i   0, 0
-   Data.s   "PSSTORE_S_LP"
+   Data.s   "FETPSTF"
+   Data.i   0, 0
+   Data.s   "FETPSTS"
+   Data.i   0, 0
+   Data.s   "STOPST"
+   Data.i   0, 0
+   Data.s   "STOPSTF"
+   Data.i   0, 0
+   Data.s   "STOPSTS"
    Data.i   0, 0
 
-   ; V1.022.119: PTRSTRUCTSTORE LPTR_LOPT opcodes (both pointer and value from local)
-   Data.s   "PSSTORE_I_LP_LO"
+   ; V1.022.117: PTRSTRUCTSTORE LOPT opcodes (renamed V1.029.61 - LV=local value)
+   Data.s   "STOPST_LV"
    Data.i   0, 0
-   Data.s   "PSSTORE_F_LP_LO"
+   Data.s   "STOPSTF_LV"
    Data.i   0, 0
-   Data.s   "PSSTORE_S_LP_LO"
+   Data.s   "STOPSTS_LV"
+   Data.i   0, 0
+
+   ; V1.022.119: PTRSTRUCTFETCH LPTR opcodes (renamed V1.029.61 - L=local ptr)
+   Data.s   "LFETPST"
+   Data.i   0, 0
+   Data.s   "LFETPSTF"
+   Data.i   0, 0
+   Data.s   "LFETPSTS"
+   Data.i   0, 0
+
+   ; V1.022.119: PTRSTRUCTSTORE LPTR opcodes (renamed V1.029.61 - L=local ptr)
+   Data.s   "LSTOPST"
+   Data.i   0, 0
+   Data.s   "LSTOPSTF"
+   Data.i   0, 0
+   Data.s   "LSTOPSTS"
+   Data.i   0, 0
+
+   ; V1.022.119: PTRSTRUCTSTORE LPTR_LOPT opcodes (renamed V1.029.61 - L=local ptr, LV=local val)
+   Data.s   "LSTOPST_LV"
+   Data.i   0, 0
+   Data.s   "LSTOPSTF_LV"
+   Data.i   0, 0
+   Data.s   "LSTOPSTS_LV"
    Data.i   0, 0
 
    ; V1.022.64: Array resize opcode
@@ -1850,6 +1936,46 @@ c2tokens:
 
    ; V1.022.65: Struct copy opcode
    Data.s   "SCOPY"
+   Data.i   0, 0
+
+   ; V1.029.36: Struct pointer opcodes (renamed V1.029.61)
+   Data.s   "ALLOCST"
+   Data.i   0, 0
+   Data.s   "LALLOCST"
+   Data.i   0, 0
+   Data.s   "FREEST"
+   Data.i   0, 0
+   Data.s   "FETST"
+   Data.i   0, 0
+   Data.s   "FETSTF"
+   Data.i   0, 0
+   Data.s   "LFETST"
+   Data.i   0, 0
+   Data.s   "LFETSTF"
+   Data.i   0, 0
+   Data.s   "STOST"
+   Data.i   0, 0
+   Data.s   "STOSTF"
+   Data.i   0, 0
+   Data.s   "LSTOST"
+   Data.i   0, 0
+   Data.s   "LSTOSTF"
+   Data.i   0, 0
+   ; V1.029.55: String struct field opcodes (renamed V1.029.61)
+   Data.s   "FETSTS"
+   Data.i   0, 0
+   Data.s   "LFETSTS"
+   Data.i   0, 0
+   Data.s   "STOSTS"
+   Data.i   0, 0
+   Data.s   "LSTOSTS"
+   Data.i   0, 0
+   Data.s   "COPYSTP"
+   Data.i   0, 0
+   ; V1.029.38: Struct parameter passing (renamed V1.029.61)
+   Data.s   "FETST_P"
+   Data.i   0, 0
+   Data.s   "LFETST_P"
    Data.i   0, 0
 
    ; V1.026.0: List operations
@@ -1888,30 +2014,38 @@ c2tokens:
    Data.s   "LIST_SORT"
    Data.i   0, 0
 
-   ; V1.026.8: Typed list operations (pool slot from stack, no runtime type check)
-   Data.s   "LIST_ADD_INT"
+   ; V1.026.8: Typed list operations (renamed V1.029.61 - LST=list)
+   Data.s   "LSTADD"
    Data.i   0, 0
-   Data.s   "LIST_ADD_FLOAT"
+   Data.s   "LSTADDF"
    Data.i   0, 0
-   Data.s   "LIST_ADD_STR"
+   Data.s   "LSTADDS"
    Data.i   0, 0
-   Data.s   "LIST_INSERT_INT"
+   Data.s   "LSTINS"
    Data.i   0, 0
-   Data.s   "LIST_INSERT_FLOAT"
+   Data.s   "LSTINSF"
    Data.i   0, 0
-   Data.s   "LIST_INSERT_STR"
+   Data.s   "LSTINSS"
    Data.i   0, 0
-   Data.s   "LIST_GET_INT"
+   Data.s   "LSTGET"
    Data.i   0, 0
-   Data.s   "LIST_GET_FLOAT"
+   Data.s   "LSTGETF"
    Data.i   0, 0
-   Data.s   "LIST_GET_STR"
+   Data.s   "LSTGETS"
    Data.i   0, 0
-   Data.s   "LIST_SET_INT"
+   Data.s   "LSTSET"
    Data.i   0, 0
-   Data.s   "LIST_SET_FLOAT"
+   Data.s   "LSTSETF"
    Data.i   0, 0
-   Data.s   "LIST_SET_STR"
+   Data.s   "LSTSETS"
+   Data.i   0, 0
+
+   ; V1.029.28: Struct list operations (renamed V1.029.61)
+   Data.s   "LSTADDST"
+   Data.i   0, 0
+   Data.s   "LSTGETST"
+   Data.i   0, 0
+   Data.s   "LSTSETST"
    Data.i   0, 0
 
    ; V1.026.0: Map operations
@@ -1940,24 +2074,42 @@ c2tokens:
    Data.s   "MAP_VALUE"
    Data.i   0, 0
 
-   ; V1.026.8: Typed map operations (pool slot from stack, no runtime type check)
-   Data.s   "MAP_PUT_INT"
+   ; V1.026.8: Typed map operations (renamed V1.029.61 - MAP=map)
+   Data.s   "MAPPUT"
    Data.i   0, 0
-   Data.s   "MAP_PUT_FLOAT"
+   Data.s   "MAPPUTF"
    Data.i   0, 0
-   Data.s   "MAP_PUT_STR"
+   Data.s   "MAPPUTS"
    Data.i   0, 0
-   Data.s   "MAP_GET_INT"
+   Data.s   "MAPGET"
    Data.i   0, 0
-   Data.s   "MAP_GET_FLOAT"
+   Data.s   "MAPGETF"
    Data.i   0, 0
-   Data.s   "MAP_GET_STR"
+   Data.s   "MAPGETS"
    Data.i   0, 0
-   Data.s   "MAP_VALUE_INT"
+   Data.s   "MAPVAL"
    Data.i   0, 0
-   Data.s   "MAP_VALUE_FLOAT"
+   Data.s   "MAPVALF"
    Data.i   0, 0
-   Data.s   "MAP_VALUE_STR"
+   Data.s   "MAPVALS"
+   Data.i   0, 0
+
+   ; V1.029.28: Struct map operations (renamed V1.029.61)
+   Data.s   "MAPPUTST"
+   Data.i   0, 0
+   Data.s   "MAPGETST"
+   Data.i   0, 0
+   Data.s   "MAPVALST"
+   Data.i   0, 0
+
+   ; V1.029.65: \ptr-based struct collection operations
+   Data.s   "LSTADDSTPT"
+   Data.i   0, 0
+   Data.s   "LSTGETSTPT"
+   Data.i   0, 0
+   Data.s   "MAPPUTSTPT"
+   Data.i   0, 0
+   Data.s   "MAPGETSTPT"
    Data.i   0, 0
 
    ; V1.026.0: Collection slot push
@@ -1971,8 +2123,8 @@ c2tokens:
 EndDataSection
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 42
-; FirstLine = 27
+; CursorPosition = 49
+; FirstLine = 30
 ; Folding = --
 ; Optimizer
 ; EnableAsm
@@ -1981,6 +2133,6 @@ EndDataSection
 ; SharedUCRT
 ; CPU = 1
 ; EnablePurifier
-; EnableCompileCount = 24
+; EnableCompileCount = 26
 ; EnableBuildCount = 0
 ; EnableExeConstant

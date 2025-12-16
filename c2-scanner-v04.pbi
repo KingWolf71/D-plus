@@ -471,9 +471,6 @@ EndProcedure
 
                If (dots Or e) And MatchRegularExpression( #C2REG_FLOATS , text )
                   bFloat = 1
-                  ;Debug text + " is a float."
-               Else
-                  ;Debug text + " Not float."
                EndIf
 
                If bFloat
@@ -514,11 +511,16 @@ EndProcedure
                   If i > 0
                      ; Not a keyword - check if it's a function
                      If FindMapElement( mapModules(), "_" + temp )
-                        If mapModules()\row = gLineNumber And TOKEN()\TokenType = #ljFunction
+                        ; V1.029.74: Fix function definition detection - remove row check
+                        ; The row number check was failing, causing function IDs to not be set.
+                        ; TOKEN()\TokenType = #ljFunction is sufficient to distinguish definitions from calls.
+                        If TOKEN()\TokenType = #ljFunction
+                           ; Function DEFINITION - update the existing #ljFunction token
                            gCurrFunction     = mapModules()\function
                            TOKEN()\function  = gCurrFunction
                            TOKEN()\value     = Str( gCurrFunction )
                         Else
+                           ; Function CALL - create new #ljCall token
                            par_AddToken( #ljCall, #ljCall, "", Str( mapModules()\function ) )
                            par_CheckPreviousTokenForPointer()
                         EndIf

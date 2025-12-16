@@ -14,7 +14,58 @@
 ; Code Generator
 ;- Procedures for generating VM bytecode from AST
 
+   ; V1.031.29: OS-agnostic debug macro - outputs to stdout for console builds
+   ; Set #OSDEBUG = 1 to enable debug output, 0 to disable
+   #OSDEBUG = 0
+   Macro OSDebug(msg)
+      CompilerIf #OSDEBUG
+         PrintN(msg)
+      CompilerEndIf
+   EndMacro
+
    Declare              CodeGenerator( *x.stTree, *link.stTree = 0 )
+
+   ; V1.030.0: Variable metadata verification pass
+   ; Checks for common metadata inconsistencies that cause runtime crashes
+   ; V1.030.4: Added debug output to diagnose persistent crash
+   Procedure.i          VerifyVariableMetadata()
+      Protected i.i, errors.i = 0
+
+      Debug "VERIFY: gnLastVariable=" + Str(gnLastVariable)
+
+      ; V1.030.47: Debug dump of all struct params at start of codegen
+      Debug "V1.030.47: STRUCT PARAM DUMP AT CODEGEN START:"
+      For i = 0 To gnLastVariable - 1
+         If (gVarMeta(i)\flags & #C2FLAG_PARAM) And (gVarMeta(i)\flags & #C2FLAG_STRUCT)
+            Debug "  PARAM+STRUCT [" + Str(i) + "] '" + gVarMeta(i)\name + "' structType='" + gVarMeta(i)\structType + "' paramOffset=" + Str(gVarMeta(i)\paramOffset)
+         EndIf
+      Next
+      Debug "V1.030.47: END STRUCT PARAM DUMP"
+
+      For i = 0 To gnLastVariable - 1
+         ; Skip empty/unused slots
+         If gVarMeta(i)\name = ""
+            Continue
+         EndIf
+
+         ; Check 1: Variables with structType MUST have STRUCT flag - AUTO-FIX
+         If gVarMeta(i)\structType <> "" And Not (gVarMeta(i)\flags & #C2FLAG_STRUCT)
+            Debug "VERIFY FIX [" + Str(i) + "] '" + gVarMeta(i)\name + "': structType='" + gVarMeta(i)\structType + "' flags=" + Str(gVarMeta(i)\flags) + " -> adding STRUCT flag"
+            gVarMeta(i)\flags = (gVarMeta(i)\flags & ~#C2FLAG_TYPE) | #C2FLAG_STRUCT | #C2FLAG_IDENT
+            errors + 1
+         EndIf
+
+         ; Check 2: Struct variables should have elementSize > 0 - AUTO-FIX
+         If (gVarMeta(i)\flags & #C2FLAG_STRUCT) And gVarMeta(i)\elementSize = 0
+            If gVarMeta(i)\structType <> "" And FindMapElement(mapStructDefs(), gVarMeta(i)\structType)
+               gVarMeta(i)\elementSize = mapStructDefs()\totalSize
+            EndIf
+         EndIf
+      Next
+
+      Debug "VERIFY: Fixed " + Str(errors) + " variables"
+      ProcedureReturn errors
+   EndProcedure
 
    Procedure            hole()
       gHoles + 1
@@ -53,6 +104,12 @@
 
       ; Parameters use LocalVars array
       If gVarMeta(varIndex)\flags & #C2FLAG_PARAM
+         ProcedureReturn #True
+      EndIf
+
+      ; V1.029.10: Any variable with valid paramOffset is local
+      ; This covers struct fields of local parameters (e.g., r\bottomRight\x)
+      If gVarMeta(varIndex)\paramOffset >= 0 And gCurrentFunctionName <> ""
          ProcedureReturn #True
       EndIf
 
@@ -126,6 +183,133 @@
       Protected         savedSource.i, savedSrc2.i
       Protected         inTernary2.b
       Protected         currentCode.i
+      ; V1.029.39: Struct field store variables (moved to top)
+      Protected         ssBaseSlot.i, ssByteOffset.i, ssIsLocal.b, ssFieldType.w
+      Protected         ssStructByteSize.i  ; V1.029.40: For lazy STRUCT_ALLOC
+
+      ; V1.029.37: Struct field store - check if destination is a struct field with \ptr storage
+      ; Handle this BEFORE PUSH+STORE optimization since struct fields use different opcodes
+      If nVar >= 0 And (op = #ljSTORE Or op = #ljSTOREF Or op = #ljSTORES Or op = #ljPOP Or op = #ljPOPF Or op = #ljPOPS)
+         ; V1.030.63: Debug - track struct field base issues
+         If FindString(gVarMeta(nVar)\name, "_w") Or FindString(gVarMeta(nVar)\name, "_h")
+            Debug "V1.030.63 EMITINT: slot=" + Str(nVar) + " name='" + gVarMeta(nVar)\name + "' structFieldBase=" + Str(gVarMeta(nVar)\structFieldBase) + " op=" + Str(op)
+         EndIf
+         If gVarMeta(nVar)\structFieldBase >= 0
+            ; This is a struct field assignment - emit STRUCT_STORE_* instead
+            ssBaseSlot = gVarMeta(nVar)\structFieldBase
+            ssByteOffset = gVarMeta(nVar)\structFieldOffset
+            ssIsLocal = Bool(gVarMeta(ssBaseSlot)\paramOffset >= 0)
+
+            ; V1.029.64: Look up field type from struct definition using byte offset
+            ; Must handle nested structs by walking the type chain
+            ; For rect1.topLeft.x: offset=0 finds topLeft (nested Point), continue into Point for x
+            ssFieldType = 0
+            If gVarMeta(ssBaseSlot)\structType <> ""
+               Protected ssLookupType.s = gVarMeta(ssBaseSlot)\structType
+               Protected ssLookupOffset.i = ssByteOffset / 8  ; Convert byte offset to field index
+               Protected ssLookupFound.b = #False
+
+               ; Walk nested struct chain until we find a primitive field
+               While Not ssLookupFound And ssLookupType <> ""
+                  If FindMapElement(mapStructDefs(), ssLookupType)
+                     Protected ssAccumOffset.i = 0
+                     ForEach mapStructDefs()\fields()
+                        Protected ssFieldSize.i = 1  ; Default size for primitives
+                        ; V1.029.72: Check for array fields - use arraySize for field size
+                        If mapStructDefs()\fields()\isArray And mapStructDefs()\fields()\arraySize > 1
+                           ssFieldSize = mapStructDefs()\fields()\arraySize
+                        ElseIf mapStructDefs()\fields()\structType <> ""
+                           ; Nested struct - get its total size
+                           Protected ssNestedType.s = mapStructDefs()\fields()\structType
+                           If FindMapElement(mapStructDefs(), ssNestedType)
+                              ssFieldSize = mapStructDefs()\totalSize
+                           EndIf
+                           FindMapElement(mapStructDefs(), ssLookupType)  ; Restore position
+                        EndIf
+
+                        ; Check if target offset falls within this field
+                        If ssLookupOffset >= ssAccumOffset And ssLookupOffset < ssAccumOffset + ssFieldSize
+                           If mapStructDefs()\fields()\structType <> ""
+                              ; Nested struct - recurse into it
+                              ssLookupType = mapStructDefs()\fields()\structType
+                              ssLookupOffset = ssLookupOffset - ssAccumOffset
+                              Break  ; Continue outer while loop with nested type
+                           Else
+                              ; Primitive field found
+                              ssFieldType = mapStructDefs()\fields()\fieldType
+                              ssLookupFound = #True
+                              Break
+                           EndIf
+                        EndIf
+                        ssAccumOffset + ssFieldSize
+                     Next
+                     If ListIndex(mapStructDefs()\fields()) = -1
+                        Break  ; Field not found, exit
+                     EndIf
+                  Else
+                     Break  ; Struct type not found
+                  EndIf
+               Wend
+            EndIf
+
+            ; V1.029.40: Lazy STRUCT_ALLOC_LOCAL - emit on first field access for LOCAL structs
+            ; Global structs are pre-allocated by VM in vmTransferMetaToRuntime()
+            ; V1.029.65: Skip for struct PARAMETERS - they receive pointer from caller via FETCH_STRUCT
+            Protected ssIsParam.b = Bool(gVarMeta(ssBaseSlot)\flags & #C2FLAG_PARAM)
+            ;Debug "STORE ALLOC CHECK: slot=" + Str(ssBaseSlot) + " name='" + gVarMeta(ssBaseSlot)\name + "' isLocal=" + Str(ssIsLocal) + " isParam=" + Str(ssIsParam) + " emitted=" + Str(gVarMeta(ssBaseSlot)\structAllocEmitted) + " paramOffset=" + Str(gVarMeta(ssBaseSlot)\paramOffset)
+            If ssIsLocal And Not ssIsParam And Not gVarMeta(ssBaseSlot)\structAllocEmitted
+               ; Calculate byte size from struct definition
+               ssStructByteSize = 8  ; Default 8 bytes (1 field)
+               If gVarMeta(ssBaseSlot)\structType <> "" And FindMapElement(mapStructDefs(), gVarMeta(ssBaseSlot)\structType)
+                  ssStructByteSize = mapStructDefs()\totalSize * 8  ; 8 bytes per field
+               EndIf
+
+               ; Emit STRUCT_ALLOC_LOCAL before the store
+               gEmitIntLastOp = AddElement( llObjects() )
+               llObjects()\code = #ljSTRUCT_ALLOC_LOCAL
+               llObjects()\i = gVarMeta(ssBaseSlot)\paramOffset
+               llObjects()\j = ssStructByteSize
+
+               ; Mark as allocated
+               gVarMeta(ssBaseSlot)\structAllocEmitted = #True
+            EndIf
+
+            ; Add new element (value is already on stack)
+            gEmitIntLastOp = AddElement( llObjects() )
+
+            If ssIsLocal
+               ; Local struct - use LOCAL variant with paramOffset
+               If ssFieldType & #C2FLAG_FLOAT
+                  llObjects()\code = #ljSTRUCT_STORE_FLOAT_LOCAL
+                  llObjects()\i = gVarMeta(ssBaseSlot)\paramOffset
+               ElseIf ssFieldType & #C2FLAG_STR
+                  ; V1.029.55: String field support
+                  llObjects()\code = #ljSTRUCT_STORE_STR_LOCAL
+                  llObjects()\i = gVarMeta(ssBaseSlot)\paramOffset
+               Else
+                  llObjects()\code = #ljSTRUCT_STORE_INT_LOCAL
+                  llObjects()\i = gVarMeta(ssBaseSlot)\paramOffset
+               EndIf
+            Else
+               ; Global struct - use direct base slot
+               If ssFieldType & #C2FLAG_FLOAT
+                  llObjects()\code = #ljSTRUCT_STORE_FLOAT
+                  llObjects()\i = ssBaseSlot
+               ElseIf ssFieldType & #C2FLAG_STR
+                  ; V1.029.55: String field support
+                  llObjects()\code = #ljSTRUCT_STORE_STR
+                  llObjects()\i = ssBaseSlot
+               Else
+                  llObjects()\code = #ljSTRUCT_STORE_INT
+                  llObjects()\i = ssBaseSlot
+               EndIf
+            EndIf
+            llObjects()\j = ssByteOffset  ; Byte offset within struct
+
+            gEmitIntCmd = llObjects()\code
+            ProcedureReturn
+         EndIf
+      EndIf
 
       If gEmitIntCmd = #ljpush And op = #ljStore
          ; PUSH+STORE optimization
@@ -219,6 +403,8 @@
                      ; V1.023.16: Use PLSTORE for pointer types to preserve ptr/ptrtype metadata
                      llObjects()\code = #ljPLSTORE
                   Else
+                     ; V1.031.29: Debug - trace LSTORE via PUSH+STORE opt (param path)
+                     OSDebug("V1.031.: PUSH+STORE OPT1 LSTORE: var='" + gVarMeta(nVar)\name + "' slot=" + Str(nVar) + " localOffset3=" + Str(localOffset3))
                      llObjects()\code = #ljLSTORE
                   EndIf
                   ; Set the local variable index (paramOffset)
@@ -322,6 +508,8 @@
                      ; V1.023.16: Use PLSTORE for pointer types to preserve ptr/ptrtype metadata
                      llObjects()\code = #ljPLSTORE
                   Else
+                     ; V1.031.29: Debug - trace LSTORE via FETCH+STORE opt keep path
+                     OSDebug("V1.031.: FETCH+STORE OPT KEEP LSTORE: var='" + gVarMeta(nVar)\name + "' slot=" + Str(nVar) + " localOffset4=" + Str(localOffset4))
                      llObjects()\code = #ljLSTORE
                   EndIf
                   ; Set the local variable index (paramOffset)
@@ -358,9 +546,9 @@
                ; Local destination - use LMOVF
                Protected localOffsetF.i = gVarMeta(nVar)\paramOffset
                If localOffsetF < 0 Or localOffsetF >= 20
-                  ; Fall back to PUSHF+STOREF
+                  ; V1.031.8: Fall back to global STOREF (not LSTOREF with wrong slot!)
                   gEmitIntLastOp = AddElement( llObjects() )
-                  llObjects()\code = #ljLSTOREF
+                  llObjects()\code = #ljSTOREF
                   llObjects()\i = nVar
                Else
                   llObjects()\code = #ljLMOVF
@@ -408,9 +596,9 @@
                ; Local destination - use LMOVS
                Protected localOffsetS.i = gVarMeta(nVar)\paramOffset
                If localOffsetS < 0 Or localOffsetS >= 20
-                  ; Fall back to PUSHS+STORES
+                  ; V1.031.8: Fall back to global STORES (not LSTORES with wrong slot!)
                   gEmitIntLastOp = AddElement( llObjects() )
-                  llObjects()\code = #ljLSTORES
+                  llObjects()\code = #ljSTORES
                   llObjects()\i = nVar
                Else
                   llObjects()\code = #ljLMOVS
@@ -467,6 +655,8 @@
                   If gEmitIntCmd = #ljGETSTRUCTADDR Or gEmitIntCmd = #ljGETADDR Or gEmitIntCmd = #ljGETADDRF Or gEmitIntCmd = #ljGETADDRS Or gEmitIntCmd = #ljGETARRAYADDR Or gEmitIntCmd = #ljGETARRAYADDRF Or gEmitIntCmd = #ljGETARRAYADDRS Or gVarMeta(nVar)\flags & #C2FLAG_POINTER
                      llObjects()\code = #ljPLSTORE
                   Else
+                     ; V1.031.29: Debug - trace LSTORE via EmitInt STORE->LSTORE conversion
+                     OSDebug("V1.031.: EMITINT LSTORE: var='" + gVarMeta(nVar)\name + "' slot=" + Str(nVar) + " paramOffset=" + Str(gVarMeta(nVar)\paramOffset) + " flags=$" + Hex(gVarMeta(nVar)\flags,#PB_Word))
                      llObjects()\code = #ljLSTORE
                   EndIf
                   llObjects()\i = gVarMeta(nVar)\paramOffset
@@ -498,13 +688,14 @@
                ; Do nothing - \i already contains correct paramOffset from optimization paths
 
             ; Global opcodes - need to set \i to variable slot
-            Case #ljFetch, #ljFETCHS, #ljFETCHF, #ljStore, #ljSTORES, #ljSTOREF, #ljPSTORE,
+            Case #ljFetch, #ljFETCHS, #ljFETCHF, #ljStore, #ljSTORES, #ljSTOREF, #ljSTORE_STRUCT, #ljPSTORE,
                  #ljPush, #ljPUSHS, #ljPUSHF, #ljPOP, #ljPOPS, #ljPOPF,
                  #ljINC_VAR_PRE, #ljINC_VAR_POST, #ljDEC_VAR_PRE, #ljDEC_VAR_POST
                llObjects()\i = nVar
                ; V1.027.9: Mark global variables as ASSIGNED when stored/modified
                ; This prevents late PRELOAD marking if a non-const store happens before const store
-               If currentCode = #ljStore Or currentCode = #ljSTORES Or currentCode = #ljSTOREF Or currentCode = #ljPSTORE Or currentCode = #ljINC_VAR_PRE Or currentCode = #ljINC_VAR_POST Or currentCode = #ljDEC_VAR_PRE Or currentCode = #ljDEC_VAR_POST
+               ; V1.029.84: Include STORE_STRUCT for struct variable assignment tracking
+               If currentCode = #ljStore Or currentCode = #ljSTORES Or currentCode = #ljSTOREF Or currentCode = #ljSTORE_STRUCT Or currentCode = #ljPSTORE Or currentCode = #ljINC_VAR_PRE Or currentCode = #ljINC_VAR_POST Or currentCode = #ljDEC_VAR_PRE Or currentCode = #ljDEC_VAR_POST
                   If gVarMeta(nVar)\paramOffset = -1  ; Global variable
                      gVarMeta(nVar)\flags = gVarMeta(nVar)\flags | #C2FLAG_ASSIGNED
                   EndIf
@@ -512,6 +703,9 @@
 
             Default
                ; Non-variable opcode (CALL, JMP, etc.) - store nVar as-is
+               If currentCode >= #ljSTRUCT_FETCH_INT_LOCAL And currentCode <= #ljSTRUCT_STORE_STR_LOCAL
+                  Debug "EMITINT DEFAULT: code=" + Str(currentCode) + " nVar(paramOffset)=" + Str(nVar)
+               EndIf
                llObjects()\i = nVar
          EndSelect
       EndIf
@@ -525,6 +719,12 @@
    EndProcedure
    
    Procedure            FetchVarOffset(text.s, *assignmentTree.stTree = 0, syntheticType.i = 0, forceLocal.i = #False)
+      ; V1.030.56: Debug slot 176 at ABSOLUTE START of FetchVarOffset (before any Protected)
+      CompilerIf #DEBUG
+         If gnLastVariable > 176 And gCurrentFunctionName = "_calculatearea"
+            Debug "V1.030.56: FVO ABSOLUTE START slot176 structType='" + gVarMeta(176)\structType + "' text='" + text + "'"
+         EndIf
+      CompilerEndIf
       ; All Protected declarations at procedure start per CLAUDE.md rule #3
       Protected         i, j
       Protected         temp.s
@@ -547,10 +747,29 @@
       Protected         foundTokenType.i
       Protected         structTypeName.s
 
+      ; V1.030.55: Debug slot 176 IMMEDIATELY after Protected declarations (before any code)
+      CompilerIf #DEBUG
+         If gnLastVariable > 176 And gCurrentFunctionName = "_calculatearea"
+            Debug "V1.030.55: POST-PROTECTED slot176 structType='" + gVarMeta(176)\structType + "' text='" + text + "'"
+         EndIf
+      CompilerEndIf
+
       j = -1
       structFieldPos = 0
+
+      ; V1.030.53: Debug slot 176 at ENTRY of FetchVarOffset for _calculatearea
+      CompilerIf #DEBUG
+         Static fvo176LastStructType.s = ""
+         If gnLastVariable > 176 And gCurrentFunctionName = "_calculatearea"
+            If gVarMeta(176)\structType <> fvo176LastStructType
+               Debug "V1.030.53: FVO ENTRY slot176 CHANGED! was '" + fvo176LastStructType + "' now '" + gVarMeta(176)\structType + "' text='" + text + "'"
+               fvo176LastStructType = gVarMeta(176)\structType
+            EndIf
+         EndIf
+      CompilerEndIf
       structSlot = -1
       fieldOffset = 0
+
       fieldFound = #False
 
       ; V1.022.21: Check pre-allocated constant maps first (fast path)
@@ -564,19 +783,208 @@
             ProcedureReturn mapConstFloat()
          EndIf
       ElseIf syntheticType = #ljSTRING
-         ; V1.023.27: Debug - trace string constant lookup
-         CompilerIf #DEBUG
-            Debug "FetchVarOffset: Looking up string '" + text + "' in mapConstStr"
-         CompilerEndIf
          If FindMapElement(mapConstStr(), text)
-            CompilerIf #DEBUG
-               Debug "  -> Found in mapConstStr, slot=" + Str(mapConstStr())
-            CompilerEndIf
             ProcedureReturn mapConstStr()
-         Else
+         EndIf
+      EndIf
+
+      ; V1.029.10: Handle DOT notation struct field names (e.g., "r.bottomRight.x")
+      ; This is used when accessing local struct parameter fields with dot notation
+      Protected dotPos.i = FindString(text, ".")
+      If dotPos > 0 And dotPos < Len(text)
+         ; Not a type suffix (.i, .f, .s) - check if first part is a local struct param
+         Protected dotStructName.s = Trim(Left(text, dotPos - 1))
+         Protected dotFieldChain.s = Trim(Mid(text, dotPos + 1))
+         Protected dotMangledName.s
+         Protected dotStructSlot.i = -1
+
+         ; V1.031.29: Debug DOT notation entry
+         If LCase(dotStructName) = "local"
+            OSDebug("V1.031.29: DOT ENTRY: text='" + text + "' dotStructName='" + dotStructName + "' dotFieldChain='" + dotFieldChain + "' gCurrentFunctionName='" + gCurrentFunctionName + "'")
+         EndIf
+
+         ; Look for mangled local struct first
+         If gCurrentFunctionName <> ""
+            dotMangledName = gCurrentFunctionName + "_" + dotStructName
+            ; V1.031.29: Debug search for local struct
+            If LCase(dotStructName) = "local"
+               OSDebug("V1.031.29: DOT SEARCH LOCAL: searching for mangled='" + dotMangledName + "'")
+            EndIf
+            For i = 0 To gnLastVariable - 1
+               If LCase(Trim(gVarMeta(i)\name)) = LCase(dotMangledName) And (gVarMeta(i)\flags & #C2FLAG_STRUCT)
+                  dotStructSlot = i
+                  ; V1.031.29: Debug found local struct
+                  If LCase(dotStructName) = "local"
+                     OSDebug("V1.031.29: DOT FOUND LOCAL: slot=" + Str(i) + " name='" + gVarMeta(i)\name + "' flags=$" + Hex(gVarMeta(i)\flags,#PB_Word))
+                  EndIf
+                  Break
+               EndIf
+            Next
+         EndIf
+
+         ; V1.029.15: If not found as mangled local, search for struct PARAMETER (non-mangled, paramOffset >= 0)
+         ; V1.029.17: Also check structType since params might not have #C2FLAG_STRUCT flag
+         If dotStructSlot < 0 And gCurrentFunctionName <> ""
+            For i = 0 To gnLastVariable - 1
+               If LCase(Trim(gVarMeta(i)\name)) = LCase(dotStructName) And gVarMeta(i)\paramOffset >= 0
+                  ; Found by name and paramOffset - check if it's a struct (either by flag or structType)
+                  If (gVarMeta(i)\flags & #C2FLAG_STRUCT) Or gVarMeta(i)\structType <> ""
+                     dotStructSlot = i
+                     Break
+                  EndIf
+               EndIf
+            Next
+         EndIf
+
+         ; V1.029.12: If not found as local/param, search for GLOBAL struct with exact name (paramOffset = -1)
+         If dotStructSlot < 0
+            For i = 0 To gnLastVariable - 1
+               If LCase(Trim(gVarMeta(i)\name)) = LCase(dotStructName) And (gVarMeta(i)\flags & #C2FLAG_STRUCT) And gVarMeta(i)\paramOffset = -1
+                  dotStructSlot = i
+                  Break
+               EndIf
+            Next
+         EndIf
+
+         ; If found as local or global struct, compute field offset from chain
+         If dotStructSlot >= 0
+            ; V1.029.14: If local struct hasn't had paramOffset assigned yet, assign it now
+            ; This can happen when struct was created in AST but first accessed in codegen via DOT notation
+            ;Debug "DOT PARAMOFFSET CHECK: slot=" + Str(dotStructSlot) + " paramOffset=" + Str(gVarMeta(dotStructSlot)\paramOffset) + " gCodeGenFunction=" + Str(gCodeGenFunction) + " gCodeGenParamIndex=" + Str(gCodeGenParamIndex)
+            If gVarMeta(dotStructSlot)\paramOffset < 0 And gCodeGenFunction > 0 And gCodeGenParamIndex < 0
+               ; Check if it's actually a local (mangled name)
+               ; V1.030.15: Debug the comparison
+               Debug "V1.030.15: PARAMOFFSET CHECK - slot=" + Str(dotStructSlot) + " name='" + gVarMeta(dotStructSlot)\name + "' gCurrentFunctionName='" + gCurrentFunctionName + "'"
+               Debug "V1.030.15: LEFT='" + LCase(Left(gVarMeta(dotStructSlot)\name, Len(gCurrentFunctionName) + 1)) + "' RIGHT='" + LCase(gCurrentFunctionName + "_") + "' MATCH=" + Str(Bool(LCase(Left(gVarMeta(dotStructSlot)\name, Len(gCurrentFunctionName) + 1)) = LCase(gCurrentFunctionName + "_")))
+               If LCase(Left(gVarMeta(dotStructSlot)\name, Len(gCurrentFunctionName) + 1)) = LCase(gCurrentFunctionName + "_")
+                  ; V1.029.43: With \ptr storage, each struct uses only 1 slot.
+                  ; Only assign paramOffset to base slot - no field slots exist.
+                  gVarMeta(dotStructSlot)\paramOffset = gCodeGenLocalIndex
+                  Debug "DOT PARAMOFFSET ASSIGNED: slot=" + Str(dotStructSlot) + " paramOffset=" + Str(gCodeGenLocalIndex)
+                  gCodeGenLocalIndex + 1
+
+                  ; Update nLocals in mapModules
+                  ForEach mapModules()
+                     If mapModules()\function = gCodeGenFunction
+                        mapModules()\nLocals = gCodeGenLocalIndex - mapModules()\nParams
+                        Break
+                     EndIf
+                  Next
+               EndIf
+            EndIf
+
+            Protected dotStructType.s = gVarMeta(dotStructSlot)\structType
+            Protected dotFieldOffset.i = 0
+            Protected dotCurrentType.s = dotStructType
+            Protected dotRemaining.s = dotFieldChain
+            Protected dotFieldFound.b = #True
+
+            ; V1.030.60: Debug - trace field chain walk with slot info
+            OSDebug("V1.031.29: DOT FIELD WALK START: slot=" + Str(dotStructSlot) + " name='" + gVarMeta(dotStructSlot)\name + "' structType='" + dotStructType + "' fieldChain='" + dotFieldChain + "'")
+            If dotStructType = ""
+               OSDebug("V1.031.29: WARNING - structType is EMPTY! This will cause field walk to fail.")
+            EndIf
+
+            ; Walk the field chain (e.g., "bottomRight.x" -> bottomRight(+2) then x(+0))
+            While dotRemaining <> "" And dotFieldFound
+               Protected dotNextDot.i = FindString(dotRemaining, ".")
+               Protected dotCurrentField.s
+               If dotNextDot > 0
+                  dotCurrentField = Left(dotRemaining, dotNextDot - 1)
+                  dotRemaining = Mid(dotRemaining, dotNextDot + 1)
+               Else
+                  dotCurrentField = dotRemaining
+                  dotRemaining = ""
+               EndIf
+
+               Debug "V1.030.39: DOT FIELD STEP: looking for '" + dotCurrentField + "' in type '" + dotCurrentType + "'"
+
+               dotFieldFound = #False
+               If FindMapElement(mapStructDefs(), dotCurrentType)
+                  ForEach mapStructDefs()\fields()
+                     If LCase(mapStructDefs()\fields()\name) = LCase(dotCurrentField)
+                        Debug "V1.030.39: DOT FIELD FOUND: '" + dotCurrentField + "' at offset=" + Str(mapStructDefs()\fields()\offset) + " nestedType='" + mapStructDefs()\fields()\structType + "'"
+                        dotFieldOffset = dotFieldOffset + mapStructDefs()\fields()\offset
+                        dotCurrentType = mapStructDefs()\fields()\structType  ; For nested structs
+                        dotFieldFound = #True
+                        Break
+                     EndIf
+                  Next
+                  If Not dotFieldFound
+                     Debug "V1.030.39: DOT FIELD NOT FOUND: '" + dotCurrentField + "' in type '" + dotCurrentType + "'"
+                  EndIf
+               Else
+                  Debug "V1.030.39: DOT TYPE NOT FOUND: '" + dotCurrentType + "' in mapStructDefs()"
+               EndIf
+            Wend
+            Debug "V1.030.39: DOT FIELD WALK END: totalOffset=" + Str(dotFieldOffset) + " byteOffset=" + Str(dotFieldOffset * 8) + " dotFieldFound=" + Str(dotFieldFound)
+
+            ; V1.030.60: FIX - Only return if field was actually found
+            ; The old condition "dotFieldFound Or dotRemaining = ''" was buggy:
+            ; After processing last field, dotRemaining="" regardless of whether field was found.
+            ; This caused "False Or True = True" to return with partial offset when final field wasn't found.
+            If dotFieldFound
+               ; V1.029.63: With \ptr storage, return the BASE slot for DOT field access
+               ; Field byte offset is stored in structFieldOffset for STRUCT_FETCH/STORE opcodes
+               ; This is consistent with backslash notation handling at line 891-893
+               ; EmitInt looks up field type dynamically from mapStructDefs using byte offset
+               gVarMeta(dotStructSlot)\structFieldBase = dotStructSlot
+               gVarMeta(dotStructSlot)\structFieldOffset = dotFieldOffset * 8
+               CompilerIf #DEBUG
+                  Debug "V1.030.37: DOT FIELD OFFSET: slot=" + Str(dotStructSlot) + " fieldChain='" + dotFieldChain + "' fieldOffset=" + Str(dotFieldOffset) + " byteOffset=" + Str(dotFieldOffset * 8)
+               CompilerEndIf
+               ProcedureReturn dotStructSlot
+            Else
+               ; V1.031.29: FIX - Field walk failed but we found an existing struct.
+               ; Check if dotFieldChain is actually the struct TYPE (not a field name).
+               ; Example: "local.Point" where Point is the struct type, not a field.
+               ; In this case, return the existing struct slot.
+               If LCase(dotFieldChain) <> "i" And LCase(dotFieldChain) <> "f" And LCase(dotFieldChain) <> "s" And LCase(dotFieldChain) <> "d"
+                  If FindMapElement(mapStructDefs(), dotFieldChain)
+                     ; dotFieldChain is a struct type name, not a field!
+                     ; This is a type annotation referring to existing struct variable.
+                     OSDebug("V1.031.29: DOT EXISTING STRUCT: slot=" + Str(dotStructSlot) + " is struct type '" + dotFieldChain + "' - returning existing")
+                     ProcedureReturn dotStructSlot
+                  EndIf
+               EndIf
+            EndIf
+         EndIf
+
+         ; V1.029.84: If struct/field not found, check if this is a struct type annotation (e.g., "person.Person")
+         ; This handles declarations like: person.Person = { }
+         If dotStructSlot < 0 And dotFieldChain <> ""
+            ; V1.031.29: Debug struct type annotation detection
+            OSDebug("V1.031.29: STRUCT TYPE CHECK: dotStructName='" + dotStructName + "' dotFieldChain='" + dotFieldChain + "' mapStructDefs has Point=" + Str(Bool(FindMapElement(mapStructDefs(), "Point") <> 0)))
             CompilerIf #DEBUG
-               Debug "  -> NOT FOUND in mapConstStr!"
+               Debug "V1.029.86: Checking struct type annotation: dotStructName='" + dotStructName + "' dotFieldChain='" + dotFieldChain + "'"
             CompilerEndIf
+            ; Check if dotFieldChain is a known struct type (not primitive .i, .f, .s, .d)
+            If LCase(dotFieldChain) <> "i" And LCase(dotFieldChain) <> "f" And LCase(dotFieldChain) <> "s" And LCase(dotFieldChain) <> "d"
+               If FindMapElement(mapStructDefs(), dotFieldChain)
+                  ; This is a struct type annotation! Use base name only
+                  text = dotStructName
+                  ; Store struct type to set later when creating the variable
+                  structTypeName = dotFieldChain
+                  ; V1.031.29: Debug detected struct type
+                  OSDebug("V1.031.29: STRUCT TYPE DETECTED! text='" + text + "' structTypeName='" + structTypeName + "'")
+                  CompilerIf #DEBUG
+                     Debug "V1.029.86: DETECTED struct type annotation! structTypeName='" + structTypeName + "' text='" + text + "'"
+                  CompilerEndIf
+               Else
+                  OSDebug("V1.031.29: STRUCT TYPE MISS! dotFieldChain '" + dotFieldChain + "' NOT in mapStructDefs()")
+                  CompilerIf #DEBUG
+                     Debug "V1.029.86: dotFieldChain '" + dotFieldChain + "' NOT found in mapStructDefs()"
+                  CompilerEndIf
+               EndIf
+            Else
+               ; V1.030.63: FIX - Type suffix detected (.i, .f, .s, .d) and no struct found
+               ; Strip type suffix from text so variable is named correctly
+               ; Without this fix, "w.f" stays as "w.f" causing wrong slot lookup
+               text = dotStructName
+               CompilerIf #DEBUG
+                  Debug "V1.030.63: Type suffix stripped in DOT path: dotFieldChain='" + dotFieldChain + "' text='" + text + "'"
+               CompilerEndIf
+            EndIf
          EndIf
       EndIf
 
@@ -598,7 +1006,19 @@
             Next
          EndIf
 
-         ; If not found as local, try global
+         ; V1.030.36: If not found as local, search for struct PARAMETER (non-mangled, paramOffset >= 0)
+         If structSlot < 0 And gCurrentFunctionName <> ""
+            For i = 0 To gnLastVariable - 1
+               If LCase(Trim(gVarMeta(i)\name)) = LCase(structName) And gVarMeta(i)\paramOffset >= 0
+                  If (gVarMeta(i)\flags & #C2FLAG_STRUCT) Or gVarMeta(i)\structType <> ""
+                     structSlot = i
+                     Break
+                  EndIf
+               EndIf
+            Next
+         EndIf
+
+         ; If not found as local or parameter, try global
          If structSlot < 0
             For i = 0 To gnLastVariable - 1
                If LCase(Trim(gVarMeta(i)\name)) = LCase(structName) And (gVarMeta(i)\flags & #C2FLAG_STRUCT)
@@ -609,25 +1029,92 @@
          EndIf
 
          ; If struct found, look up field offset
+         ; V1.030.33: Handle nested struct field chains (e.g., "topLeft\x" for localRect\topLeft\x)
+         ; Walk through backslash-separated fields, accumulating offsets like DOT path does
          If structSlot >= 0
             structTypeName = gVarMeta(structSlot)\structType
-            If FindMapElement(mapStructDefs(), structTypeName)
-               ResetList(mapStructDefs()\fields())
-               ForEach mapStructDefs()\fields()
-                  If LCase(Trim(mapStructDefs()\fields()\name)) = LCase(fieldName)
-                     fieldOffset = mapStructDefs()\fields()\offset
-                     fieldFound = #True
-                     Break
-                  EndIf
-               Next
-            EndIf
+            Protected bsFieldChain.s = fieldName
+            Protected bsCurrentType.s = structTypeName
+            Protected bsAccumOffset.i = 0
+            Protected bsFieldFound.b = #True
+            Protected bsTraversedNested.b = #False  ; V1.030.35: Track if we went through nested struct
+
+            While bsFieldChain <> "" And bsFieldFound
+               Protected bsNextSlash.i = FindString(bsFieldChain, "\")
+               Protected bsCurrentField.s
+               If bsNextSlash > 0
+                  bsCurrentField = Left(bsFieldChain, bsNextSlash - 1)
+                  bsFieldChain = Mid(bsFieldChain, bsNextSlash + 1)
+               Else
+                  bsCurrentField = bsFieldChain
+                  bsFieldChain = ""
+               EndIf
+
+               bsFieldFound = #False
+               If FindMapElement(mapStructDefs(), bsCurrentType)
+                  ForEach mapStructDefs()\fields()
+                     If LCase(Trim(mapStructDefs()\fields()\name)) = LCase(bsCurrentField)
+                        ; V1.030.66: Debug - trace field offset lookup in backslash chain
+                        Debug "V1.030.66 FIELD_LOOKUP: type='" + bsCurrentType + "' field='" + bsCurrentField + "' storedOffset=" + Str(mapStructDefs()\fields()\offset) + " prevAccum=" + Str(bsAccumOffset)
+                        bsAccumOffset = bsAccumOffset + mapStructDefs()\fields()\offset
+                        ; V1.030.35: Track if this field is a nested struct that we continue to traverse
+                        If mapStructDefs()\fields()\structType <> "" And bsFieldChain <> ""
+                           bsTraversedNested = #True
+                        EndIf
+                        bsCurrentType = mapStructDefs()\fields()\structType  ; For nested structs
+                        bsFieldFound = #True
+                        Break
+                     EndIf
+                  Next
+               EndIf
+            Wend
+
+            fieldOffset = bsAccumOffset
+            fieldFound = bsFieldFound
 
             If fieldFound
-               ; Return structSlot + fieldOffset (works for offset 0 too)
-               ProcedureReturn structSlot + fieldOffset
+               ; V1.030.34/35: Check if struct is LOCAL or if we need flattened slots
+               ; LOCAL structs always use \ptr storage
+               ; GLOBAL structs use \ptr for simple fields, flattened slots for nested fields
+               Protected bsIsLocalStruct.b = #False
+               If gVarMeta(structSlot)\paramOffset >= 0
+                  ; Already has paramOffset assigned - it's local
+                  bsIsLocalStruct = #True
+               ElseIf gCodeGenFunction > 0 And gCodeGenParamIndex < 0
+                  ; Check if it's a local struct (mangled name = function_varname)
+                  If LCase(Left(gVarMeta(structSlot)\name, Len(gCurrentFunctionName) + 1)) = LCase(gCurrentFunctionName + "_")
+                     bsIsLocalStruct = #True
+                     ; V1.030.25: Assign paramOffset for local struct
+                     gVarMeta(structSlot)\paramOffset = gCodeGenLocalIndex
+                     gCodeGenLocalIndex + 1
+
+                     ; Update nLocals in mapModules
+                     ForEach mapModules()
+                        If mapModules()\function = gCodeGenFunction
+                           mapModules()\nLocals = gCodeGenLocalIndex - mapModules()\nParams
+                           Break
+                        EndIf
+                     Next
+                     CompilerIf #DEBUG
+                        Debug "V1.030.25: Backslash path - assigned paramOffset=" + Str(gVarMeta(structSlot)\paramOffset) + " to local struct '" + gVarMeta(structSlot)\name + "'"
+                     CompilerEndIf
+                  EndIf
+               EndIf
+
+               ; V1.030.59: ALWAYS use \ptr storage for struct field access
+               ; Previously V1.030.35 used flattened slots for global nested fields,
+               ; but this broke SCOPY and FETCH_STRUCT which expect \ptr storage.
+               ; - LOCAL structs: Use \ptr storage (structFieldBase)
+               ; - GLOBAL structs: Use \ptr storage (structFieldBase) - fixes SCOPY/params!
+               ; V1.029.43: With \ptr storage, return the BASE slot for field access.
+               ; Field byte offset is stored in structFieldOffset for STRUCT_FETCH/STORE opcodes.
+               gVarMeta(structSlot)\structFieldBase = structSlot
+               gVarMeta(structSlot)\structFieldOffset = fieldOffset * 8
+               ; V1.030.66: Debug - trace backslash chain byte offset calculation
+               Debug "V1.030.66 BACKSLASH: name='" + gVarMeta(structSlot)\name + "' fieldChain='" + text + "' slotOffset=" + Str(fieldOffset) + " byteOffset=" + Str(fieldOffset * 8) + " paramOffset=" + Str(gVarMeta(structSlot)\paramOffset)
+               ProcedureReturn structSlot
             EndIf
          EndIf
-         ; If struct/field not found, fall through to normal handling (create new variable)
       EndIf
 
       ; Apply name mangling for local variables inside functions
@@ -651,8 +1138,11 @@
                ; Variable may have been created during AST parsing when gCodeGenFunction was 0
                ; Now in CodeGenerator, we can assign the proper paramOffset
                If gVarMeta(i)\paramOffset < 0 And gCodeGenFunction > 0 And gCodeGenParamIndex < 0
+                  ; V1.029.43: With \ptr storage, each struct uses only 1 slot.
+                  ; Only assign paramOffset to base slot - no field slots exist.
                   gVarMeta(i)\paramOffset = gCodeGenLocalIndex
                   gCodeGenLocalIndex + 1
+
                   ; Update nLocals in mapModules
                   ForEach mapModules()
                      If mapModules()\function = gCodeGenFunction
@@ -664,7 +1154,30 @@
                      Debug "V1.026.20: Assigned paramOffset=" + Str(gVarMeta(i)\paramOffset) + " to local '" + searchName + "'"
                   CompilerEndIf
                EndIf
+               ; V1.029.98: Clear struct field metadata when returning whole variable (not field access)
+               ; This prevents stale values from DOT/backslash accesses affecting whole-struct references
+               gVarMeta(i)\structFieldBase = -1
+               gVarMeta(i)\structFieldOffset = 0
                ProcedureReturn i  ; Found local variable
+            EndIf
+         Next
+
+         ; V1.029.94: If mangled name not found, search for param with non-mangled name
+         ; This handles the case where param was created during #ljPOP (before gCurrentFunctionName was set)
+         ; and now we're in the function body trying to find it with the mangled name.
+         ; Params have paramOffset >= 0 and PARAM flag set.
+         For i = 0 To gnLastVariable - 1
+            If LCase(gVarMeta(i)\name) = LCase(text) And gVarMeta(i)\paramOffset >= 0
+               If gVarMeta(i)\flags & #C2FLAG_PARAM
+                  ; Found as non-mangled param - use it
+                  CompilerIf #DEBUG
+                     Debug "V1.029.94: Found non-mangled param '" + text + "' at slot " + Str(i) + " (paramOffset=" + Str(gVarMeta(i)\paramOffset) + ")"
+                  CompilerEndIf
+                  ; V1.029.98: Clear struct field metadata when returning whole variable
+                  gVarMeta(i)\structFieldBase = -1
+                  gVarMeta(i)\structFieldOffset = 0
+                  ProcedureReturn i
+               EndIf
             EndIf
          Next
 
@@ -672,8 +1185,9 @@
          ; V1.022.71: forceLocal=true when type annotation present (.i/.f/.s)
          ; var = expr (no type) --> uses global if exists
          ; var.type = expr (with type) --> creates local (shadows global)
+         ; V1.029.79: Don't check gCodeGenParamIndex < 0 (same fix as lines 965 and 1048)
 
-         If gCodeGenParamIndex < 0 And forceLocal = #False
+         If forceLocal = #False
             ; No type annotation - check if global exists and use it
             For i = 0 To gnLastVariable - 1
                If LCase(gVarMeta(i)\name) = LCase(text) And gVarMeta(i)\paramOffset = -1
@@ -681,6 +1195,9 @@
                   CompilerIf #DEBUG
                      Debug "FetchVarOffset: Found global '" + text + "' at slot " + Str(i)
                   CompilerEndIf
+                  ; V1.029.98: Clear struct field metadata when returning whole variable
+                  gVarMeta(i)\structFieldBase = -1
+                  gVarMeta(i)\structFieldOffset = 0
                   ProcedureReturn i
                EndIf
             Next
@@ -716,25 +1233,32 @@
          EndIf
          If LCase(gVarMeta(i)\name) = LCase(text)
             ; Variable exists - check if it's a local variable that needs an offset assigned
-            If gCurrentFunctionName <> "" And gCodeGenParamIndex < 0 And gCodeGenFunction > 0
+            ; V1.029.77: Don't check gCodeGenParamIndex < 0 (same fix as for new variables)
+            If gCurrentFunctionName <> "" And gCodeGenFunction > 0
                If gVarMeta(i)\paramOffset < 0
                   ; This is a local variable without an offset - assign one
                   ; V1.022.31: Don't assign local offsets to $ synthetic temps - they're forced global
                   ; by GetExprSlotOrTemp. Including them here caused gaps in local slot numbering.
+                  ; V1.029.77: Also check NOT a parameter (same as line 1052)
                   If LCase(Left(text, Len(gCurrentFunctionName) + 1)) = LCase(gCurrentFunctionName + "_")
-                     gVarMeta(i)\paramOffset = gCodeGenLocalIndex
-                     gCodeGenLocalIndex + 1
+                     If (gVarMeta(i)\flags & #C2FLAG_PARAM) = 0
+                        gVarMeta(i)\paramOffset = gCodeGenLocalIndex
+                        gCodeGenLocalIndex + 1
 
-                     ; Update nLocals in mapModules immediately
-                     ForEach mapModules()
-                        If mapModules()\function = gCodeGenFunction
-                           mapModules()\nLocals = gCodeGenLocalIndex - mapModules()\nParams
-                           Break
-                        EndIf
-                     Next
+                        ; Update nLocals in mapModules immediately
+                        ForEach mapModules()
+                           If mapModules()\function = gCodeGenFunction
+                              mapModules()\nLocals = gCodeGenLocalIndex - mapModules()\nParams
+                              Break
+                           EndIf
+                        Next
+                     EndIf
                   EndIf
                EndIf
             EndIf
+            ; V1.029.98: Clear struct field metadata when returning whole variable
+            gVarMeta(i)\structFieldBase = -1
+            gVarMeta(i)\structFieldOffset = 0
             ProcedureReturn i
          EndIf
       Next
@@ -789,6 +1313,9 @@
       ; V1.022.29: Initialize paramOffset to -1 (global/not-yet-assigned)
       ; This prevents confusion with paramOffset=0 which is a valid local offset
       gVarMeta(gnLastVariable)\paramOffset = -1
+      ; V1.029.44: Initialize structFieldBase to -1 (not a struct field)
+      ; This prevents false positives when checking for struct field access
+      gVarMeta(gnLastVariable)\structFieldBase = -1
 
       ; Check if this is a synthetic temporary variable (starts with $)
       If Left(text, 1) = "$"
@@ -851,6 +1378,27 @@
          EndIf
       EndIf
 
+      ; V1.029.83: Set struct type and flag if this is a struct variable (e.g., "person.Person")
+      If structTypeName <> ""
+         gVarMeta(gnLastVariable)\structType = structTypeName
+         ; V1.029.87: Set elementSize for struct byte size calculation in STRUCT_ALLOC
+         If FindMapElement(mapStructDefs(), structTypeName)
+            gVarMeta(gnLastVariable)\elementSize = mapStructDefs()\totalSize
+         Else
+            gVarMeta(gnLastVariable)\elementSize = 1  ; Default to 1 field if struct not found
+         EndIf
+         ; V1.029.86: Set flags explicitly - IDENT + STRUCT only (remove primitive type flags)
+         ; Preserve CONST flag if present
+         Protected structVarFlags.i = #C2FLAG_IDENT | #C2FLAG_STRUCT
+         If gVarMeta(gnLastVariable)\flags & #C2FLAG_CONST
+            structVarFlags = structVarFlags | #C2FLAG_CONST
+         EndIf
+         gVarMeta(gnLastVariable)\flags = structVarFlags
+         CompilerIf #DEBUG
+            Debug "V1.029.87: Set struct type '" + structTypeName + "' for variable '" + text + "' with elementSize=" + Str(gVarMeta(gnLastVariable)\elementSize) + " (flags=" + Str(gVarMeta(gnLastVariable)\flags) + ")"
+         CompilerEndIf
+      EndIf
+
       ; If we're creating a local variable (inside a function, not a parameter),
       ; assign it an offset and update nLocals count
       ; V1.022.31: Only mangled variables, NOT $ synthetic temps (forced global by GetExprSlotOrTemp)
@@ -888,6 +1436,11 @@
          CompilerIf #DEBUG
          Debug "[SKIPPED] Not counted: '" + text + "' (slot " + Str(gnLastVariable - 1) + ", gCodeGenFunction=" + Str(gCodeGenFunction) + ", gCodeGenParamIndex=" + Str(gCodeGenParamIndex) + ", isLocal=" + Str(isLocal) + ")"
          CompilerEndIf
+      EndIf
+
+      ; V1.030.63: Debug - track new variable creation for w/h
+      If FindString(text, "_w") Or FindString(text, "_h")
+         Debug "V1.030.63 NEW_VAR: slot=" + Str(gnLastVariable - 1) + " name='" + text + "' structFieldBase=" + Str(gVarMeta(gnLastVariable - 1)\structFieldBase) + " paramOffset=" + Str(gVarMeta(gnLastVariable - 1)\paramOffset)
       EndIf
 
       ProcedureReturn gnLastVariable - 1
@@ -930,6 +1483,13 @@
          ProcedureReturn #C2FLAG_INT
       EndIf
 
+      ; V1.030.51: Debug slot 176 structType on EVERY GetExprResultType call
+      Static gert176LastStructType.s = ""
+      If gnLastVariable > 176 And gVarMeta(176)\structType <> gert176LastStructType
+         Debug "V1.030.51: GetExprResultType ENTRY slot176 CHANGED! was '" + gert176LastStructType + "' now '" + gVarMeta(176)\structType + "' node=" + *x\nodeType + " value='" + *x\value + "'"
+         gert176LastStructType = gVarMeta(176)\structType
+      EndIf
+
       Select *x\NodeType
          ; UNUSED/0 will fall through to default case
          Case #ljUNUSED
@@ -965,7 +1525,19 @@
                   Next
                EndIf
 
-               ; Try global struct if not found as local
+               ; V1.030.42: Check for struct variable by structType (non-mangled name)
+               ; Don't require paramOffset >= 0 - just check structType is set
+               If structSlot < 0
+                  For n = 0 To gnLastVariable - 1
+                     If LCase(Trim(gVarMeta(n)\name)) = LCase(structVarName) And gVarMeta(n)\structType <> ""
+                        structSlot = n
+                        structTypeName = gVarMeta(n)\structType
+                        Break
+                     EndIf
+                  Next
+               EndIf
+
+               ; Try global struct if not found as local or param
                If structSlot < 0
                   For n = 0 To gnLastVariable - 1
                      If LCase(gVarMeta(n)\name) = LCase(structVarName) And (gVarMeta(n)\flags & #C2FLAG_STRUCT)
@@ -976,13 +1548,138 @@
                   Next
                EndIf
 
-               ; Look up field type from struct definition
+               ; V1.030.58: Look up field type from struct definition - handle nested field chains
+               ; fieldName may be "bottomRight\x" for nested access, need to walk the chain
                If structTypeName <> "" And FindMapElement(mapStructDefs(), structTypeName)
-                  ForEach mapStructDefs()\fields()
-                     If LCase(mapStructDefs()\fields()\name) = LCase(fieldName)
-                        ProcedureReturn mapStructDefs()\fields()\fieldType
+                  Protected bsCurrentType.s = structTypeName
+                  Protected bsFieldParts.i = CountString(fieldName, "\") + 1
+                  Protected bsFieldIdx.i
+                  Protected bsFinalType.w = #C2FLAG_INT  ; Default
+                  Protected bsFound.i = #False
+
+                  For bsFieldIdx = 1 To bsFieldParts
+                     Protected bsCurrentField.s = StringField(fieldName, bsFieldIdx, "\")
+                     If FindMapElement(mapStructDefs(), bsCurrentType)
+                        ForEach mapStructDefs()\fields()
+                           If LCase(mapStructDefs()\fields()\name) = LCase(bsCurrentField)
+                              bsFinalType = mapStructDefs()\fields()\fieldType
+                              bsFound = #True
+                              ; Check if this field is a nested struct - continue walking
+                              If mapStructDefs()\fields()\structType <> ""
+                                 bsCurrentType = mapStructDefs()\fields()\structType
+                              EndIf
+                              Break
+                           EndIf
+                        Next
                      EndIf
                   Next
+                  If bsFound
+                     ProcedureReturn bsFinalType
+                  EndIf
+               EndIf
+            EndIf
+
+            ; V1.029.28: Handle DOT notation struct field names (e.g., "local.x" or "r.bottomRight.x")
+            Protected dotPos.i = FindString(*x\value, ".")
+            If dotPos > 0 And dotPos < Len(*x\value)
+               Protected dotStructName.s = Trim(Left(*x\value, dotPos - 1))
+               Protected dotFieldChain.s = Trim(Mid(*x\value, dotPos + 1))
+               Protected dotStructSlot.i = -1
+               Protected dotStructTypeName.s = ""
+
+               Debug "V1.030.41: GetExprResultType DOT '" + *x\value + "' gCurrentFunctionName='" + gCurrentFunctionName + "'"
+
+               ; Look for mangled local struct first
+               If gCurrentFunctionName <> ""
+                  Protected dotMangledName.s = gCurrentFunctionName + "_" + dotStructName
+                  For n = 0 To gnLastVariable - 1
+                     If LCase(Trim(gVarMeta(n)\name)) = LCase(dotMangledName) And (gVarMeta(n)\flags & #C2FLAG_STRUCT)
+                        dotStructSlot = n
+                        dotStructTypeName = gVarMeta(n)\structType
+                        Debug "V1.030.41: GetExprResultType MANGLED FOUND slot=" + Str(n) + " structType='" + dotStructTypeName + "'"
+                        Break
+                     EndIf
+                  Next
+               EndIf
+
+               ; Check for struct variable by structType (non-mangled name)
+               ; V1.030.43: Dump all variables to understand what's stored
+               If dotStructSlot < 0
+                  Debug "V1.030.43: SEARCHING for struct '" + dotStructName + "' in " + Str(gnLastVariable) + " variables:"
+                  For n = 0 To gnLastVariable - 1
+                     If gVarMeta(n)\structType <> "" Or (gVarMeta(n)\flags & #C2FLAG_STRUCT)
+                        Debug "  [" + Str(n) + "] name='" + gVarMeta(n)\name + "' structType='" + gVarMeta(n)\structType + "' paramOffset=" + Str(gVarMeta(n)\paramOffset)
+                     EndIf
+                     If LCase(Trim(gVarMeta(n)\name)) = LCase(dotStructName) And gVarMeta(n)\structType <> ""
+                        dotStructSlot = n
+                        dotStructTypeName = gVarMeta(n)\structType
+                        Debug "V1.030.43: GetExprResultType STRUCT FOUND slot=" + Str(n) + " structType='" + dotStructTypeName + "'"
+                        Break
+                     EndIf
+                  Next
+               EndIf
+
+               ; V1.030.44: Fallback - search for any mangled name ending with _dotStructName
+               ; This handles case when gCurrentFunctionName is empty but param is mangled
+               If dotStructSlot < 0
+                  Protected dotSuffix.s = "_" + LCase(dotStructName)
+                  Debug "V1.030.44: SUFFIX SEARCH for '" + dotStructName + "' suffix='" + dotSuffix + "' len=" + Str(Len(dotSuffix))
+                  For n = 0 To gnLastVariable - 1
+                     ; Debug all struct vars during suffix search
+                     If gVarMeta(n)\structType <> "" Or (gVarMeta(n)\flags & #C2FLAG_STRUCT)
+                        Protected suffixMatch.s = Right(LCase(gVarMeta(n)\name), Len(dotSuffix))
+                        Debug "  [" + Str(n) + "] '" + gVarMeta(n)\name + "' Right='" + suffixMatch + "' structType='" + gVarMeta(n)\structType + "'"
+                     EndIf
+                     If Right(LCase(gVarMeta(n)\name), Len(dotSuffix)) = dotSuffix And gVarMeta(n)\structType <> ""
+                        dotStructSlot = n
+                        dotStructTypeName = gVarMeta(n)\structType
+                        Debug "V1.030.44: SUFFIX MATCH FOUND slot=" + Str(n) + " name='" + gVarMeta(n)\name + "' structType='" + dotStructTypeName + "'"
+                        Break
+                     EndIf
+                  Next
+               EndIf
+
+               If dotStructSlot < 0
+                  Debug "V1.030.44: GetExprResultType struct NOT FOUND for '" + dotStructName + "'"
+               EndIf
+
+               ; Try global struct if not found as local or param
+               If dotStructSlot < 0
+                  For n = 0 To gnLastVariable - 1
+                     If LCase(Trim(gVarMeta(n)\name)) = LCase(dotStructName) And (gVarMeta(n)\flags & #C2FLAG_STRUCT)
+                        dotStructSlot = n
+                        dotStructTypeName = gVarMeta(n)\structType
+                        Debug "V1.030.44: GLOBAL STRUCT FOUND slot=" + Str(n) + " name='" + gVarMeta(n)\name + "'"
+                        Break
+                     EndIf
+                  Next
+               EndIf
+
+               ; Resolve field chain to get final field type
+               If dotStructTypeName <> "" And FindMapElement(mapStructDefs(), dotStructTypeName)
+                  Protected dotCurrentType.s = dotStructTypeName
+                  Protected dotFieldParts.i = CountString(dotFieldChain, ".") + 1
+                  Protected dotFieldIdx.i
+                  Protected dotFinalType.w = #C2FLAG_INT  ; Default
+
+                  For dotFieldIdx = 1 To dotFieldParts
+                     Protected dotCurrentField.s = StringField(dotFieldChain, dotFieldIdx, ".")
+                     If FindMapElement(mapStructDefs(), dotCurrentType)
+                        ForEach mapStructDefs()\fields()
+                           If LCase(mapStructDefs()\fields()\name) = LCase(dotCurrentField)
+                              dotFinalType = mapStructDefs()\fields()\fieldType
+                              Debug "V1.030.41: GetExprResultType field '" + dotCurrentField + "' type=" + Str(dotFinalType) + " (FLOAT=" + Str(#C2FLAG_FLOAT) + ")"
+                              ; Check if this field is a nested struct
+                              If mapStructDefs()\fields()\structType <> ""
+                                 dotCurrentType = mapStructDefs()\fields()\structType
+                              EndIf
+                              Break
+                           EndIf
+                        Next
+                     EndIf
+                  Next
+                  Debug "V1.030.41: GetExprResultType RETURNING type=" + Str(dotFinalType) + " for '" + *x\value + "'"
+                  ProcedureReturn dotFinalType
                EndIf
             EndIf
 
@@ -1351,6 +2048,8 @@
                   ElseIf localExprType & #C2FLAG_STR
                      llObjects()\code = #ljLSTORES
                   Else
+                     ; V1.031.29: Debug - trace LSTORE via GetExprSlotOrTemp local temp
+                     OSDebug("V1.031.: GETEXPR LOCAL TEMP LSTORE: slot=" + Str(identSlot) + " localTempOffset=" + Str(localTempOffset))
                      llObjects()\code = #ljLSTORE
                   EndIf
                   llObjects()\i = localTempOffset
@@ -1442,6 +2141,8 @@
                      Debug "V1.022.101: Complex expr to LOCAL[" + Str(complexLocalOffset) + "] using LSTORES (string)"
                   CompilerEndIf
                Else
+                  ; V1.031.29: Debug - trace LSTORE via complex expr local temp
+                  OSDebug("V1.031.: COMPLEX EXPR LOCAL TEMP LSTORE: complexLocalOffset=" + Str(complexLocalOffset))
                   llObjects()\code = #ljLSTORE
                EndIf
                llObjects()\i = complexLocalOffset
@@ -1554,6 +2255,9 @@
       Protected Dim     caseNodeArr.i(64)          ; Array of case node pointers (max 64 cases)
       Protected Dim     caseHoleArr.i(64)          ; Array of case hole IDs
       Protected         caseNodeArrCount.i         ; Number of entries in arrays
+      ; V1.029.39: Struct field fetch variables (for STRUCT_FETCH_* codegen)
+      Protected         sfBaseSlot.i, sfByteOffset.i, sfIsLocal.b, sfFieldType.w
+      Protected         sfStructByteSize.i  ; V1.029.40: For lazy STRUCT_ALLOC
 
       ; Reset state on top-level call
       If gCodeGenRecursionDepth = 0
@@ -1563,6 +2267,13 @@
          gCurrentFunctionName = ""
       EndIf
       gCodeGenRecursionDepth + 1
+
+      ; V1.030.50: WATCHPOINT - track slot 176 structType on EVERY CodeGenerator call
+      Static cg176LastStructType.s = ""
+      If gnLastVariable > 176 And gVarMeta(176)\structType <> cg176LastStructType
+         Debug "V1.030.50: CG ENTRY slot176 CHANGED! was '" + cg176LastStructType + "' now '" + gVarMeta(176)\structType + "' node=" + *x\nodeType + " value='" + *x\value + "'"
+         cg176LastStructType = gVarMeta(176)\structType
+      EndIf
 
       ; If no node, return immediately
       If Not *x
@@ -1588,7 +2299,97 @@
                n = 0  ; Use reserved slot 0 directly
                EmitInt( #ljPOP, 0 )  ; Always emit as global INT
             Else
-               n = FetchVarOffset(*x\value)
+               ; V1.029.11: Check if parameter has struct type suffix (e.g., "r.Rectangle")
+               ; Structure parameters have format "paramName.StructType"
+               Protected spParamValue.s = *x\value
+               Protected spDotPos.i = FindString(spParamValue, ".")
+               Protected spBaseName.s = spParamValue
+               Protected spStructType.s = ""
+               Protected spIsStructParam.b = #False
+
+               If spDotPos > 0 And spDotPos < Len(spParamValue)
+                  Protected spTypePart.s = Mid(spParamValue, spDotPos + 1)
+                  ; Check if the suffix is a known struct type (not .i, .f, .s primitive types)
+                  If LCase(spTypePart) <> "i" And LCase(spTypePart) <> "f" And LCase(spTypePart) <> "s" And LCase(spTypePart) <> "d"
+                     If FindMapElement(mapStructDefs(), spTypePart)
+                        spIsStructParam = #True
+                        spBaseName = Left(spParamValue, spDotPos - 1)
+                        spStructType = spTypePart
+                     EndIf
+                  EndIf
+               EndIf
+
+               ; For struct params, use base name; otherwise use full value
+               ; V1.029.70: Pre-declare search variables (PureBasic requires declarations at procedure scope)
+               Protected spFoundPreCreated.i
+               Protected spSearchSuffix.s
+               Protected spVarIdx.i
+               Protected spVarName.s
+
+               If spIsStructParam
+                  ; V1.029.95: Search for pre-created struct params with EXACT mangled name
+                  ; (gCodeGenParamIndex >= 0 means we're in parameter processing phase)
+                  ; gCurrentFunctionName IS set because #ljFunction runs BEFORE params (SEQ processes LEFT first).
+                  ; V1.029.94 bug: suffix search matched params from OTHER functions with same param name.
+                  ; Fix: search for exact mangled name "functionName_paramName" instead of suffix.
+                  ; Note: Struct params pre-created during AST may have non-mangled names (gCurrentFunctionName=""
+                  ; during AST), but FetchVarOffset will find them via global search (paramOffset=-1).
+                  If gCodeGenParamIndex >= 0 And gCurrentFunctionName <> ""
+                     spFoundPreCreated = -1
+                     Protected spStructSearchName.s = LCase(gCurrentFunctionName + "_" + spBaseName)
+                     Debug "V1.030.47: POP struct search: searchName='" + spStructSearchName + "' structType='" + spStructType + "'"
+                     For spVarIdx = 0 To gnLastVariable - 1
+                        ; Check if this is a PARAM with EXACT matching mangled name and struct type
+                        If gVarMeta(spVarIdx)\flags & #C2FLAG_PARAM
+                           If LCase(gVarMeta(spVarIdx)\structType) = LCase(spStructType)
+                              If LCase(gVarMeta(spVarIdx)\name) = spStructSearchName
+                                 Debug "V1.030.47: POP struct FOUND at slot " + Str(spVarIdx)
+                                 spFoundPreCreated = spVarIdx
+                                 Break
+                              EndIf
+                           EndIf
+                        EndIf
+                     Next
+
+                     If spFoundPreCreated >= 0
+                        n = spFoundPreCreated
+                     Else
+                        Debug "V1.030.47: POP struct NOT FOUND, calling FetchVarOffset('" + spBaseName + "')"
+                        n = FetchVarOffset(spBaseName)
+                     EndIf
+                  Else
+                     ; Not in function param processing - just fetch by base name
+                     n = FetchVarOffset(spBaseName)
+                  EndIf
+               Else
+                  ; V1.029.95: Non-struct params - search for pre-created param with EXACT mangled name
+                  ; (gCodeGenParamIndex >= 0 means we're in parameter processing phase)
+                  ; gCurrentFunctionName IS set because #ljFunction runs BEFORE params (SEQ processes LEFT first).
+                  ; V1.029.94 bug: suffix search matched params from OTHER functions (e.g., moveRect_idx
+                  ; was found when processing scaleRect's idx param, corrupting paramOffset).
+                  ; Fix: search for exact mangled name "functionName_paramName" instead of suffix.
+                  If gCodeGenParamIndex >= 0 And gCurrentFunctionName <> ""
+                     spFoundPreCreated = -1
+                     Protected spSearchFullName.s = LCase(gCurrentFunctionName + "_" + *x\value)
+                     For spVarIdx = 0 To gnLastVariable - 1
+                        ; Check if this is a PARAM with EXACT matching mangled name (not just suffix)
+                        If gVarMeta(spVarIdx)\flags & #C2FLAG_PARAM
+                           If LCase(gVarMeta(spVarIdx)\name) = spSearchFullName
+                              spFoundPreCreated = spVarIdx
+                              Break
+                           EndIf
+                        EndIf
+                     Next
+
+                     If spFoundPreCreated >= 0
+                        n = spFoundPreCreated
+                     Else
+                        n = FetchVarOffset(*x\value)
+                     EndIf
+                  Else
+                     n = FetchVarOffset(*x\value)
+                  EndIf
+               EndIf
 
                ; Check if this is a function parameter
                If gCodeGenParamIndex >= 0
@@ -1603,11 +2404,19 @@
                   ; LOCAL[0] = last pushed (right), LOCAL[N-1] = first pushed
                   ; So: first processed (right) needs offset 0, last processed needs offset N-1
                   ; Formula: paramOffset = (nParams - 1) - gCodeGenParamIndex
-                  ;        = (gCodeGenLocalIndex - 1) - gCodeGenParamIndex
-                  gVarMeta( n )\paramOffset = (gCodeGenLocalIndex - 1) - gCodeGenParamIndex
+                  ; V1.030.24: BUG FIX - use mapModules()\nParams directly instead of gCodeGenLocalIndex
+                  ; gCodeGenLocalIndex = nParams + nLocalArrays, but formula needs pure nParams
+                  ; Old code: (gCodeGenLocalIndex - 1) - gCodeGenParamIndex = WRONG when nLocalArrays > 0
+                  gVarMeta( n )\paramOffset = (mapModules()\nParams - 1) - gCodeGenParamIndex
 
-                  ; Set type flags (type bits already cleared above)
-                  If *x\typeHint = #ljFLOAT
+                  ; V1.029.38: Struct parameter - just 1 slot with \ptr pointer (pass-by-reference)
+                  ; The caller pushes gVar(baseSlot)\ptr, CALL stores it in local frame
+                  ; Callee accesses fields via STRUCT_FETCH_*/STRUCT_STORE_* using the \ptr
+                  If spIsStructParam
+                     gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_STRUCT
+                     gVarMeta( n )\structType = spStructType
+                     ; V1.029.38: No need to reserve field slots - data accessed via \ptr
+                  ElseIf *x\typeHint = #ljFLOAT
                      gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_FLOAT
                   ElseIf *x\typeHint = #ljSTRING
                      gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_STR
@@ -1616,13 +2425,68 @@
                   EndIf
 
                   ; Decrement parameter index (parameters processed in reverse, last to first)
+                  ; V1.029.82: All params (including structs) decrement by 1 with \ptr storage
                   gCodeGenParamIndex - 1
 
                   ; Note: We DON'T emit POP - parameters stay on stack
                ElseIf gCurrentFunctionName <> ""
-                  ; Local variable inside a function - assign offset and emit POP
+                  ; V1.029.68: Skip if this is a struct PARAM that was already handled in #ljFunction
+                  ; Struct params have PARAM flag set and paramOffset >= 0 from my #ljFunction fix.
+                  ; We must NOT treat them as local variables (which would allocate new memory).
+                  ; NOTE: This branch only runs when gCodeGenParamIndex < 0, which shouldn't happen
+                  ; for properly handled params. This is a safety check for edge cases.
+                  If (gVarMeta(n)\flags & #C2FLAG_PARAM) And (gVarMeta(n)\flags & #C2FLAG_STRUCT) And gVarMeta(n)\paramOffset >= 0
+                     ; Already handled - do nothing (don't allocate new struct memory)
+                     CompilerIf #DEBUG
+                        Debug "V1.029.68: Skipping struct param - already has paramOffset=" + Str(gVarMeta(n)\paramOffset)
+                     CompilerEndIf
+                  Else
+                  ; Local variable inside a function - assign offset and emit LSTORE
+                  ; V1.029.23: Use LSTORE opcodes for locals (writes to local frame, not global)
+                  ; V1.029.25: Handle local struct variables - allocate all field slots
                   gVarMeta( n )\paramOffset = gCodeGenLocalIndex
-                  gCodeGenLocalIndex + 1  ; Increment for next local
+                  Protected localParamOffset.i = gCodeGenLocalIndex  ; Save before increment
+
+                  ; Check if this is a local struct variable
+                  If spIsStructParam And spStructType <> ""
+                     ; V1.029.36: Local struct with \ptr storage - allocate only 1 slot
+                     gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_STRUCT
+                     gVarMeta( n )\structType = spStructType
+
+                     Protected localStructSize.i = 1
+                     Protected localStructByteSize.i = 8  ; Default 8 bytes
+                     If FindMapElement(mapStructDefs(), spStructType)
+                        localStructSize = mapStructDefs()\totalSize
+                        localStructByteSize = localStructSize * 8  ; 8 bytes per field
+                     EndIf
+
+                     ; V1.029.36: Only 1 slot needed - data stored in \ptr
+                     gCodeGenLocalIndex + 1  ; Base slot only
+
+                     ; V1.029.36: Emit STRUCT_ALLOC_LOCAL to allocate memory for local struct
+                     EmitInt(#ljSTRUCT_ALLOC_LOCAL, localParamOffset)
+                     llObjects()\j = localStructByteSize   ; Byte size
+
+                     ; Store byte size in metadata for later use
+                     gVarMeta( n )\arraySize = localStructByteSize  ; Reuse arraySize for struct byte size
+                  Else
+                     ; Simple local variable
+                     gCodeGenLocalIndex + 1  ; Increment for next local
+
+                     ; Set type flags and emit LSTORE (not POP - locals use local frame)
+                     If *x\typeHint = #ljFLOAT
+                        EmitInt( #ljLSTOREF, localParamOffset )
+                        gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_FLOAT
+                     ElseIf *x\typeHint = #ljSTRING
+                        EmitInt( #ljLSTORES, localParamOffset )
+                        gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_STR
+                     Else
+                        ; V1.031.28: Debug - trace unexpected LSTORE emission
+                        OSDebug("V1.031.: LSTORE EMIT: var='" + gVarMeta(n)\name + "' offset=" + Str(localParamOffset) + " typeHint=" + Str(*x\typeHint) + " spIsStructParam=" + Str(spIsStructParam) + " structType='" + spStructType + "'")
+                        EmitInt( #ljLSTORE, localParamOffset )
+                        gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_INT
+                     EndIf
+                  EndIf
 
                   ; Update nLocals in mapModules immediately
                   ForEach mapModules()
@@ -1631,21 +2495,30 @@
                         Break
                      EndIf
                   Next
-
-                  ; Set type flags
-                  If *x\typeHint = #ljFLOAT
-                     EmitInt( #ljPOPF, n )
-                     gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_FLOAT
-                  ElseIf *x\typeHint = #ljSTRING
-                     EmitInt( #ljPOPS, n )
-                     gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_STR
-                  Else
-                     EmitInt( #ljPOP, n )
-                     gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_INT
-                  EndIf
+                  EndIf  ; V1.029.68: Close local variable Else branch
                Else
-                  ; Global variable - emit POP as usual
-                  If *x\typeHint = #ljFLOAT
+                  ; Global variable
+                  ; V1.029.36: Check for global struct variable
+                  If spIsStructParam And spStructType <> ""
+                     ; Global struct with \ptr storage - allocate only 1 slot
+                     gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_STRUCT
+                     gVarMeta( n )\structType = spStructType
+
+                     Protected globalStructSize.i = 1
+                     Protected globalStructByteSize.i = 8
+                     If FindMapElement(mapStructDefs(), spStructType)
+                        globalStructSize = mapStructDefs()\totalSize
+                        globalStructByteSize = globalStructSize * 8
+                     EndIf
+
+                     ; Emit STRUCT_ALLOC for global struct
+                     EmitInt(#ljSTRUCT_ALLOC, n)
+                     llObjects()\j = globalStructByteSize
+
+                     ; V1.029.66: Store field count in elementSize for vmTransferMetaToRuntime
+                     ; vmTransferMetaToRuntime uses: structByteSize = elementSize * 8
+                     gVarMeta( n )\elementSize = globalStructSize
+                  ElseIf *x\typeHint = #ljFLOAT
                      EmitInt( #ljPOPF, n )
                      gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_FLOAT
                   ElseIf *x\typeHint = #ljSTRING
@@ -1660,16 +2533,258 @@
          
          Case #ljIDENT
             n = FetchVarOffset(*x\value)
-            ; Emit appropriate FETCH variant based on variable type
-            ; V1.026.6: Maps and lists always store pool slot index (integer), not the value
-            If gVarMeta(n)\flags & (#C2FLAG_MAP | #C2FLAG_LIST)
-               EmitInt( #ljFetch, n )  ; Always fetch as integer for collections
-            ElseIf gVarMeta(n)\flags & #C2FLAG_STR
-               EmitInt( #ljFETCHS, n )
-            ElseIf gVarMeta(n)\flags & #C2FLAG_FLOAT
-               EmitInt( #ljFETCHF, n )
+            ; V1.029.5: Check if this is a struct - need to push all slots for function parameters
+            ; V1.029.12: Skip struct push for DOT notation field access (e.g., "rect1.topLeft.x")
+            ; DOT in identifier means field access, not whole-struct reference
+            ; V1.029.30: Skip struct push for collections - they store struct TYPE but are pool slots
+            ; V1.029.44: Skip struct push for backslash field access (e.g., "p1\x")
+            Protected identHasDot.b = Bool(FindString(*x\value, ".") > 0)
+            Protected identHasBackslash.b = Bool(FindString(*x\value, "\") > 0)
+            Protected identIsCollection.b = Bool(gVarMeta(n)\flags & (#C2FLAG_LIST | #C2FLAG_MAP))
+            If gVarMeta(n)\structType <> "" And (gVarMeta(n)\flags & #C2FLAG_STRUCT) And Not identHasDot And Not identHasBackslash And Not identIsCollection
+               ; V1.029.38: With \ptr storage, use FETCH_STRUCT/LFETCH_STRUCT to push both \i and \ptr
+               ; The base slot contains gVar(n)\ptr which points to all struct data
+               ; Callee accesses fields via STRUCT_FETCH_*/STRUCT_STORE_* using the \ptr
+               ; FETCH_STRUCT copies both \i and \ptr so CALL reversal works correctly
+               If gVarMeta(n)\paramOffset >= 0
+                  ; Local struct (variable or parameter) - use LFETCH_STRUCT
+                  EmitInt(#ljLFETCH_STRUCT, gVarMeta(n)\paramOffset)
+               Else
+                  ; Global struct - use FETCH_STRUCT
+                  EmitInt(#ljFETCH_STRUCT, n)
+               EndIf
+               ; No extra struct slots - just 1 slot for the pointer
+               ; (gExtraStructSlots stays 0)
             Else
-               EmitInt( #ljFetch, n )
+               ; Original non-struct code
+               ; Emit appropriate FETCH variant based on variable type
+               ; V1.029.10: Check if variable is local (struct field of local param)
+               Protected identLocalOffset.i = gVarMeta(n)\paramOffset
+               Protected identIsLocal.b = IsLocalVar(n)
+
+               ; V1.029.12: For DOT notation, determine field type from struct definition
+               ; This is needed because offset-0 fields share slot with struct base
+               ; V1.029.19: Fixed to find BASE struct slot (n is field slot, not base slot)
+               Protected dotFieldType.w = 0
+               If identHasDot
+                  ; Look up field type from struct definition by walking the chain
+                  Protected dfDotPos.i = FindString(*x\value, ".")
+                  Protected dfStructName.s = Left(*x\value, dfDotPos - 1)
+                  Protected dfFieldChain.s = Mid(*x\value, dfDotPos + 1)
+
+                  ; V1.029.19: Find the BASE struct slot to get structType
+                  ; n is the field slot, but we need the base struct's type
+                  Protected dfBaseSlot.i = -1
+                  Protected dfBaseStructType.s = ""
+                  Protected dfMangledBase.s = ""
+                  Protected dfSearchIdx.i
+
+                  ; Search for base struct (mangled local first, then global)
+                  If gCurrentFunctionName <> ""
+                     dfMangledBase = gCurrentFunctionName + "_" + dfStructName
+                     For dfSearchIdx = 0 To gnLastVariable - 1
+                        If LCase(Trim(gVarMeta(dfSearchIdx)\name)) = LCase(dfMangledBase) And gVarMeta(dfSearchIdx)\structType <> ""
+                           dfBaseSlot = dfSearchIdx
+                           dfBaseStructType = gVarMeta(dfSearchIdx)\structType
+                           Break
+                        EndIf
+                     Next
+                  EndIf
+                  ; V1.029.24: Search for struct parameter (non-mangled name, paramOffset >= 0)
+                  If dfBaseSlot < 0 And gCurrentFunctionName <> ""
+                     For dfSearchIdx = 0 To gnLastVariable - 1
+                        If LCase(Trim(gVarMeta(dfSearchIdx)\name)) = LCase(dfStructName) And gVarMeta(dfSearchIdx)\structType <> "" And gVarMeta(dfSearchIdx)\paramOffset >= 0
+                           dfBaseSlot = dfSearchIdx
+                           dfBaseStructType = gVarMeta(dfSearchIdx)\structType
+                           Break
+                        EndIf
+                     Next
+                  EndIf
+                  ; Fall back to global search
+                  If dfBaseSlot < 0
+                     For dfSearchIdx = 0 To gnLastVariable - 1
+                        If LCase(Trim(gVarMeta(dfSearchIdx)\name)) = LCase(dfStructName) And gVarMeta(dfSearchIdx)\structType <> "" And gVarMeta(dfSearchIdx)\paramOffset = -1
+                           dfBaseSlot = dfSearchIdx
+                           dfBaseStructType = gVarMeta(dfSearchIdx)\structType
+                           Break
+                        EndIf
+                     Next
+                  EndIf
+
+                  Protected dfCurrentType.s = dfBaseStructType
+                  Protected dfRemaining.s = dfFieldChain
+
+                  While dfRemaining <> "" And dfCurrentType <> ""
+                     Protected dfNextDot.i = FindString(dfRemaining, ".")
+                     Protected dfCurrentField.s
+                     If dfNextDot > 0
+                        dfCurrentField = Left(dfRemaining, dfNextDot - 1)
+                        dfRemaining = Mid(dfRemaining, dfNextDot + 1)
+                     Else
+                        dfCurrentField = dfRemaining
+                        dfRemaining = ""
+                     EndIf
+
+                     If FindMapElement(mapStructDefs(), dfCurrentType)
+                        ForEach mapStructDefs()\fields()
+                           If LCase(mapStructDefs()\fields()\name) = LCase(dfCurrentField)
+                              If dfRemaining = ""
+                                 ; Final field - get its type
+                                 dotFieldType = mapStructDefs()\fields()\fieldType
+                              EndIf
+                              dfCurrentType = mapStructDefs()\fields()\structType
+                              Break
+                           EndIf
+                        Next
+                     Else
+                        dfCurrentType = ""
+                     EndIf
+                  Wend
+               EndIf
+
+               ; V1.026.6: Maps and lists always store pool slot index (integer), not the value
+               If gVarMeta(n)\flags & (#C2FLAG_MAP | #C2FLAG_LIST)
+                  EmitInt( #ljFetch, n )  ; Always fetch as integer for collections
+
+               ; V1.029.37: Check if this is a struct field access with \ptr storage
+               ElseIf gVarMeta(n)\structFieldBase >= 0
+                  ; Struct field access - use STRUCT_FETCH_* with base slot and byte offset
+                  sfBaseSlot = gVarMeta(n)\structFieldBase
+                  sfByteOffset = gVarMeta(n)\structFieldOffset
+                  ; V1.030.61: Debug - trace what offset is being used for struct fetch
+                  Debug "V1.030.61: STRUCT_FETCH n=" + Str(n) + " name='" + gVarMeta(n)\name + "' sfBaseSlot=" + Str(sfBaseSlot) + " sfByteOffset=" + Str(sfByteOffset) + " value='" + *x\value + "'"
+                  sfIsLocal = Bool(gVarMeta(sfBaseSlot)\paramOffset >= 0)
+                  sfFieldType = dotFieldType
+                  ; V1.029.64: Look up field type from struct definition using byte offset
+                  ; Must handle nested structs by walking the type chain
+                  If sfFieldType = 0 And gVarMeta(sfBaseSlot)\structType <> ""
+                     Protected sfLookupType.s = gVarMeta(sfBaseSlot)\structType
+                     Protected sfLookupOffset.i = sfByteOffset / 8  ; Convert byte offset to field index
+                     Protected sfLookupFound.b = #False
+
+                     ; Walk nested struct chain until we find a primitive field
+                     While Not sfLookupFound And sfLookupType <> ""
+                        If FindMapElement(mapStructDefs(), sfLookupType)
+                           Protected sfAccumOffset.i = 0
+                           ForEach mapStructDefs()\fields()
+                              Protected sfFieldSize.i = 1  ; Default size for primitives
+                              ; V1.029.72: Check for array fields - use arraySize for field size
+                              If mapStructDefs()\fields()\isArray And mapStructDefs()\fields()\arraySize > 1
+                                 sfFieldSize = mapStructDefs()\fields()\arraySize
+                              ElseIf mapStructDefs()\fields()\structType <> ""
+                                 ; Nested struct - get its total size
+                                 Protected sfNestedType.s = mapStructDefs()\fields()\structType
+                                 If FindMapElement(mapStructDefs(), sfNestedType)
+                                    sfFieldSize = mapStructDefs()\totalSize
+                                 EndIf
+                                 FindMapElement(mapStructDefs(), sfLookupType)  ; Restore position
+                              EndIf
+
+                              ; Check if target offset falls within this field
+                              If sfLookupOffset >= sfAccumOffset And sfLookupOffset < sfAccumOffset + sfFieldSize
+                                 If mapStructDefs()\fields()\structType <> ""
+                                    ; Nested struct - recurse into it
+                                    sfLookupType = mapStructDefs()\fields()\structType
+                                    sfLookupOffset = sfLookupOffset - sfAccumOffset
+                                    Break  ; Continue outer while loop with nested type
+                                 Else
+                                    ; Primitive field found
+                                    sfFieldType = mapStructDefs()\fields()\fieldType
+                                    sfLookupFound = #True
+                                    Break
+                                 EndIf
+                              EndIf
+                              sfAccumOffset + sfFieldSize
+                           Next
+                           If ListIndex(mapStructDefs()\fields()) = -1
+                              Break  ; Field not found, exit
+                           EndIf
+                        Else
+                           Break  ; Struct type not found
+                        EndIf
+                     Wend
+                  EndIf
+                  If sfFieldType = 0
+                     sfFieldType = #C2FLAG_INT  ; Default to int if still unknown
+                  EndIf
+
+                  ; V1.029.40: Lazy STRUCT_ALLOC_LOCAL - emit on first field access for LOCAL structs
+                  ; Global structs are pre-allocated by VM in vmTransferMetaToRuntime()
+                  ; V1.029.65: Skip for struct PARAMETERS - they receive pointer from caller via FETCH_STRUCT
+                  Protected sfIsParam.b = Bool(gVarMeta(sfBaseSlot)\flags & #C2FLAG_PARAM)
+                  ;Debug "FETCH ALLOC CHECK: slot=" + Str(sfBaseSlot) + " name='" + gVarMeta(sfBaseSlot)\name + "' isLocal=" + Str(sfIsLocal) + " isParam=" + Str(sfIsParam) + " emitted=" + Str(gVarMeta(sfBaseSlot)\structAllocEmitted) + " paramOffset=" + Str(gVarMeta(sfBaseSlot)\paramOffset)
+                  If sfIsLocal And Not sfIsParam And Not gVarMeta(sfBaseSlot)\structAllocEmitted
+                     ; Calculate byte size from struct definition
+                     sfStructByteSize = 8  ; Default 8 bytes (1 field)
+                     If gVarMeta(sfBaseSlot)\structType <> "" And FindMapElement(mapStructDefs(), gVarMeta(sfBaseSlot)\structType)
+                        sfStructByteSize = mapStructDefs()\totalSize * 8  ; 8 bytes per field
+                     EndIf
+
+                     ; Emit STRUCT_ALLOC_LOCAL before the fetch
+                     gEmitIntLastOp = AddElement( llObjects() )
+                     llObjects()\code = #ljSTRUCT_ALLOC_LOCAL
+                     llObjects()\i = gVarMeta(sfBaseSlot)\paramOffset
+                     llObjects()\j = sfStructByteSize
+
+                     ; Mark as allocated
+                     gVarMeta(sfBaseSlot)\structAllocEmitted = #True
+                  EndIf
+
+                  If sfIsLocal
+                     ; Local struct - use LOCAL variant with paramOffset
+                     If sfFieldType & #C2FLAG_FLOAT
+                        EmitInt(#ljSTRUCT_FETCH_FLOAT_LOCAL, gVarMeta(sfBaseSlot)\paramOffset)
+                     ElseIf sfFieldType & #C2FLAG_STR
+                        ; V1.029.55: String field support
+                        EmitInt(#ljSTRUCT_FETCH_STR_LOCAL, gVarMeta(sfBaseSlot)\paramOffset)
+                     Else
+                        EmitInt(#ljSTRUCT_FETCH_INT_LOCAL, gVarMeta(sfBaseSlot)\paramOffset)
+                     EndIf
+                  Else
+                     ; Global struct - use direct slot
+                     If sfFieldType & #C2FLAG_FLOAT
+                        EmitInt(#ljSTRUCT_FETCH_FLOAT, sfBaseSlot)
+                     ElseIf sfFieldType & #C2FLAG_STR
+                        ; V1.029.55: String field support
+                        EmitInt(#ljSTRUCT_FETCH_STR, sfBaseSlot)
+                     Else
+                        EmitInt(#ljSTRUCT_FETCH_INT, sfBaseSlot)
+                     EndIf
+                  EndIf
+                  llObjects()\j = sfByteOffset  ; Byte offset within struct
+                  ; V1.030.61: Debug - confirm byte offset written to instruction
+                  Debug "V1.030.61: STRUCT_FETCH EMITTED: opcode=" + Str(llObjects()\code) + " i=" + Str(llObjects()\i) + " j=" + Str(llObjects()\j) + " (byte offset)"
+
+               ElseIf identIsLocal And identLocalOffset >= 0
+                  ; V1.029.10: Local variable - use LFETCH with paramOffset
+                  ; V1.029.16: For DOT notation fields, use dotFieldType to determine correct type
+                  ; V1.029.24: Fixed - call EmitInt with FETCH opcodes and slot n, not LFETCH with paramOffset
+                  ; EmitInt handles conversion FETCH->LFETCH and sets correct paramOffset
+                  Protected localFieldType.w = dotFieldType
+                  If localFieldType = 0
+                     localFieldType = gVarMeta(n)\flags
+                  EndIf
+                  If localFieldType & #C2FLAG_STR
+                     EmitInt( #ljFETCHS, n )
+                  ElseIf localFieldType & #C2FLAG_FLOAT
+                     EmitInt( #ljFETCHF, n )
+                  Else
+                     EmitInt( #ljFetch, n )
+                  EndIf
+               ElseIf dotFieldType & #C2FLAG_STR
+                  ; V1.029.12: Use DOT field type for correct FETCH variant
+                  EmitInt( #ljFETCHS, n )
+               ElseIf dotFieldType & #C2FLAG_FLOAT
+                  EmitInt( #ljFETCHF, n )
+               ElseIf dotFieldType <> 0
+                  EmitInt( #ljFetch, n )  ; Integer DOT field
+               ElseIf gVarMeta(n)\flags & #C2FLAG_STR
+                  EmitInt( #ljFETCHS, n )
+               ElseIf gVarMeta(n)\flags & #C2FLAG_FLOAT
+                  EmitInt( #ljFETCHF, n )
+               Else
+                  EmitInt( #ljFetch, n )
+               EndIf
             EndIf
             gVarMeta( n )\flags = gVarMeta( n )\flags | #C2FLAG_IDENT
 
@@ -1762,7 +2877,14 @@
 
          Case #ljINT, #ljFLOAT, #ljSTRING
             n = FetchVarOffset( *x\value, 0, *x\NodeType )
-            EmitInt( #ljPush, n )
+            ; V1.029.46: Use type-specific PUSH opcode to preserve float/string types
+            If *x\NodeType = #ljFLOAT
+               EmitInt( #ljPUSHF, n )
+            ElseIf *x\NodeType = #ljSTRING
+               EmitInt( #ljPUSHS, n )
+            Else
+               EmitInt( #ljPush, n )
+            EndIf
 
          Case #ljLeftBracket
             ; Array indexing: arr[index]
@@ -1810,6 +2932,7 @@
             ; V1.022.0: Struct array field fetch - gVar[baseSlot + index]
             ; V1.022.2: Support local and global structs
             ; V1.022.20: Slot-only optimization
+            ; V1.029.58: Updated for \ptr storage - pass structSlot and byteOffset separately
             ; *x\left = index expression
             ; *x\value = "structVarSlot|fieldOffset|fieldName"
 
@@ -1818,32 +2941,35 @@
             Protected sarStructSlot.i = Val(StringField(sarParts, 1, "|"))
             Protected sarFieldOffset.i = Val(StringField(sarParts, 2, "|"))
             Protected sarIsLocal.i = 0
-            Protected sarBaseSlot.i
+            Protected sarByteOffset.i = sarFieldOffset * 8  ; V1.029.58: Byte offset for \ptr storage
             Protected sarIndexSlot.i
 
             ; Check if struct is local (has paramOffset >= 0)
             If gVarMeta(sarStructSlot)\paramOffset >= 0
                sarIsLocal = 1
-               ; For local: base is paramOffset + fieldOffset
-               sarBaseSlot = gVarMeta(sarStructSlot)\paramOffset + sarFieldOffset
-            Else
-               ; For global: base is structVarSlot + fieldOffset
-               sarBaseSlot = sarStructSlot + sarFieldOffset
             EndIf
 
             ; V1.022.20: Get slot for index (may emit code for complex expressions)
             sarIndexSlot = GetExprSlotOrTemp(*x\left)
 
-            ; Emit struct array fetch opcode with direct slot reference
-            EmitInt( *x\NodeType, sarBaseSlot )
-            ; j = 0 for global, 1 for local
+            ; V1.029.58: Emit struct array fetch with \ptr storage params
+            ; i = struct slot (or paramOffset for local)
+            ; j = isLocal
+            ; n = field byte offset (fieldOffset * 8)
+            ; ndx = index slot
+            If sarIsLocal
+               EmitInt( *x\NodeType, gVarMeta(sarStructSlot)\paramOffset )
+            Else
+               EmitInt( *x\NodeType, sarStructSlot )
+            EndIf
             llObjects()\j = sarIsLocal
-            ; ndx = index slot (direct slot ref, no stack)
+            llObjects()\n = sarByteOffset
             llObjects()\ndx = sarIndexSlot
 
          Case #ljSTRUCTARRAY_STORE_INT, #ljSTRUCTARRAY_STORE_FLOAT, #ljSTRUCTARRAY_STORE_STR
             ; V1.022.4: Direct struct array field store (standalone statement)
             ; V1.022.20: Slot-only optimization - no stack ops for simple expressions
+            ; V1.029.58: Updated for \ptr storage - pass structSlot and byteOffset separately
             ; *x\left = index expression
             ; *x\right = value expression
             ; *x\value = "structVarSlot|fieldOffset|fieldName"
@@ -1853,18 +2979,13 @@
             Protected sasDirectStructSlot.i = Val(StringField(sasDirectParts, 1, "|"))
             Protected sasDirectFieldOffset.i = Val(StringField(sasDirectParts, 2, "|"))
             Protected sasDirectIsLocal.i = 0
-            Protected sasDirectBaseSlot.i
+            Protected sasDirectByteOffset.i = sasDirectFieldOffset * 8  ; V1.029.58: Byte offset for \ptr storage
             Protected sasDirectValueSlot.i
             Protected sasDirectIndexSlot.i
 
             ; Check if struct is local (has paramOffset >= 0)
             If gVarMeta(sasDirectStructSlot)\paramOffset >= 0
                sasDirectIsLocal = 1
-               ; For local: base is paramOffset + fieldOffset
-               sasDirectBaseSlot = gVarMeta(sasDirectStructSlot)\paramOffset + sasDirectFieldOffset
-            Else
-               ; For global: base is structVarSlot + fieldOffset
-               sasDirectBaseSlot = sasDirectStructSlot + sasDirectFieldOffset
             EndIf
 
             ; V1.022.20: Get slots for value and index (may emit code for complex expressions)
@@ -1872,13 +2993,21 @@
             sasDirectValueSlot = GetExprSlotOrTemp(*x\right)
             sasDirectIndexSlot = GetExprSlotOrTemp(*x\left)
 
-            ; Emit struct array store opcode with direct slot references
-            EmitInt( *x\NodeType, sasDirectBaseSlot )
-            ; j = 0 for global, 1 for local
+            ; V1.029.58: Emit struct array store opcode with \ptr storage params
+            ; i = struct slot (or paramOffset for local)
+            ; j = isLocal
+            ; n = field byte offset (fieldOffset * 8)
+            ; ndx = index slot
+            ; funcid = value slot
+            If sasDirectIsLocal
+               EmitInt( *x\NodeType, gVarMeta(sasDirectStructSlot)\paramOffset )
+            Else
+               EmitInt( *x\NodeType, sasDirectStructSlot )
+            EndIf
             llObjects()\j = sasDirectIsLocal
-            ; ndx = index slot, n = value slot (direct slot refs, no stack)
+            llObjects()\n = sasDirectByteOffset
             llObjects()\ndx = sasDirectIndexSlot
-            llObjects()\n = sasDirectValueSlot
+            llObjects()\funcid = sasDirectValueSlot
 
          Case #ljPTRSTRUCTFETCH_INT, #ljPTRSTRUCTFETCH_FLOAT, #ljPTRSTRUCTFETCH_STR
             ; V1.022.54: Struct pointer field fetch - ptr\field
@@ -1889,6 +3018,12 @@
             Protected psfPtrSlot.i
             Protected psfFieldOffset.i
             Protected psfActualNodeType.i = *x\NodeType
+            ; V1.029.41: Declare shared variables for struct var detection
+            Protected psfIsStructVar.i = #False
+            Protected psfIsLocalPtr.i = #False
+            Protected psfMetaSlot.i = -1
+            Protected psfStructType.s = ""
+            Protected psfFieldType.i = 0
 
             ; Check if first field is numeric (resolved) or identifier (deferred)
             ; V1.023.13: Changed condition - slot "0" should use deferred path since slot 0 is reserved
@@ -1896,6 +3031,49 @@
                ; Resolved format: "ptrVarSlot|fieldOffset"
                psfPtrSlot = Val(psfField1)
                psfFieldOffset = Val(psfField2)
+               psfMetaSlot = psfPtrSlot  ; For resolved format, metaSlot = ptrSlot
+
+               ; V1.029.41: Check if this is a struct VARIABLE or struct POINTER
+               If gVarMeta(psfPtrSlot)\pointsToStructType <> ""
+                  psfIsStructVar = #False
+                  psfStructType = gVarMeta(psfPtrSlot)\pointsToStructType
+               ElseIf gVarMeta(psfPtrSlot)\structType <> ""
+                  psfIsStructVar = #True
+                  psfStructType = gVarMeta(psfPtrSlot)\structType
+               EndIf
+
+               ; Look up field type for proper opcode selection
+               If psfStructType <> "" And FindMapElement(mapStructDefs(), psfStructType)
+                  ForEach mapStructDefs()\fields()
+                     If mapStructDefs()\fields()\offset = psfFieldOffset
+                        psfFieldType = mapStructDefs()\fields()\fieldType
+                        Break
+                     EndIf
+                  Next
+               EndIf
+
+               ; V1.029.41: Emit for resolved format - handle struct var vs pointer
+               If psfIsStructVar
+                  Protected psfResByteOffset.i = psfFieldOffset * 8  ; Convert field offset to byte offset
+
+                  ; Select correct opcode based on field type (global - resolved format is always global scope)
+                  If psfFieldType & #C2FLAG_FLOAT
+                     psfActualNodeType = #ljSTRUCT_FETCH_FLOAT
+                  ElseIf psfFieldType & #C2FLAG_STR
+                     ; V1.029.55: String field support
+                     psfActualNodeType = #ljSTRUCT_FETCH_STR
+                  Else
+                     psfActualNodeType = #ljSTRUCT_FETCH_INT
+                  EndIf
+
+                  ; Emit STRUCT_FETCH: i = slot, j = byte offset
+                  EmitInt(psfActualNodeType, psfMetaSlot)
+                  llObjects()\j = psfResByteOffset
+               Else
+                  ; Struct POINTER or unknown - use PTRSTRUCTFETCH
+                  EmitInt(psfActualNodeType, psfPtrSlot)
+                  llObjects()\n = psfFieldOffset
+               EndIf
             Else
                ; Deferred format: "identName|fieldName" - resolve now
                Protected psfIdentName.s = psfField1
@@ -1905,8 +3083,8 @@
                ; V1.022.120: Find the variable - search LOCAL (mangled) name FIRST, then global
                ; This matches FetchVarOffset behavior and ensures local variables are found
                psfPtrSlot = -1
-               Protected psfIsLocalPtr.i = #False
-               Protected psfMetaSlot.i = -1
+               psfIsLocalPtr = #False    ; V1.029.41: Now declared at top
+               psfMetaSlot = -1          ; V1.029.41: Now declared at top
                Protected psfMangledName.s = ""
                Protected psfFuncName.s = gCurrentFunctionName
 
@@ -1936,17 +3114,31 @@
 
                ; V1.022.123: If not found as local, search for global variable (skip slot 0)
                If psfPtrSlot < 0
+                  CompilerIf #DEBUG
+                     Debug "PTRSTRUCTFETCH deferred: searching for '" + psfIdentName + "' in slots 1 to " + Str(gnLastVariable - 1)
+                  CompilerEndIf
                   For psfVarIdx = 1 To gnLastVariable - 1
                      If LCase(gVarMeta(psfVarIdx)\name) = LCase(psfIdentName)
                         psfPtrSlot = psfVarIdx
                         psfMetaSlot = psfVarIdx
                         ; psfIsLocalPtr stays FALSE for global variables
+                        CompilerIf #DEBUG
+                           Debug "PTRSTRUCTFETCH deferred: FOUND '" + psfIdentName + "' at slot " + Str(psfVarIdx)
+                        CompilerEndIf
                         Break
                      EndIf
                   Next
                EndIf
 
                If psfPtrSlot < 0
+                  CompilerIf #DEBUG
+                     Debug "PTRSTRUCTFETCH deferred: NOT FOUND - dumping gVarMeta slots:"
+                     For psfVarIdx = 1 To gnLastVariable - 1
+                        If gVarMeta(psfVarIdx)\name <> ""
+                           Debug "  Slot " + Str(psfVarIdx) + ": name='" + gVarMeta(psfVarIdx)\name + "' flags=" + Str(gVarMeta(psfVarIdx)\flags) + " structType='" + gVarMeta(psfVarIdx)\structType + "'"
+                        EndIf
+                     Next
+                  CompilerEndIf
                   SetError("Variable '" + psfIdentName + "' not found for struct pointer access", #C2ERR_CODEGEN_FAILED)
                   ProcedureReturn
                EndIf
@@ -1969,19 +3161,28 @@
                   psfPtrSlot = -(gVarMeta(psfMetaSlot)\paramOffset + 2)
                EndIf
 
-               ; Get struct type from pointer (use saved metaSlot, not encoded psfPtrSlot)
-               Protected psfStructType.s = gVarMeta(psfMetaSlot)\pointsToStructType
+               ; Get struct type from pointer OR struct variable (use saved metaSlot, not encoded psfPtrSlot)
+               ; V1.029.40: Check both pointsToStructType (pointer) and structType (struct var)
+               ; V1.029.41: Track whether this is a pointer or struct variable (vars declared at top)
+               psfStructType = gVarMeta(psfMetaSlot)\pointsToStructType
+               psfIsStructVar = #False
                If psfStructType = ""
-                  SetError("Variable '" + psfIdentName + "' is not a struct pointer", #C2ERR_CODEGEN_FAILED)
+                  psfStructType = gVarMeta(psfMetaSlot)\structType
+                  psfIsStructVar = #True  ; This is a struct VARIABLE, not a pointer
+               EndIf
+               If psfStructType = ""
+                  SetError("Variable '" + psfIdentName + "' is not a struct pointer or struct variable", #C2ERR_CODEGEN_FAILED)
                   ProcedureReturn
                EndIf
 
                ; Look up field in struct type
                psfFieldOffset = -1
+               psfFieldType = 0  ; V1.029.41: Now declared at top
                If FindMapElement(mapStructDefs(), psfStructType)
                   ForEach mapStructDefs()\fields()
                      If LCase(mapStructDefs()\fields()\name) = LCase(psfFieldName)
                         psfFieldOffset = mapStructDefs()\fields()\offset
+                        psfFieldType = mapStructDefs()\fields()\fieldType
                         ; Determine correct node type based on field type
                         If mapStructDefs()\fields()\fieldType & #C2FLAG_FLOAT
                            psfActualNodeType = #ljPTRSTRUCTFETCH_FLOAT
@@ -1999,11 +3200,56 @@
                   SetError("Field '" + psfFieldName + "' not found in struct '" + psfStructType + "'", #C2ERR_CODEGEN_FAILED)
                   ProcedureReturn
                EndIf
-            EndIf
 
-            ; Emit opcode: i=ptrVarSlot, n=fieldOffset
-            EmitInt(psfActualNodeType, psfPtrSlot)
-            llObjects()\n = psfFieldOffset
+               ; V1.029.41: For struct VARIABLES (not pointers), use STRUCT_FETCH_* opcodes
+               ; These use byte offset in contiguous memory (\ptr storage)
+               If psfIsStructVar
+                  Protected psfByteOffset.i = psfFieldOffset * 8  ; Convert field offset to byte offset
+
+                  ; Emit lazy STRUCT_ALLOC_LOCAL for local struct if not already done
+                  ; V1.029.65: Skip for struct PARAMETERS - they receive pointer from caller
+                  Protected psfIsParam.b = Bool(gVarMeta(psfMetaSlot)\flags & #C2FLAG_PARAM)
+                  If psfIsLocalPtr And Not psfIsParam And Not gVarMeta(psfMetaSlot)\structAllocEmitted
+                     Protected psfStructByteSize.i = 8
+                     If FindMapElement(mapStructDefs(), psfStructType)
+                        psfStructByteSize = mapStructDefs()\totalSize * 8
+                     EndIf
+                     EmitInt(#ljSTRUCT_ALLOC_LOCAL, gVarMeta(psfMetaSlot)\paramOffset)
+                     llObjects()\j = psfStructByteSize
+                     gVarMeta(psfMetaSlot)\structAllocEmitted = #True
+                  EndIf
+
+                  ; Select correct opcode based on field type and local/global
+                  If psfFieldType & #C2FLAG_FLOAT
+                     If psfIsLocalPtr
+                        psfActualNodeType = #ljSTRUCT_FETCH_FLOAT_LOCAL
+                     Else
+                        psfActualNodeType = #ljSTRUCT_FETCH_FLOAT
+                     EndIf
+                  Else
+                     ; INT or STR (strings stored as pointers = int)
+                     If psfIsLocalPtr
+                        psfActualNodeType = #ljSTRUCT_FETCH_INT_LOCAL
+                     Else
+                        psfActualNodeType = #ljSTRUCT_FETCH_INT
+                     EndIf
+                  EndIf
+
+                  ; Emit STRUCT_FETCH: i = slot/paramOffset, j = byte offset
+                  If psfIsLocalPtr
+                     EmitInt(psfActualNodeType, gVarMeta(psfMetaSlot)\paramOffset)
+                  Else
+                     EmitInt(psfActualNodeType, psfMetaSlot)  ; Use metaSlot for global
+                  EndIf
+                  llObjects()\j = psfByteOffset
+                  ; Skip the PTRSTRUCTFETCH emission below
+               Else
+                  ; Struct POINTER - use PTRSTRUCTFETCH (existing behavior)
+                  ; Emit opcode: i=ptrVarSlot, n=fieldOffset
+                  EmitInt(psfActualNodeType, psfPtrSlot)
+                  llObjects()\n = psfFieldOffset
+               EndIf
+            EndIf
 
 
          Case #ljASSIGN
@@ -2050,6 +3296,12 @@
                Protected pssaFieldOffset.i
                Protected pssaValueSlot.i
                Protected pssaStoreOp.i
+               ; V1.029.41: Declare shared variables for struct var detection
+               Protected pssaIsStructVar.i = #False
+               Protected pssaIsLocalPtr.i = #False
+               Protected pssaMetaSlot.i = -1
+               Protected pssaStructType.s = ""
+               Protected pssaFieldType.i = 0
 
                ; Check if first field is numeric (resolved) or identifier (deferred)
                ; V1.023.13: Changed condition - slot "0" should use deferred path since slot 0 is reserved
@@ -2057,7 +3309,28 @@
                   ; Resolved format: "ptrVarSlot|fieldOffset"
                   pssaPtrSlot = Val(pssaField1)
                   pssaFieldOffset = Val(pssaField2)
-                  ; Use node type from AST
+                  pssaMetaSlot = pssaPtrSlot  ; For resolved format, metaSlot = ptrSlot
+
+                  ; V1.029.41: Check if this is a struct VARIABLE or struct POINTER
+                  If gVarMeta(pssaPtrSlot)\pointsToStructType <> ""
+                     pssaIsStructVar = #False
+                     pssaStructType = gVarMeta(pssaPtrSlot)\pointsToStructType
+                  ElseIf gVarMeta(pssaPtrSlot)\structType <> ""
+                     pssaIsStructVar = #True
+                     pssaStructType = gVarMeta(pssaPtrSlot)\structType
+                  EndIf
+
+                  ; Look up field type for proper opcode selection
+                  If pssaStructType <> "" And FindMapElement(mapStructDefs(), pssaStructType)
+                     ForEach mapStructDefs()\fields()
+                        If mapStructDefs()\fields()\offset = pssaFieldOffset
+                           pssaFieldType = mapStructDefs()\fields()\fieldType
+                           Break
+                        EndIf
+                     Next
+                  EndIf
+
+                  ; Determine store opcode based on AST node type (for default PTRSTRUCTSTORE)
                   Select *x\left\NodeType
                      Case #ljPTRSTRUCTFETCH_INT
                         pssaStoreOp = #ljPTRSTRUCTSTORE_INT
@@ -2075,8 +3348,8 @@
                   ; V1.022.120: Find the variable - search LOCAL (mangled) name FIRST, then global
                   ; This matches FetchVarOffset behavior and ensures local variables are found
                   pssaPtrSlot = -1
-                  Protected pssaIsLocalPtr.i = #False
-                  Protected pssaMetaSlot.i = -1
+                  pssaIsLocalPtr = #False   ; V1.029.41: Now declared at top
+                  pssaMetaSlot = -1         ; V1.029.41: Now declared at top
                   Protected pssaMangledName.s = ""
                   Protected pssaFuncName.s = gCurrentFunctionName
 
@@ -2145,19 +3418,27 @@
                      pssaPtrSlot = -(gVarMeta(pssaMetaSlot)\paramOffset + 2)
                   EndIf
 
-                  ; Get struct type from pointer (use saved metaSlot, not encoded pssaPtrSlot)
-                  Protected pssaStructType.s = gVarMeta(pssaMetaSlot)\pointsToStructType
+                  ; Get struct type from pointer OR struct variable (use saved metaSlot, not encoded pssaPtrSlot)
+                  ; V1.029.41: Also check structType for struct variables (vars now declared at top)
+                  pssaStructType = gVarMeta(pssaMetaSlot)\pointsToStructType
+                  pssaIsStructVar = #False
                   If pssaStructType = ""
-                     SetError("Variable '" + pssaIdentName + "' is not a struct pointer", #C2ERR_CODEGEN_FAILED)
+                     pssaStructType = gVarMeta(pssaMetaSlot)\structType
+                     pssaIsStructVar = #True
+                  EndIf
+                  If pssaStructType = ""
+                     SetError("Variable '" + pssaIdentName + "' is not a struct pointer or struct variable", #C2ERR_CODEGEN_FAILED)
                      ProcedureReturn
                   EndIf
 
                   ; Look up field in struct type
                   pssaFieldOffset = -1
+                  pssaFieldType = 0  ; V1.029.41: Now declared at top
                   If FindMapElement(mapStructDefs(), pssaStructType)
                      ForEach mapStructDefs()\fields()
                         If LCase(mapStructDefs()\fields()\name) = LCase(pssaFieldName)
                            pssaFieldOffset = mapStructDefs()\fields()\offset
+                           pssaFieldType = mapStructDefs()\fields()\fieldType
                            ; Determine correct store opcode based on field type
                            If mapStructDefs()\fields()\fieldType & #C2FLAG_FLOAT
                               pssaStoreOp = #ljPTRSTRUCTSTORE_FLOAT
@@ -2180,11 +3461,55 @@
                ; Get value slot (may emit code for complex expressions)
                pssaValueSlot = GetExprSlotOrTemp(*x\right)
 
-               ; Emit opcode: i=ptrVarSlot, n=fieldOffset, ndx=valueSlot
-               Debug "PTRSTRUCTSTORE EMIT: pssaStoreOp=" + Str(pssaStoreOp) + " pssaPtrSlot=" + Str(pssaPtrSlot) + " pssaFieldOffset=" + Str(pssaFieldOffset) + " pssaValueSlot=" + Str(pssaValueSlot)
-               EmitInt(pssaStoreOp, pssaPtrSlot)
-               llObjects()\n = pssaFieldOffset
-               llObjects()\ndx = pssaValueSlot
+               ; V1.029.41: For struct VARIABLES (not pointers), use STRUCT_STORE_* opcodes
+               If pssaIsStructVar
+                  Protected pssaByteOffset.i = pssaFieldOffset * 8  ; Convert field offset to byte offset
+
+                  ; Emit lazy STRUCT_ALLOC_LOCAL for local struct if not already done
+                  ; V1.029.65: Skip for struct PARAMETERS - they receive pointer from caller
+                  Protected pssaIsParam.b = Bool(gVarMeta(pssaMetaSlot)\flags & #C2FLAG_PARAM)
+                  If pssaIsLocalPtr And Not pssaIsParam And Not gVarMeta(pssaMetaSlot)\structAllocEmitted
+                     Protected pssaStructByteSize.i = 8
+                     If FindMapElement(mapStructDefs(), pssaStructType)
+                        pssaStructByteSize = mapStructDefs()\totalSize * 8
+                     EndIf
+                     EmitInt(#ljSTRUCT_ALLOC_LOCAL, gVarMeta(pssaMetaSlot)\paramOffset)
+                     llObjects()\j = pssaStructByteSize
+                     gVarMeta(pssaMetaSlot)\structAllocEmitted = #True
+                  EndIf
+
+                  ; Select correct opcode based on field type and local/global
+                  If pssaFieldType & #C2FLAG_FLOAT
+                     If pssaIsLocalPtr
+                        pssaStoreOp = #ljSTRUCT_STORE_FLOAT_LOCAL
+                     Else
+                        pssaStoreOp = #ljSTRUCT_STORE_FLOAT
+                     EndIf
+                  Else
+                     ; INT or STR (strings stored as pointers = int)
+                     If pssaIsLocalPtr
+                        pssaStoreOp = #ljSTRUCT_STORE_INT_LOCAL
+                     Else
+                        pssaStoreOp = #ljSTRUCT_STORE_INT
+                     EndIf
+                  EndIf
+
+                  ; Emit STRUCT_STORE: i = slot/paramOffset, j = byte offset, ndx = value slot
+                  Debug "STRUCTSTORE EMIT: pssaStoreOp=" + Str(pssaStoreOp) + " slot=" + Str(pssaMetaSlot) + " byteOffset=" + Str(pssaByteOffset) + " valueSlot=" + Str(pssaValueSlot)
+                  If pssaIsLocalPtr
+                     EmitInt(pssaStoreOp, gVarMeta(pssaMetaSlot)\paramOffset)
+                  Else
+                     EmitInt(pssaStoreOp, pssaMetaSlot)  ; Use metaSlot for global
+                  EndIf
+                  llObjects()\j = pssaByteOffset
+                  llObjects()\ndx = pssaValueSlot
+               Else
+                  ; Struct POINTER - use PTRSTRUCTSTORE (existing behavior)
+                  ; Emit opcode: i=ptrVarSlot, n=fieldOffset, ndx=valueSlot
+                  EmitInt(pssaStoreOp, pssaPtrSlot)
+                  llObjects()\n = pssaFieldOffset
+                  llObjects()\ndx = pssaValueSlot
+               EndIf
 
 
             ; Check if left side is pointer dereference
@@ -2421,7 +3746,18 @@
                ; V1.022.71: Type annotation (.i, .f, .s) inside function = local variable
                ; var.type = expr creates local; var = expr uses global if exists
                ; TypeHint > 0 means type annotation present = force local
+               ; V1.030.54: Debug slot 176 BEFORE calling FetchVarOffset in ASSIGN
+               CompilerIf #DEBUG
+                  If gnLastVariable > 176 And gCurrentFunctionName = "_calculatearea"
+                     Debug "V1.030.54: ASSIGN ENTRY slot176 structType='" + gVarMeta(176)\structType + "' LHS='" + *x\left\value + "'"
+                  EndIf
+               CompilerEndIf
                n = FetchVarOffset( *x\left\value, *x\right, 0, *x\left\TypeHint )
+
+               ; V1.030.63: Debug - track ASSIGN LHS for w/h
+               If FindString(*x\left\value, "w") Or FindString(*x\left\value, "h")
+                  Debug "V1.030.63 ASSIGN_LHS: LHS='" + *x\left\value + "' slot=" + Str(n) + " name='" + gVarMeta(n)\name + "' structFieldBase=" + Str(gVarMeta(n)\structFieldBase)
+               EndIf
 
                ; V1.022.65: Check for struct-to-struct copy (same type required)
                ; destStruct = srcStruct
@@ -2437,6 +3773,43 @@
                            scSlotCount = mapStructDefs()\totalSize
                         EndIf
                         If scSlotCount > 0
+                           ; V1.029.12: SIMPLIFIED - FetchVarOffset already returns correct base slots
+                           ; n = dest struct base slot (from FetchVarOffset at line 2668)
+                           ; scSrcSlot = source struct base slot (from FetchVarOffset at line 2674)
+                           ; Struct slots are allocated consecutively, so base+0 through base+size-1 are the fields
+
+                           ; V1.029.65: Lazy STRUCT_ALLOC for destination - needed if dest was only initialized with { }
+                           ; Check if dest is local (variable) vs global, and skip if it's a parameter (receives pointer from caller)
+                           ; V1.029.66: GLOBAL structs are pre-allocated by vmTransferMetaToRuntime - DO NOT re-allocate!
+                           ; Only emit STRUCT_ALLOC_LOCAL for LOCAL struct variables (not parameters)
+                           Protected scDestIsLocal.b = Bool(gVarMeta(n)\paramOffset >= 0)
+                           Protected scDestIsParam.b = Bool(gVarMeta(n)\flags & #C2FLAG_PARAM)
+                           Protected scByteSize.i = scSlotCount * 8
+
+                           If scDestIsLocal And Not scDestIsParam And Not gVarMeta(n)\structAllocEmitted
+                              ; Emit STRUCT_ALLOC_LOCAL for local struct variable
+                              gEmitIntLastOp = AddElement(llObjects())
+                              llObjects()\code = #ljSTRUCT_ALLOC_LOCAL
+                              llObjects()\i = gVarMeta(n)\paramOffset
+                              llObjects()\j = scByteSize
+                              gVarMeta(n)\structAllocEmitted = #True
+                           EndIf
+                           ; NOTE: Global structs are NOT allocated here - vmTransferMetaToRuntime handles them
+
+                           ; V1.029.66: Also ensure SOURCE struct is allocated IF it's a local variable
+                           ; Global source structs are already allocated; local vars may need lazy allocation
+                           Protected scSrcIsLocal.b = Bool(gVarMeta(scSrcSlot)\paramOffset >= 0)
+                           Protected scSrcIsParam.b = Bool(gVarMeta(scSrcSlot)\flags & #C2FLAG_PARAM)
+
+                           If scSrcIsLocal And Not scSrcIsParam And Not gVarMeta(scSrcSlot)\structAllocEmitted
+                              gEmitIntLastOp = AddElement(llObjects())
+                              llObjects()\code = #ljSTRUCT_ALLOC_LOCAL
+                              llObjects()\i = gVarMeta(scSrcSlot)\paramOffset
+                              llObjects()\j = scByteSize
+                              gVarMeta(scSrcSlot)\structAllocEmitted = #True
+                           EndIf
+                           ; NOTE: Global source structs are NOT allocated here
+
                            ; Emit STRUCTCOPY: i=destSlot, j=srcSlot, n=slotCount
                            EmitInt(#ljSTRUCTCOPY, n)
                            llObjects()\j = scSrcSlot
@@ -2611,8 +3984,13 @@
                Else
                   ; SUBSEQUENT ASSIGNMENT - Type checking and conversion
 
+                  ; V1.029.58: Skip type checking for struct field assignments
+                  ; Struct field type is determined from struct definition, not gVarMeta(n)\flags
+                  ; gVarMeta(n) returns struct base slot which has #C2FLAG_STRUCT, not the field type
+                  Protected isStructFieldAssignment.i = Bool(gVarMeta(n)\structFieldBase >= 0)
+
                   ; V1.023.26: Strict type checking - variables cannot change type
-                  If *x\left\TypeHint = #ljFLOAT And Not (gVarMeta(n)\flags & #C2FLAG_FLOAT)
+                  If Not isStructFieldAssignment And *x\left\TypeHint = #ljFLOAT And Not (gVarMeta(n)\flags & #C2FLAG_FLOAT)
                      existingTypeName = "int"
                      If gVarMeta(n)\flags & #C2FLAG_STR
                         existingTypeName = "string"
@@ -2622,7 +4000,7 @@
                         existingTypeName = "struct"
                      EndIf
                      SetError("Variable '" + *x\left\value + "' already declared as " + existingTypeName + ", cannot re-declare as float", 10)
-                  ElseIf *x\left\TypeHint = #ljSTRING And Not (gVarMeta(n)\flags & #C2FLAG_STR)
+                  ElseIf Not isStructFieldAssignment And *x\left\TypeHint = #ljSTRING And Not (gVarMeta(n)\flags & #C2FLAG_STR)
                      existingTypeName = "int"
                      If gVarMeta(n)\flags & #C2FLAG_FLOAT
                         existingTypeName = "float"
@@ -2632,7 +4010,7 @@
                         existingTypeName = "struct"
                      EndIf
                      SetError("Variable '" + *x\left\value + "' already declared as " + existingTypeName + ", cannot re-declare as string", 10)
-                  ElseIf *x\left\TypeHint = #ljINT And Not (gVarMeta(n)\flags & #C2FLAG_INT)
+                  ElseIf Not isStructFieldAssignment And *x\left\TypeHint = #ljINT And Not (gVarMeta(n)\flags & #C2FLAG_INT)
                      existingTypeName = "float"
                      If gVarMeta(n)\flags & #C2FLAG_STR
                         existingTypeName = "string"
@@ -2667,6 +4045,14 @@
                      gPtrFetchExpectedType = gVarMeta(n)\flags & #C2FLAG_TYPE
                      CodeGenerator( *x\right )
                      ; Skip all type conversion logic - specialized PTRFETCH handles it
+
+                  ; V1.029.54: For struct field assignments, skip type conversion
+                  ; STRUCT_STORE_* opcodes handle the actual field type from struct definition
+                  ; The slot's flags may have wrong type (defaults to INT)
+                  ElseIf gVarMeta(n)\structFieldBase >= 0
+                     ; Just generate the RHS value - EmitInt will use correct STRUCT_STORE_* opcode
+                     CodeGenerator( *x\right )
+                     ; Skip all type conversion logic
                   Else
                      ; Check for type mismatch and handle conversion
                   ; INT to FLOAT conversion
@@ -2813,8 +4199,124 @@
                   EndIf  ; End of V1.20.0 PTRFETCH explicit typing check
                EndIf
 
-               ; Emit appropriate STORE variant based on variable type
-               If gVarMeta(n)\flags & #C2FLAG_STR
+               ; V1.030.62: Handle struct initialization { } - allocate only, don't emit store
+               ; The { } syntax just allocates the struct with default values, no actual store needed
+               ; Without this check, STORE_STRUCT is emitted which pops garbage from empty stack
+               If *x\right And *x\right\NodeType = #ljStructInit And (gVarMeta(n)\flags & #C2FLAG_STRUCT)
+                  ; Emit STRUCT_ALLOC_LOCAL if not already allocated (for local structs only)
+                  If gVarMeta(n)\paramOffset >= 0 And Not gVarMeta(n)\structAllocEmitted
+                     ; Calculate byte size from struct definition
+                     Protected initStructByteSize.i = 8  ; Default 1 field
+                     If gVarMeta(n)\structType <> "" And FindMapElement(mapStructDefs(), gVarMeta(n)\structType)
+                        initStructByteSize = mapStructDefs()\totalSize * 8
+                     EndIf
+
+                     gEmitIntLastOp = AddElement(llObjects())
+                     llObjects()\code = #ljSTRUCT_ALLOC_LOCAL
+                     llObjects()\i = gVarMeta(n)\paramOffset
+                     llObjects()\j = initStructByteSize
+
+                     gVarMeta(n)\structAllocEmitted = #True
+                     CompilerIf #DEBUG
+                        Debug "V1.030.62: Struct init { } - emitted STRUCT_ALLOC_LOCAL for '" + gVarMeta(n)\name + "' size=" + Str(initStructByteSize)
+                     CompilerEndIf
+                  EndIf
+                  ; Skip store emission - { } just allocates, doesn't store anything
+
+               ; V1.029.84: Emit appropriate STORE variant based on variable type
+               ; For struct variables, use STORE_STRUCT which copies both \i and \ptr in one operation
+               ; V1.030.27/29/31: Struct FIELD assignment for LOCAL structs should NOT use STORE_STRUCT
+               ; STORE_STRUCT is for whole-struct copies (localStruct = otherStruct)
+               ; For field assignment (local.x = value), emit STOREF/STORES/STORE based on field type
+               ; Only applies to LOCAL structs (paramOffset >= 0) which would trigger STORE_STRUCT bug
+               ElseIf gVarMeta(n)\structFieldBase >= 0 And gVarMeta(n)\paramOffset >= 0
+                  ; Local struct field assignment - look up field type from struct definition
+                  ; V1.030.31: Use field offset ranges to find primitive field type
+                  ; Field range: [field.offset, nextField.offset) or [field.offset, totalSize) for last
+                  ; IMPORTANT: Don't change map element inside ForEach - corrupts iterator!
+                  Protected sfaFieldType.w = 0  ; Default to INT
+                  Protected sfaBaseSlot.i = gVarMeta(n)\structFieldBase
+                  ; V1.030.65: FIX - Convert byte offset to slot index (divide by 8)
+                  ; structFieldOffset is in bytes, but mapStructDefs field offsets are in slot units
+                  ; Without this conversion, field type lookup fails for non-zero offsets (y fields)
+                  ; causing wrong STORE opcode type (INT instead of FLOAT) and garbage values
+                  Protected sfaFlatOffset.i = gVarMeta(n)\structFieldOffset / 8
+                  Protected sfaCurrentType.s = gVarMeta(sfaBaseSlot)\structType
+                  Protected sfaFound.b = #False
+                  Protected sfaNextType.s = ""
+                  Protected sfaFieldStart.i, sfaFieldEnd.i, sfaTotalSize.i
+                  Protected sfaMaxIter.i = 10  ; Safety limit for nested struct depth
+
+                  ; Walk nested struct chain to find primitive field type
+                  While sfaCurrentType <> "" And Not sfaFound And sfaMaxIter > 0
+                     sfaMaxIter = sfaMaxIter - 1
+                     sfaNextType = ""
+                     If FindMapElement(mapStructDefs(), sfaCurrentType)
+                        sfaTotalSize = mapStructDefs()\totalSize
+                        ; Find which field contains the target offset using offset ranges
+                        ForEach mapStructDefs()\fields()
+                           sfaFieldStart = mapStructDefs()\fields()\offset
+                           ; Get end offset: peek at next field or use totalSize
+                           If NextElement(mapStructDefs()\fields())
+                              sfaFieldEnd = mapStructDefs()\fields()\offset
+                              PreviousElement(mapStructDefs()\fields())
+                           Else
+                              sfaFieldEnd = sfaTotalSize
+                           EndIf
+                           ; Check if target is in this field's range
+                           If sfaFlatOffset >= sfaFieldStart And sfaFlatOffset < sfaFieldEnd
+                              If mapStructDefs()\fields()\structType <> ""
+                                 ; Nested struct - save for next iteration
+                                 sfaNextType = mapStructDefs()\fields()\structType
+                                 sfaFlatOffset = sfaFlatOffset - sfaFieldStart
+                              Else
+                                 ; Primitive field found
+                                 sfaFieldType = mapStructDefs()\fields()\fieldType
+                                 sfaFound = #True
+                              EndIf
+                              Break
+                           EndIf
+                        Next
+                        ; Continue with nested type if found
+                        If sfaNextType <> ""
+                           sfaCurrentType = sfaNextType
+                        Else
+                           Break  ; Done - either found primitive or no match
+                        EndIf
+                     Else
+                        Break  ; Struct type not found
+                     EndIf
+                  Wend
+
+                  ; Emit appropriate STORE based on field type (EmitInt will convert to STRUCT_STORE_*)
+                  If sfaFieldType & #C2FLAG_STR
+                     EmitInt( #ljSTORES, n )
+                  ElseIf sfaFieldType & #C2FLAG_FLOAT
+                     EmitInt( #ljSTOREF, n )
+                  Else
+                     EmitInt( #ljSTORE, n )
+                  EndIf
+               ElseIf gVarMeta(n)\structFieldBase >= 0
+                  ; Global struct field assignment - use type flags from variable metadata
+                  ; V1.030.29: For global struct fields, fall through to type-based emit below
+                  If gVarMeta(n)\flags & #C2FLAG_STR
+                     EmitInt( #ljSTORES, n )
+                  ElseIf gVarMeta(n)\flags & #C2FLAG_FLOAT
+                     EmitInt( #ljSTOREF, n )
+                  Else
+                     EmitInt( #ljSTORE, n )
+                  EndIf
+               ElseIf (gVarMeta(n)\flags & #C2FLAG_STRUCT) And gVarMeta(n)\paramOffset >= 0
+                  ; V1.031.32: Local struct variable - use LSTORE_STRUCT (writes to gLocal[])
+                  ; The stVT structure has SEPARATE \i and \ptr fields (not a union)
+                  ; Regular STORE only copies \i, but StructGetStr accesses \ptr
+                  EmitInt( #ljLSTORE_STRUCT, gVarMeta(n)\paramOffset )
+                  ; Mark as allocated to prevent later field access from allocating new memory
+                  gVarMeta(n)\structAllocEmitted = #True
+                  CompilerIf #DEBUG
+                     Debug "V1.031.32: Emitted LSTORE_STRUCT for '" + gVarMeta(n)\name + "' at offset " + Str(gVarMeta(n)\paramOffset)
+                  CompilerEndIf
+               ElseIf gVarMeta(n)\flags & #C2FLAG_STR
                   EmitInt( #ljSTORES, n )
                ElseIf gVarMeta(n)\flags & #C2FLAG_FLOAT
                   EmitInt( #ljSTOREF, n )
@@ -3060,12 +4562,14 @@
             ; Generate update code
             If *forUpdate
                CodeGenerator(*forUpdate)
-               ; V1.024.25: Pop unused values from for loop update expression
+               ; V1.024.25: Drop unused values from for loop update expression
                ; POST_INC and POST_DEC push old value, PRE_INC and PRE_DEC push new value
-               ; When used as update expression, these values are unused and must be popped
+               ; When used as update expression, these values are unused and must be dropped
+               ; V1.031.10: Use DROP (discard without storing) instead of POP
+               ; POP requires a slot number and was incorrectly storing to gVar(0)
                If *forUpdate\NodeType = #ljPOST_INC Or *forUpdate\NodeType = #ljPOST_DEC Or
                   *forUpdate\NodeType = #ljPRE_INC Or *forUpdate\NodeType = #ljPRE_DEC
-                  EmitInt( #ljPOP )
+                  EmitInt( #ljDROP )
                EndIf
             EndIf
 
@@ -3334,12 +4838,13 @@
                If *x\right
                   CodeGenerator( *x\right )
 
-                  ; V1.020.053: Pop unused values from statement-level operations
+                  ; V1.020.053: Drop unused values from statement-level operations (RIGHT child)
                   ; POST_INC and POST_DEC push old value, PRE_INC and PRE_DEC push new value
-                  ; When used as statements, these values are unused and must be popped
+                  ; When used as statements, these values are unused and must be dropped
+                  ; V1.031.10: Use DROP (discard without storing) instead of POP
                   If *x\right\NodeType = #ljPOST_INC Or *x\right\NodeType = #ljPOST_DEC Or
                      *x\right\NodeType = #ljPRE_INC Or *x\right\NodeType = #ljPRE_DEC
-                     EmitInt( #ljPOP )
+                     EmitInt( #ljDROP )
                   EndIf
                EndIf
             EndIf
@@ -3360,6 +4865,13 @@
             gCodeGenParamIndex = -1
             gCodeGenLocalIndex = 0
             gCodeGenFunction = 0
+            ; V1.029.75: Debug function ID lookup (only for functions 5,6,7,8)
+            Protected ljfDebugId.i = Val(*x\value)
+            CompilerIf #DEBUG
+               If ljfDebugId >= 5 And ljfDebugId <= 8
+                  Debug "V1.029.75: #ljFunction funcId=" + Str(ljfDebugId)
+               EndIf
+            CompilerEndIf
             ForEach mapModules()
                If mapModules()\function = Val( *x\value )
                   ; Store BOTH index and pointer to list element for post-optimization fixup
@@ -3376,10 +4888,60 @@
                   gCurrentFunctionName = MapKey(mapModules())
                   ; Track current function ID for nLocals counting
                   gCodeGenFunction = mapModules()\function
+                  ; V1.029.75: Debug match found (only for functions 5,6,7,8)
+                  CompilerIf #DEBUG
+                     If ljfDebugId >= 5 And ljfDebugId <= 8
+                        Debug "  MATCH! '" + gCurrentFunctionName + "' nParams=" + Str(mapModules()\nParams) + " -> gCodeGenFunction=" + Str(gCodeGenFunction) + " gCodeGenParamIndex=" + Str(gCodeGenParamIndex) + " gCodeGenLocalIndex=" + Str(gCodeGenLocalIndex)
+                     EndIf
+                  CompilerEndIf
+
+                  ; V1.029.68: Handle struct params that were pre-created during AST parsing
+                  ; These params were processed by #ljPOP BEFORE #ljFunction was reached
+                  ; (AST order is actually SEQ[marker, params], so marker IS first, but struct
+                  ; params still need paramOffset set here because they were pre-created in AST).
+                  ; The #ljPOP skip check will handle not overwriting and still decrementing.
+                  ;
+                  ; For mixed params like func(obj.Struct, dx.f, dy.f):
+                  ; - Caller pushes left-to-right: obj, dx, dy
+                  ; - CALL stores them: LOCAL[0]=dy, LOCAL[1]=dx, LOCAL[2]=obj
+                  ; - AST processes right-to-left: dy, dx, obj (gCodeGenParamIndex: 2,1,0)
+                  ; - paramOffset formula: (gCodeGenLocalIndex - 1) - gCodeGenParamIndex
+                  ; - dy: (3-1)-2=0, dx: (3-1)-1=1, obj: (3-1)-0=2
+                  ;
+                  ; For struct params (obj), we pre-calculate its paramOffset based on its
+                  ; position in the original param list (0=first param -> offset=nParams-1).
+                  Protected ljfStructParamPrefix.s = LCase(gCurrentFunctionName + "_")
+                  Protected ljfVarIdx.i
+                  For ljfVarIdx = 0 To gnLastVariable - 1
+                     ; Check for pre-created struct params (have PARAM|STRUCT flags, mangled name)
+                     If (gVarMeta(ljfVarIdx)\flags & #C2FLAG_PARAM) And (gVarMeta(ljfVarIdx)\flags & #C2FLAG_STRUCT)
+                        If LCase(Left(gVarMeta(ljfVarIdx)\name, Len(ljfStructParamPrefix))) = ljfStructParamPrefix
+                           ; Found a struct param for this function
+                           ; For struct params, the position info was stored in elementSize during AST
+                           ; Actually we don't have position, but for single struct param functions,
+                           ; paramOffset = nParams - 1 - 0 = gCodeGenParamIndex (since gCodeGenParamIndex = nParams - 1)
+                           ; For now, assume first struct param is first param (position 0)
+                           ; TODO: Handle multiple struct params or struct params in non-first positions
+                           gVarMeta(ljfVarIdx)\paramOffset = gCodeGenParamIndex
+                           CompilerIf #DEBUG
+                              Debug "V1.029.68: Set struct param '" + gVarMeta(ljfVarIdx)\name + "' paramOffset=" + Str(gVarMeta(ljfVarIdx)\paramOffset)
+                           CompilerEndIf
+                        EndIf
+                     EndIf
+                  Next
+                  ; DON'T decrement gCodeGenParamIndex here - let #ljPOP handle it
+                  ; This ensures non-struct params get correct offsets
+
                   Break
                EndIf
             Next
-            
+            ; V1.029.75: Debug if no match found (only for functions 5,6,7,8)
+            CompilerIf #DEBUG
+               If gCodeGenFunction = 0 And ljfDebugId >= 5 And ljfDebugId <= 8
+                  Debug "  ERROR: No match found for funcId=" + Str(ljfDebugId)
+               EndIf
+            CompilerEndIf
+
          Case #ljPRTC, #ljPRTI, #ljPRTS, #ljPRTF, #ljprint
             CodeGenerator( *x\left )
             EmitInt( *x\NodeType )
@@ -3389,6 +4951,7 @@
 
             leftType    = GetExprResultType(*x\left)
             rightType   = GetExprResultType(*x\right)
+            Debug "V1.030.41: BINARY OP " + Str(*x\NodeType) + " leftType=" + Str(leftType) + " rightType=" + Str(rightType) + " FLOAT=" + Str(#C2FLAG_FLOAT)
 
             ; With proper stack frames, parameters are stack-local and won't be corrupted
             ; No need for temp variables or special handling
@@ -3594,6 +5157,26 @@
 
                ; V1.022.54: Check if this is a struct variable
                If gVarMeta(n)\structType <> ""
+                  ; V1.029.9: Find correct struct slot by searching for FIRST FIELD
+                  ; V1.029.10: Use dot notation (varName.field)
+                  Protected gaStructType.s = gVarMeta(n)\structType
+                  Protected gaSlotCount.i = 0
+                  If FindMapElement(mapStructDefs(), gaStructType)
+                     gaSlotCount = mapStructDefs()\totalSize
+                  EndIf
+                  If gaSlotCount > 1
+                     Protected gaFieldPrefix.s = *x\left\value + "."  ; Fields use dot notation
+                     Protected gaSearchIdx.i
+                     Protected gaSlotName.s
+                     ; Search forwards to find FIRST field slot
+                     For gaSearchIdx = 0 To gnLastVariable - 1
+                        gaSlotName = gVarMeta(gaSearchIdx)\name
+                        If Left(gaSlotName, Len(gaFieldPrefix)) = gaFieldPrefix
+                           n = gaSearchIdx
+                           Break
+                        EndIf
+                     Next
+                  EndIf
                   ; Struct pointer - emit GETSTRUCTADDR with base slot
                   EmitInt( #ljGETSTRUCTADDR, n )
                Else
@@ -3602,13 +5185,15 @@
                   Protected isLocalVar.i = Bool(gVarMeta(n)\paramOffset >= 0)
                   Protected localOffset.i = gVarMeta(n)\paramOffset
 
-                  ; Emit type-specific GETADDR based on variable type hint
+                  ; V1.031.35: Emit type-specific GETADDR based on gVarMeta flags (not TypeHint which may be incorrect)
                   Protected opcode.i
+                  Protected varFlags.w = gVarMeta(n)\flags
                   If isLocalVar
                      ; V1.027.2: Use local address opcodes for local variables
-                     If *x\left\TypeHint = #ljSTRING
+                     ; V1.031.35: Use gVarMeta flags for reliable type detection
+                     If varFlags & #C2FLAG_STR
                         opcode = #ljGETLOCALADDRS
-                     ElseIf *x\left\TypeHint = #ljFLOAT
+                     ElseIf varFlags & #C2FLAG_FLOAT
                         opcode = #ljGETLOCALADDRF
                      Else
                         opcode = #ljGETLOCALADDR
@@ -3617,9 +5202,10 @@
                      EmitInt( opcode, localOffset )
                   Else
                      ; Global variable - use standard GETADDR with global slot
-                     If *x\left\TypeHint = #ljSTRING
+                     ; V1.031.35: Use gVarMeta flags for reliable type detection
+                     If varFlags & #C2FLAG_STR
                         opcode = #ljGETADDRS
-                     ElseIf *x\left\TypeHint = #ljFLOAT
+                     ElseIf varFlags & #C2FLAG_FLOAT
                         opcode = #ljGETADDRF
                      Else
                         opcode = #ljGETADDR
@@ -3653,6 +5239,9 @@
          Case #ljCall
             funcId = Val( *x\value )
             paramCount = *x\paramCount  ; Get actual param count from tree node
+            ; V1.029.5: Adjust paramCount for struct parameters (each struct pushes totalSize slots)
+            paramCount = paramCount + gExtraStructSlots
+            gExtraStructSlots = 0  ; Reset for next call
 
             ; V1.020.102: Check if Call has a left child (expression to evaluate for function pointer)
             ; This handles cases like: operations[i](x, y) where operations[i] is in left child
@@ -3852,16 +5441,22 @@
 
             ; Convert TypeHint to C2FLAG format
             Protected listNewType.i = #C2FLAG_INT
+            Protected listNewElementSize.i = 1
             If listNewTypeHint = #ljFLOAT
                listNewType = #C2FLAG_FLOAT
             ElseIf listNewTypeHint = #ljSTRING
                listNewType = #C2FLAG_STR
+            ElseIf listNewTypeHint = #ljStructType
+               ; V1.029.14: Struct list - set STRUCT flag and element size
+               listNewType = #C2FLAG_STRUCT
+               listNewElementSize = *x\paramCount  ; Element size stored in AST
             EndIf
 
-            ; Emit LIST_NEW: \i = slot/offset, \j = value type, \n = isLocal
+            ; Emit LIST_NEW: \i = slot/offset, \j = value type, \n = isLocal, \ndx = element size (for structs)
             EmitInt(#ljLIST_NEW, listNewSlotToEmit)
             llObjects()\j = listNewType
             llObjects()\n = listNewIsLocal
+            llObjects()\ndx = listNewElementSize  ; V1.029.14: Element size for struct lists
 
          ; V1.026.0: Map creation
          ; V1.026.19: Support local map variables via \n = isLocal flag
@@ -3884,21 +5479,38 @@
 
             ; Convert TypeHint to C2FLAG format
             Protected mapNewType.i = #C2FLAG_INT
+            Protected mapNewElementSize.i = 1
             If mapNewTypeHint = #ljFLOAT
                mapNewType = #C2FLAG_FLOAT
             ElseIf mapNewTypeHint = #ljSTRING
                mapNewType = #C2FLAG_STR
+            ElseIf mapNewTypeHint = #ljStructType
+               ; V1.029.14: Struct map - set STRUCT flag and element size
+               mapNewType = #C2FLAG_STRUCT
+               mapNewElementSize = *x\paramCount  ; Element size stored in AST
             EndIf
 
-            ; Emit MAP_NEW: \i = slot/offset, \j = value type, \n = isLocal
+            ; Emit MAP_NEW: \i = slot/offset, \j = value type, \n = isLocal, \ndx = element size (for structs)
             EmitInt(#ljMAP_NEW, mapNewSlotToEmit)
             llObjects()\j = mapNewType
             llObjects()\n = mapNewIsLocal
+            llObjects()\ndx = mapNewElementSize  ; V1.029.14: Element size for struct maps
+
+         Case #ljStructInit
+            ; V1.029.97: Struct initialization { } - no-op since allocation is done via STRUCT_ALLOC
+            ; The { } syntax just indicates "initialize to defaults" which happens at allocation time
+            ; Nothing to emit here
 
          Default
             SetError("Error in CodeGenerator at node " + Str(*x\NodeType) + " " + *x\value + " ---> " + gszATR(*x\NodeType)\s, #C2ERR_CODEGEN_FAILED)
 
       EndSelect
+
+      ; V1.030.50: WATCHPOINT EXIT - check if slot 176 structType changed during this CG call
+      If gnLastVariable > 176 And gVarMeta(176)\structType <> cg176LastStructType
+         Debug "V1.030.50: CG EXIT slot176 CHANGED! was '" + cg176LastStructType + "' now '" + gVarMeta(176)\structType + "' node=" + *x\nodeType + " value='" + *x\value + "'"
+         cg176LastStructType = gVarMeta(176)\structType
+      EndIf
 
       gCodeGenRecursionDepth - 1
 
@@ -3956,15 +5568,15 @@
    EndProcedure
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 64
-; FirstLine = 36
-; Folding = ---
+; CursorPosition = 249
+; FirstLine = 245
+; Folding = ---------
 ; Markers = 1894,1972
 ; EnableAsm
 ; EnableThread
 ; EnableXP
 ; CPU = 1
 ; EnablePurifier
-; EnableCompileCount = 1
+; EnableCompileCount = 2
 ; EnableBuildCount = 0
 ; EnableExeConstant

@@ -11,6 +11,22 @@ nul
 *.exe
 *.dll
 *.obj
+*.asm
+*.out
+lj2_console
+lj2_debug
+lj2_linux
+
+# Test binaries and temporary test files
+test_lj2_minimal
+test_lj2_minimal.pb
+test_thread_gui
+test_thread_gui.pb
+test-pb-*
+test-*.ps1
+
+# Temporary source backups
+*.current
 
 # Editor temp files
 *.bak

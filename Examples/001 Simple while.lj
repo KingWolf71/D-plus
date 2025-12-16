@@ -6,7 +6,7 @@
 #pragma optimizecode on
 #pragma ListASM on
 #pragma FastPrint on
-#pragma RunThreaded on
+#pragma RunThreaded off
 #pragma ftoi "truncate"
 #pragma version on
 #pragma modulename on
@@ -14,7 +14,7 @@
 #pragma floattolerance 0.0001
 #pragma stackspace 2048
 #pragma stackdepth 1024
-#pragma DumpASM on
+#pragma DumpASM off
 
 count = 1;
  while (count < 10) {
