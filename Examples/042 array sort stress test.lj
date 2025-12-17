@@ -16,8 +16,13 @@
 #pragma modulename on
 #pragma PasteToClipboard on
 #pragma floattolerance 0.0001
-#pragma stackspace 64000
-#pragma stackdepth 64000
+#pragma GlobalStack 64000
+#pragma FunctionStack 64000
+#pragma EvalStack 256
+#pragma LocalStack 1024
+#pragma CreateLog off
+#pragma DefaultFPS 32
+#pragma ThreadKillWait 1800
 
 #define		ELEMENTS 50000
 //#define		ELEMENTS 200

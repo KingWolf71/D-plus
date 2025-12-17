@@ -982,17 +982,18 @@ Procedure               C2CALLFUNCPTR()
    ; Create stack frame
    gStackDepth = gStackDepth + 1
 
-   If gStackDepth >= gMaxStackDepth
-      Debug "*** FATAL ERROR: Stack overflow in function pointer call at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
-
-   If gLocalTop + totalVars >= #C2MAXLOCALS
-      Debug "*** FATAL ERROR: Local variable overflow in function pointer call at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
+   CompilerIf #DEBUG
+      If gStackDepth >= gFunctionStack
+         Debug "*** FATAL ERROR: Stack overflow in function pointer call at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+      If gLocalTop + totalVars >= gLocalStack
+         Debug "*** FATAL ERROR: Local variable overflow in function pointer call at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
 
    ; V1.31.0: Save caller's localBase and set new frame base
    savedLocalBase = gLocalBase
@@ -1754,15 +1755,18 @@ EndProcedure
 Procedure C2STRUCT_ALLOC_LOCAL()
    Protected slot.i = gLocalBase + _AR()\i
    Protected byteSize.i = _AR()\j
-   Debug "VM STRUCT_ALLOC_LOCAL: gLocalBase=" + Str(gLocalBase) + " paramOffset=" + Str(_AR()\i) + " -> slot=" + Str(slot) + " bytes=" + Str(byteSize)
-   ; V1.031.28: Bounds checking
-   If slot < 0 Or slot >= #C2MAXLOCALS
-      Debug "*** STRUCT_ALLOC_LOCAL ERROR: slot=" + Str(slot) + " (gLocalBase=" + Str(gLocalBase) + " offset=" + Str(_AR()\i) + ") out of bounds [0.." + Str(#C2MAXLOCALS-1) + "] at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
+   CompilerIf #DEBUG
+      Debug "VM STRUCT_ALLOC_LOCAL: gLocalBase=" + Str(gLocalBase) + " paramOffset=" + Str(_AR()\i) + " -> slot=" + Str(slot) + " bytes=" + Str(byteSize)
+      If slot < 0 Or slot >= gLocalStack
+         Debug "*** STRUCT_ALLOC_LOCAL ERROR: slot=" + Str(slot) + " (gLocalBase=" + Str(gLocalBase) + " offset=" + Str(_AR()\i) + ") out of bounds [0.." + Str(gLocalStack-1) + "] at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
    StructAllocLocal(slot, byteSize)
-   Debug "VM STRUCT_ALLOC_LOCAL: after alloc, gLocal(" + Str(slot) + ")\ptr=" + Str(gLocal(slot)\ptr)
+   CompilerIf #DEBUG
+      Debug "VM STRUCT_ALLOC_LOCAL: after alloc, gLocal(" + Str(slot) + ")\ptr=" + Str(gLocal(slot)\ptr)
+   CompilerEndIf
    pc + 1
 EndProcedure
 
@@ -1801,15 +1805,17 @@ EndProcedure
 Procedure C2STRUCT_FETCH_INT_LOCAL()
    Protected slot.i = gLocalBase + _AR()\i
    Protected offset.i = _AR()\j
-   ; V1.031.28: Bounds checking
-   If slot < 0 Or slot >= #C2MAXLOCALS
-      Debug "*** STRUCT_FETCH_INT_LOCAL ERROR: slot=" + Str(slot) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
-   ; V1.031.25: Use StructGetIntLocal (gLocal) instead of StructGetInt (gVar)
+   CompilerIf #DEBUG
+      If slot < 0 Or slot >= gLocalStack
+         Debug "*** STRUCT_FETCH_INT_LOCAL ERROR: slot=" + Str(slot) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
    Protected value.i = StructGetIntLocal(slot, offset)
-   Debug "VM STRUCT_FETCH_INT_LOCAL: slot=" + Str(slot) + " offset=" + Str(offset) + " value=" + Str(value) + " (ptr=" + Str(gLocal(slot)\ptr) + ")"
+   CompilerIf #DEBUG
+      Debug "VM STRUCT_FETCH_INT_LOCAL: slot=" + Str(slot) + " offset=" + Str(offset) + " value=" + Str(value) + " (ptr=" + Str(gLocal(slot)\ptr) + ")"
+   CompilerEndIf
    gEvalStack(sp)\i = value
    sp + 1
    pc + 1
@@ -1817,17 +1823,16 @@ EndProcedure
 
 ; Fetch float from local struct: _AR()\i = paramOffset, _AR()\j = byte offset
 ; V1.031.26: Fixed to use gLocalBase (current frame) instead of gStack(gStackDepth)\localBase (caller's saved base)
-; V1.031.28: Added bounds checking for diagnostics
 Procedure C2STRUCT_FETCH_FLOAT_LOCAL()
    Protected slot.i = gLocalBase + _AR()\i
    Protected offset.i = _AR()\j
-   ; V1.031.28: Bounds checking
-   If slot < 0 Or slot >= #C2MAXLOCALS
-      Debug "*** STRUCT_FETCH_FLOAT_LOCAL ERROR: slot=" + Str(slot) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
-   ; V1.031.25: Use StructGetFloatLocal (gLocal) instead of StructGetFloat (gVar)
+   CompilerIf #DEBUG
+      If slot < 0 Or slot >= gLocalStack
+         Debug "*** STRUCT_FETCH_FLOAT_LOCAL ERROR: slot=" + Str(slot) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
    Protected value.d = StructGetFloatLocal(slot, offset)
    gEvalStack(sp)\f = value
    sp + 1
@@ -1854,49 +1859,49 @@ EndProcedure
 
 ; Store int to local struct: _AR()\i = paramOffset, _AR()\j = byte offset, value on stack
 ; V1.031.26: Fixed to use gLocalBase (current frame) instead of gStack(gStackDepth)\localBase (caller's saved base)
-; V1.031.28: Added bounds checking for diagnostics
 Procedure C2STRUCT_STORE_INT_LOCAL()
    Protected slot.i = gLocalBase + _AR()\i
    Protected offset.i = _AR()\j
    sp - 1
-   ; V1.031.28: Bounds checking
-   If slot < 0 Or slot >= #C2MAXLOCALS
-      Debug "*** STRUCT_STORE_INT_LOCAL ERROR: slot=" + Str(slot) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
-   If sp < 0 Or sp >= #C2MAXEVALSTACK
-      Debug "*** STRUCT_STORE_INT_LOCAL ERROR: sp=" + Str(sp) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
+   CompilerIf #DEBUG
+      If slot < 0 Or slot >= gLocalStack
+         Debug "*** STRUCT_STORE_INT_LOCAL ERROR: slot=" + Str(slot) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+      If sp < 0 Or sp >= gMaxEvalStack
+         Debug "*** STRUCT_STORE_INT_LOCAL ERROR: sp=" + Str(sp) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
    Protected value.i = gEvalStack(sp)\i
-   ; V1.031.25: Use StructSetIntLocal (gLocal) instead of StructSetInt (gVar)
-   Debug "VM STRUCT_STORE_INT_LOCAL: slot=" + Str(slot) + " offset=" + Str(offset) + " value=" + Str(value) + " (ptr=" + Str(gLocal(slot)\ptr) + ")"
+   CompilerIf #DEBUG
+      Debug "VM STRUCT_STORE_INT_LOCAL: slot=" + Str(slot) + " offset=" + Str(offset) + " value=" + Str(value) + " (ptr=" + Str(gLocal(slot)\ptr) + ")"
+   CompilerEndIf
    StructSetIntLocal(slot, offset, value)
    pc + 1
 EndProcedure
 
 ; Store float to local struct: _AR()\i = paramOffset, _AR()\j = byte offset, value on stack
 ; V1.031.26: Fixed to use gLocalBase (current frame) instead of gStack(gStackDepth)\localBase (caller's saved base)
-; V1.031.28: Added bounds checking for diagnostics
 Procedure C2STRUCT_STORE_FLOAT_LOCAL()
    Protected slot.i = gLocalBase + _AR()\i
    Protected offset.i = _AR()\j
    sp - 1
-   ; V1.031.28: Bounds checking
-   If slot < 0 Or slot >= #C2MAXLOCALS
-      Debug "*** STRUCT_STORE_FLOAT_LOCAL ERROR: slot=" + Str(slot) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
-   If sp < 0 Or sp >= #C2MAXEVALSTACK
-      Debug "*** STRUCT_STORE_FLOAT_LOCAL ERROR: sp=" + Str(sp) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
+   CompilerIf #DEBUG
+      If slot < 0 Or slot >= gLocalStack
+         Debug "*** STRUCT_STORE_FLOAT_LOCAL ERROR: slot=" + Str(slot) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+      If sp < 0 Or sp >= gMaxEvalStack
+         Debug "*** STRUCT_STORE_FLOAT_LOCAL ERROR: sp=" + Str(sp) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
    Protected value.d = gEvalStack(sp)\f
-   ; V1.031.25: Use StructSetFloatLocal (gLocal) instead of StructSetFloat (gVar)
    StructSetFloatLocal(slot, offset, value)
    pc + 1
 EndProcedure
@@ -1913,17 +1918,16 @@ EndProcedure
 
 ; Fetch string from local struct: _AR()\i = paramOffset, _AR()\j = byte offset
 ; V1.031.26: Fixed to use gLocalBase (current frame) instead of gStack(gStackDepth)\localBase (caller's saved base)
-; V1.031.28: Added bounds checking for diagnostics
 Procedure C2STRUCT_FETCH_STR_LOCAL()
    Protected slot.i = gLocalBase + _AR()\i
    Protected offset.i = _AR()\j
-   ; V1.031.28: Bounds checking
-   If slot < 0 Or slot >= #C2MAXLOCALS
-      Debug "*** STRUCT_FETCH_STR_LOCAL ERROR: slot=" + Str(slot) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
-   ; V1.031.25: Use StructGetStrLocal (gLocal) instead of StructGetStr (gVar)
+   CompilerIf #DEBUG
+      If slot < 0 Or slot >= gLocalStack
+         Debug "*** STRUCT_FETCH_STR_LOCAL ERROR: slot=" + Str(slot) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
    gEvalStack(sp)\ss = StructGetStrLocal(slot, offset)
    sp + 1
    pc + 1
@@ -1949,24 +1953,23 @@ EndProcedure
 
 ; Store string to local struct: _AR()\i = paramOffset, _AR()\j = byte offset, value on stack
 ; V1.031.26: Fixed to use gLocalBase (current frame) instead of gStack(gStackDepth)\localBase (caller's saved base)
-; V1.031.28: Added bounds checking for diagnostics
 Procedure C2STRUCT_STORE_STR_LOCAL()
    Protected slot.i = gLocalBase + _AR()\i
    Protected offset.i = _AR()\j
    Protected *oldStr, *newStr, strLen.i
    sp - 1
-   ; V1.031.28: Bounds checking
-   If slot < 0 Or slot >= #C2MAXLOCALS
-      Debug "*** STRUCT_STORE_STR_LOCAL ERROR: slot=" + Str(slot) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
-   If sp < 0 Or sp >= #C2MAXEVALSTACK
-      Debug "*** STRUCT_STORE_STR_LOCAL ERROR: sp=" + Str(sp) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
-   ; V1.031.25: Use gLocal() instead of gVar() for local struct
+   CompilerIf #DEBUG
+      If slot < 0 Or slot >= gLocalStack
+         Debug "*** STRUCT_STORE_STR_LOCAL ERROR: slot=" + Str(slot) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+      If sp < 0 Or sp >= gMaxEvalStack
+         Debug "*** STRUCT_STORE_STR_LOCAL ERROR: sp=" + Str(sp) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
    ; Free old string if exists
    *oldStr = PeekQ(gLocal(slot)\ptr + offset)
    If *oldStr : FreeMemory(*oldStr) : EndIf
@@ -2010,15 +2013,15 @@ EndProcedure
 ; V1.029.38: Fetch local struct for parameter passing - copies BOTH \i AND \ptr
 ; Uses localBase + paramOffset for local structs
 ; V1.031.26: Fixed to use gLocalBase and gLocal[] instead of gStack(gStackDepth)\localBase and gVar[]
-; V1.031.28: Added bounds checking for diagnostics
 Procedure C2LFETCH_STRUCT()
    Protected srcSlot.i = gLocalBase + _AR()\i
-   ; V1.031.28: Bounds checking
-   If srcSlot < 0 Or srcSlot >= #C2MAXLOCALS
-      Debug "*** LFETCH_STRUCT ERROR: srcSlot=" + Str(srcSlot) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
+   CompilerIf #DEBUG
+      If srcSlot < 0 Or srcSlot >= gLocalStack
+         Debug "*** LFETCH_STRUCT ERROR: srcSlot=" + Str(srcSlot) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
    gEvalStack(sp)\i = gLocal(srcSlot)\i
    gEvalStack(sp)\ptr = gLocal(srcSlot)\ptr
    sp + 1

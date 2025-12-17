@@ -16,8 +16,8 @@
 ;- Constants
 ; ======================================================================================================
 
-DisableDebugger
-EnableDebugger
+;DisableDebugger
+EnableDebugger  ; V1.031.109: Disabled for performance - Debug statements now suppressed
 
 DeclareModule C2Common
 
@@ -33,7 +33,6 @@ EndModule
 DeclareModule C2Lang
    EnableExplicit
    #WithEOL = 1
-   #C2PROFILER = 0
    UseModule C2Common
 
    Global               gExit
@@ -56,7 +55,7 @@ DeclareModule C2Lang
    Declare              LoadLJ( file.s )
 EndDeclareModule
 
-XIncludeFile            "c2-vm-V14.pb"
+XIncludeFile            "c2-vm-V15.pb"
 
 Module C2Lang
    EnableExplicit
@@ -1713,11 +1712,27 @@ CompilerIf #PB_Compiler_IsMainFile
    ;filename = ".\Examples\106 address book.lj"
    
    filename = ".\Examples\001 Simple while.lj"
-   filename = ".\Examples\002 if else.lj"
+   ;filename = ".\Examples\002 if else.lj"
+   filename = ".\Examples\200 opcode benchmark.lj"
    
    ; V1.031.32: Command line argument support
+   ; V1.031.117: Added --test flag for console output without GUI
+   Define paramCount.i
+   Define paramIdx.i
+   Define param.s
+
    If CountProgramParameters() > 0
-      filename = ProgramParameter(0)
+      paramCount = CountProgramParameters()
+
+      For paramIdx = 0 To paramCount - 1
+         param = ProgramParameter(paramIdx)
+         If param = "--test" Or param = "-t"
+            C2VM::gTestMode = #True
+         ElseIf Left(param, 1) <> "-"
+            ; Not a flag - must be filename
+            filename = param
+         EndIf
+      Next
    Else
       ; V1.031.28: Cross-platform path handling (default test file)
       CompilerIf #PB_Compiler_OS <> #PB_OS_Windows
@@ -1748,18 +1763,18 @@ CompilerIf #PB_Compiler_IsMainFile
    EndIf
 
 CompilerEndIf
-; IDE Options = PureBasic 6.21 (Linux - x64)
-; CursorPosition = 1714
-; FirstLine = 1707
+; IDE Options = PureBasic 6.21 (Windows - x64)
+; CursorPosition = 12
 ; Folding = --------
-; Markers = 570,719
+; Markers = 569,718
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; CPU = 1
+; LinkerOptions = linker.txt
 ; CompileSourceDirectory
 ; Warnings = Display
-; EnableCompileCount = 2317
+; EnableCompileCount = 2380
 ; EnableBuildCount = 0
 ; EnableExeConstant
 ; IncludeVersionInfo

@@ -17,6 +17,9 @@
    ; V1.031.29: OS-agnostic debug macro - outputs to stdout for console builds
    ; Set #OSDEBUG = 1 to enable debug output, 0 to disable
    #OSDEBUG = 0
+
+   ; V1.031.114: Maximum else-if branches supported in iterative IF processing
+   #MAX_ELSEIF_BRANCHES = 256
    Macro OSDebug(msg)
       CompilerIf #OSDEBUG
          PrintN(msg)
@@ -4408,23 +4411,53 @@
             EmitInt( #ljreturn )
 
          Case #ljIF
-            CodeGenerator( *x\left )
-            EmitInt( #ljJZ)
-            p1 = hole()
-            CodeGenerator( *x\right\left )
+            ; V1.031.114: Iterative else-if chain processing to avoid stack overflow
+            ; When else-body is another IF, we iterate instead of recursing
+            Protected *ifNode.stTree = *x
+            Protected Dim ifJmpHoles.i(#MAX_ELSEIF_BRANCHES)  ; Track JMP holes for fixing at end
+            Protected ifJmpCount.i = 0
 
-            If *x\right\right
-               EmitInt( #ljJMP)
-               p2 = hole()
-            EndIf
+            While *ifNode And *ifNode\NodeType = #ljIF
+               CodeGenerator( *ifNode\left )   ; Generate condition
+               EmitInt( #ljJZ)
+               p1 = hole()
+               CodeGenerator( *ifNode\right\left )   ; Generate then-body
 
-            EmitInt( #ljNOOPIF )   ; Marker after if-body for JZ target
-            fix( p1 )
+               If *ifNode\right\right
+                  ; Has else/else-if - emit JMP to skip else branches
+                  EmitInt( #ljJMP)
+                  If ifJmpCount < #MAX_ELSEIF_BRANCHES
+                     ifJmpHoles(ifJmpCount) = hole()
+                     ifJmpCount + 1
+                  Else
+                     Debug "WARNING: Exceeded " + Str(#MAX_ELSEIF_BRANCHES) + " else-if branches"
+                  EndIf
+               EndIf
 
-            If *x\right\right
-               CodeGenerator( *x\right\right )
-               EmitInt( #ljNOOPIF )   ; Marker after else-body for JMP target
-               fix( p2 )
+               EmitInt( #ljNOOPIF )   ; Marker after if-body for JZ target
+               fix( p1 )
+
+               If *ifNode\right\right
+                  If *ifNode\right\right\NodeType = #ljIF
+                     ; Else-if chain: continue iterating instead of deep recursion
+                     *ifNode = *ifNode\right\right
+                  Else
+                     ; Final else block: generate it and exit
+                     CodeGenerator( *ifNode\right\right )
+                     *ifNode = #Null
+                  EndIf
+               Else
+                  ; No else branch - exit loop
+                  *ifNode = #Null
+               EndIf
+            Wend
+
+            ; Fix all JMP holes to point to the end (only if there were else branches)
+            If ifJmpCount > 0
+               EmitInt( #ljNOOPIF )   ; Final marker for all JMPs to target
+               For i = 0 To ifJmpCount - 1
+                  fix( ifJmpHoles(i) )
+               Next
             EndIf
 
          Case #ljTERNARY
@@ -4831,22 +4864,40 @@
                   EmitInt( #ljreturn )
                EndIf
             Else
-               ; Normal SEQ processing
-               If *x\left
-                  CodeGenerator( *x\left )
-               EndIf
-               If *x\right
-                  CodeGenerator( *x\right )
-
-                  ; V1.020.053: Drop unused values from statement-level operations (RIGHT child)
-                  ; POST_INC and POST_DEC push old value, PRE_INC and PRE_DEC push new value
-                  ; When used as statements, these values are unused and must be dropped
-                  ; V1.031.10: Use DROP (discard without storing) instead of POP
-                  If *x\right\NodeType = #ljPOST_INC Or *x\right\NodeType = #ljPOST_DEC Or
-                     *x\right\NodeType = #ljPRE_INC Or *x\right\NodeType = #ljPRE_DEC
-                     EmitInt( #ljDROP )
+               ; V1.031.107: Iterative SEQ processing to avoid stack overflow
+               ; SEQ nodes form a linked list: left=statement, right=next SEQ or final statement
+               ; Converting from recursive to iterative eliminates stack depth issues
+               ; with large source files (1000+ statements)
+               Protected *currentSeq.stTree = *x
+               While *currentSeq And *currentSeq\NodeType = #ljSEQ
+                  ; Process left child (actual statement) - recurse but with limited depth
+                  If *currentSeq\left
+                     CodeGenerator( *currentSeq\left )
                   EndIf
-               EndIf
+
+                  ; Move to right child
+                  If *currentSeq\right
+                     If *currentSeq\right\NodeType = #ljSEQ
+                        ; Right is another SEQ - continue iterating (no recursion)
+                        *currentSeq = *currentSeq\right
+                     Else
+                        ; Right is not SEQ - process it and handle drop logic, then exit
+                        CodeGenerator( *currentSeq\right )
+
+                        ; V1.020.053: Drop unused values from statement-level operations (RIGHT child)
+                        ; POST_INC and POST_DEC push old value, PRE_INC and PRE_DEC push new value
+                        ; When used as statements, these values are unused and must be dropped
+                        ; V1.031.10: Use DROP (discard without storing) instead of POP
+                        If *currentSeq\right\NodeType = #ljPOST_INC Or *currentSeq\right\NodeType = #ljPOST_DEC Or
+                           *currentSeq\right\NodeType = #ljPRE_INC Or *currentSeq\right\NodeType = #ljPRE_DEC
+                           EmitInt( #ljDROP )
+                        EndIf
+                        Break
+                     EndIf
+                  Else
+                     Break
+                  EndIf
+               Wend
             EndIf
 
             ; NOTE: Don't reset gCodeGenFunction here!
@@ -5344,6 +5395,18 @@
                llObjects()\n = nLocals
                llObjects()\ndx = nLocalArrays
                llObjects()\funcid = funcId
+
+               ; V1.031.105: Emit ARRAYINFO opcodes for each local array
+               ; This embeds paramOffset and arraySize directly in the code stream
+               ; so VM doesn't need to access gVarMeta (compiler-only data)
+               If nLocalArrays > 0
+                  Protected arrIdx.l, arrVarSlot.l
+                  For arrIdx = 0 To nLocalArrays - 1
+                     arrVarSlot = gFuncLocalArraySlots(funcId, arrIdx)
+                     EmitInt(#ljARRAYINFO, gVarMeta(arrVarSlot)\paramOffset)
+                     llObjects()\j = gVarMeta(arrVarSlot)\arraySize
+                  Next
+               EndIf
             EndIf
             
          Case #ljHalt

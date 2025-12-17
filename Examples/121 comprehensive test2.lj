@@ -14,8 +14,13 @@
 #pragma ftoi "truncate"
 #pragma modulename on
 #pragma PasteToClipboard on
-#pragma stackspace 2048
-#pragma stackdepth 1024
+#pragma GlobalStack 1024
+#pragma FunctionStack 32
+#pragma EvalStack 256
+#pragma LocalStack 64
+#pragma CreateLog off
+#pragma DefaultFPS 32
+#pragma ThreadKillWait 1800
 
 
 // Test counters

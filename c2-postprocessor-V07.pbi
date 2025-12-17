@@ -952,7 +952,7 @@ Procedure            PostProcessor()
       ForEach llObjects()
          Select llObjects()\code
             Case #ljPush
-               ; Check if this push should be typed
+               ; Check if this push should be typed or converted to immediate
                n = llObjects()\i
                If n >= 0 And n < gnLastVariable
                   ; Skip parameters - they're generic and handled at runtime
@@ -961,6 +961,7 @@ Procedure            PostProcessor()
                         llObjects()\code = #ljPUSHF
                      ElseIf gVarMeta(n)\flags & #C2FLAG_STR
                         llObjects()\code = #ljPUSHS
+                     ; V1.031.113: PUSH_IMM conversion moved to Pass 28 (after all constant folding)
                      EndIf
                   EndIf
                EndIf
@@ -3802,6 +3803,40 @@ Procedure            PostProcessor()
       CompilerIf #DEBUG
          Debug "      Converted " + Str(collTypedCount) + " collection opcodes to typed versions"
       CompilerEndIf
+
+      ;- V1.031.113: Pass 28 - Convert PUSH const to PUSH_IMM (immediate value)
+      ; IMPORTANT: This MUST run AFTER all passes that use gVarMeta (passes 16-27)
+      ; because it changes the operand from slot index to actual value
+      ; V1.031.118: Re-enabled after stack size fix
+      CompilerIf #DEBUG
+         Debug "    Pass 28: Convert PUSH const to PUSH_IMM (immediate value)"
+      CompilerEndIf
+
+      CompilerIf #True ; Pass 28 enabled
+      Protected pushImmCount.i = 0
+      ForEach llObjects()
+         If llObjects()\code = #ljPush
+            Protected pushSlot.i = llObjects()\i
+            ; Check if this is a valid slot and an integer constant
+            ; V1.031.113: Also exclude negative slots (invalid)
+            If pushSlot >= 0 And pushSlot < gnLastVariable
+               If gVarMeta(pushSlot)\flags & #C2FLAG_CONST And gVarMeta(pushSlot)\flags & #C2FLAG_INT
+                  ; V1.031.113: Additional safety - don't convert if it could be a string/float disguised
+                  If Not (gVarMeta(pushSlot)\flags & (#C2FLAG_STR | #C2FLAG_FLOAT))
+                     ; Convert to PUSH_IMM with the actual value as operand
+                     llObjects()\code = #ljPUSH_IMM
+                     llObjects()\i = gVarMeta(pushSlot)\valueInt
+                     pushImmCount + 1
+                  EndIf
+               EndIf
+            EndIf
+         EndIf
+      Next
+
+      CompilerIf #DEBUG
+         Debug "      Converted " + Str(pushImmCount) + " PUSH to PUSH_IMM"
+      CompilerEndIf
+      CompilerEndIf ; Pass 28 enabled
 
       ; V1.020.057: Debug output for Stack=-11 investigation
       CompilerIf #DEBUG

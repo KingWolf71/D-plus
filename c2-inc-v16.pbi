@@ -46,15 +46,17 @@
 ;- Constants
 ; ======================================================================================================
 
-#INV$             = ~"\""
 #DEBUG            = 0
+#C2PROFILER       = 1
+#C2PROFILER_LOG   = 1     ; V1.031.112: Append profiler data to cumulative log file
+#VM_INLINE_HOT    = 1     ; V1.031.111: Inline hot opcodes (LFETCH, PUSH, LSTORE, ADD) in VM loop
 
+#INV$             = ~"\""
 #C2MAXTOKENS      = 500   ; Legacy, use #C2TOKENCOUNT for actual count
-#C2MAXCONSTANTS   = 8192
+#C2MAXCONSTANTS   = 32767
 
-; V1.31.0: Isolated Variable System array sizes
-#C2MAXLOCALS      = 8192  ; gLocal[] size - local variable slots across nested calls
-#C2MAXEVALSTACK   = 4096  ; gEvalStack[] size - evaluation stack (separate from gVar/gLocal)
+; V1.31.0: Isolated Variable System array sizes - now use global variables:
+; gLocalStack, gMaxEvalStack, gGlobalStack, gFunctionStack (set via pragmas)
 
 #C2FLAG_TYPE      = 28   ; Mask for type bits only (INT | FLOAT | STR = 4|8|16 = 28)
 #C2FLAG_CONST     = 1
@@ -75,6 +77,7 @@
 
 ; V1.026.0: Default max maps - can be changed via #pragma maxmaps
 #C2_DEFAULT_MAX_MAPS = 64
+#C2VM_QUEUE_TIMER    = 1
 
 ; V1.031.32: Local variable slot flags (for runtime local detection)
 #C2_LOCAL_COLLECTION_FLAG = $40000000  ; High bit indicates local slot
@@ -178,6 +181,7 @@ Enumeration
    #ljPush
    #ljPUSHS
    #ljPUSHF
+   #ljPUSH_IMM    ; V1.031.113: Push immediate integer value (no gVar lookup)
    #ljStore
    #ljHALT
    
@@ -201,7 +205,8 @@ Enumeration
    #ljreturnF
    #ljreturnS
    #ljCall
-   
+   #ljARRAYINFO    ; V1.031.105: Local array info for CALL (i=paramOffset, j=arraySize)
+
    #ljUNKNOWN
    #ljNOOP
    #ljOP
@@ -1349,6 +1354,8 @@ c2tokens:
    Data.i   0, 0
    Data.s   "PUSHF"
    Data.i   0, 0
+   Data.s   "PUSH_IMM"        ; V1.031.113: Push immediate value
+   Data.i   0, 0
    Data.s   "STORE"
    Data.i   #ljSTOREF, #ljSTORES
    Data.s   "HALT"
@@ -1393,8 +1400,9 @@ c2tokens:
    Data.i   0, 0
    Data.s   "CALL"
    Data.i   0, 0
-   
-   
+   Data.s   "ARRAYINFO"     ; V1.031.105: Local array info (i=paramOffset, j=arraySize)
+   Data.i   0, 0
+
    Data.s   "Unknown"
    Data.i   0, 0
    Data.s   "NOOP"
@@ -2132,7 +2140,7 @@ EndDataSection
 ; EnableXP
 ; SharedUCRT
 ; CPU = 1
-; EnablePurifier
+; DisableDebugger
 ; EnableCompileCount = 26
 ; EnableBuildCount = 0
 ; EnableExeConstant

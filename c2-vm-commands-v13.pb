@@ -19,6 +19,70 @@ Macro                   vm_DebugFunctionName()
    ;Debug #PB_Compiler_Procedure
 EndMacro
 
+; ============================================================================
+; V1.031.106: VM MACROS FOR OPCODE PROCEDURES
+; ============================================================================
+; These macros eliminate temporary variables and improve code readability.
+; Use these instead of Protected/Define local variables where possible.
+; See CLAUDE.md rule 16: "Don't use intermediate variables in VM code"
+;
+; INSTRUCTION FIELD ACCESS:
+;   _NPARAMS      - Number of parameters (CALL: j field)
+;   _NLOCALS      - Number of local variables (CALL: n field)
+;   _NLOCALARRAYS - Number of local arrays (CALL: ndx field)
+;   _FUNCID       - Function ID for template lookup (CALL: funcid field)
+;   _PCADDR       - PC address for jump (i field)
+;   _ARRSLOT      - Array variable slot (i field)
+;   _ISLOCAL      - Is local flag: 0=global, 1=local (j field)
+;   _IDXSLOT      - Index variable slot for optimized paths (ndx field)
+;
+; STACK OPERATIONS (gEvalStack):
+;   _POPI         - Peek integer at top of stack (sp-1)
+;   _POPF         - Peek float at top of stack
+;   _POPS         - Peek string at top of stack
+;   _STACKI(n)    - Stack integer at offset n from top
+;   _STACKF(n)    - Stack float at offset n from top
+;   _STACKS(n)    - Stack string at offset n from top
+;
+; LOCAL VARIABLE ACCESS (gLocal with gLocalBase):
+;   _LOCALSLOT(offset) - Compute actual slot: gLocalBase + offset
+;   _LOCALI(offset)    - Local integer at offset
+;   _LOCALF(offset)    - Local float at offset
+;   _LOCALS(offset)    - Local string at offset
+;
+; ARRAYINFO INLINE OPCODES (for local array allocation):
+;   _ARRAYINFO_OFFSET(i) - Param offset from i-th ARRAYINFO opcode
+;   _ARRAYINFO_SIZE(i)   - Array size from i-th ARRAYINFO opcode
+; ============================================================================
+
+; Instruction field access macros
+Macro _NPARAMS : _AR()\j : EndMacro
+Macro _NLOCALS : _AR()\n : EndMacro
+Macro _NLOCALARRAYS : _AR()\ndx : EndMacro
+Macro _FUNCID : _AR()\funcid : EndMacro
+Macro _PCADDR : _AR()\i : EndMacro
+Macro _ARRSLOT : _AR()\i : EndMacro
+Macro _ISLOCAL : _AR()\j : EndMacro
+Macro _IDXSLOT : _AR()\ndx : EndMacro
+
+; Stack operation macros
+Macro _POPI : gEvalStack(sp - 1)\i : EndMacro
+Macro _POPF : gEvalStack(sp - 1)\f : EndMacro
+Macro _POPS : gEvalStack(sp - 1)\ss : EndMacro
+Macro _STACKI(n) : gEvalStack(sp - 1 - (n))\i : EndMacro
+Macro _STACKF(n) : gEvalStack(sp - 1 - (n))\f : EndMacro
+Macro _STACKS(n) : gEvalStack(sp - 1 - (n))\ss : EndMacro
+
+; Local variable access macros
+Macro _LOCALSLOT(offset) : (gLocalBase + (offset)) : EndMacro
+Macro _LOCALI(offset) : gLocal(gLocalBase + (offset))\i : EndMacro
+Macro _LOCALF(offset) : gLocal(gLocalBase + (offset))\f : EndMacro
+Macro _LOCALS(offset) : gLocal(gLocalBase + (offset))\ss : EndMacro
+
+; ARRAYINFO inline opcode access (pc+1+i for i-th array)
+Macro _ARRAYINFO_OFFSET(i) : arCode(pc + 1 + (i))\i : EndMacro
+Macro _ARRAYINFO_SIZE(i) : arCode(pc + 1 + (i))\j : EndMacro
+
 ; Macro for built-in functions: get parameter count
 Macro                   vm_GetParamCount()
    _AR()\j
@@ -36,7 +100,7 @@ Macro                   vm_PushInt(value)
    sp + 1
    CompilerIf #DEBUG
       ;If sp % 100 = 0
-      ;   Debug "Stack pointer at: " + Str(sp) + " / " + Str(#C2MAXEVALSTACK)
+      ;   Debug "Stack pointer at: " + Str(sp) + " / " + Str(gMaxEvalStack)
       ;EndIf
    CompilerEndIf
    pc + 1
@@ -54,6 +118,10 @@ Macro                   vm_AssertPrint( tmsg )
    CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
       gBatchOutput = gBatchOutput + tmsg + #LF$
       PrintN(tmsg)
+      ; V1.031.106: Added logging support for console mode
+      If gCreateLog
+         WriteStringN(gLogfn, tmsg)
+      EndIf
    CompilerElse
       ; V1.031.39: Use thread-safe macro for Linux
       vm_SetGadgetText(#edConsole, cy, tmsg)
@@ -86,6 +154,15 @@ Procedure               C2FetchPush()
    vm_DebugFunctionName()
    ; V1.31.0: GS - Global to Stack: gVar[slot] -> gEvalStack[sp]
    gEvalStack(sp)\i = gVar(_AR()\i)\i
+   sp + 1
+   pc + 1
+EndProcedure
+
+; V1.031.113: Push immediate integer value directly (no gVar lookup)
+Procedure               C2PUSH_IMM()
+   vm_DebugFunctionName()
+   ; Push the operand value directly to stack - bypasses gVar[] lookup
+   gEvalStack(sp)\i = _AR()\i
    sp + 1
    pc + 1
 EndProcedure
@@ -348,19 +425,19 @@ Procedure               C2LSTORE()
    vm_DebugFunctionName()
    sp - 1
    ; V1.31.0: Store to gLocal[gLocalBase + offset] from gEvalStack[]
-   ; V1.031.27: Added bounds checking to diagnose array index errors
    Protected localIdx.i = gLocalBase + _AR()\i
-   If sp < 0 Or sp >= #C2MAXEVALSTACK
-      Debug "*** LSTORE ERROR: sp=" + Str(sp) + " out of bounds [0.." + Str(#C2MAXEVALSTACK-1) + "] at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
-   If localIdx < 0 Or localIdx >= #C2MAXLOCALS
-      Debug "*** LSTORE ERROR: gLocal index=" + Str(localIdx) + " (gLocalBase=" + Str(gLocalBase) + " offset=" + Str(_AR()\i) + ") out of bounds [0.." + Str(#C2MAXLOCALS-1) + "] at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
    CompilerIf #DEBUG
+      ; V1.031.27: Bounds checking for debug builds
+      If sp < 0 Or sp >= gMaxEvalStack
+         Debug "*** LSTORE ERROR: sp=" + Str(sp) + " out of bounds [0.." + Str(gMaxEvalStack-1) + "] at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+      If localIdx < 0 Or localIdx >= gLocalStack
+         Debug "*** LSTORE ERROR: gLocal index=" + Str(localIdx) + " (gLocalBase=" + Str(gLocalBase) + " offset=" + Str(_AR()\i) + ") out of bounds [0.." + Str(gLocalStack-1) + "] at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
       Debug "VM LSTORE: gLocalBase=" + Str(gLocalBase) + " offset=" + Str(_AR()\i) + " value=" + Str(gEvalStack(sp)\i)
    CompilerEndIf
    gLocal(localIdx)\i = gEvalStack(sp)\i
@@ -371,18 +448,19 @@ Procedure               C2LSTORES()
    vm_DebugFunctionName()
    sp - 1
    ; V1.31.0: Store string to gLocal[gLocalBase + offset] from gEvalStack[]
-   ; V1.031.27: Added bounds checking
    Protected localIdx.i = gLocalBase + _AR()\i
-   If sp < 0 Or sp >= #C2MAXEVALSTACK
-      Debug "*** LSTORES ERROR: sp=" + Str(sp) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
-   If localIdx < 0 Or localIdx >= #C2MAXLOCALS
-      Debug "*** LSTORES ERROR: gLocal index=" + Str(localIdx) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
+   CompilerIf #DEBUG
+      If sp < 0 Or sp >= gMaxEvalStack
+         Debug "*** LSTORES ERROR: sp=" + Str(sp) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+      If localIdx < 0 Or localIdx >= gLocalStack
+         Debug "*** LSTORES ERROR: gLocal index=" + Str(localIdx) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+   CompilerEndIf
    gLocal(localIdx)\ss = gEvalStack(sp)\ss
    pc + 1
 EndProcedure
@@ -391,19 +469,18 @@ Procedure               C2LSTOREF()
    vm_DebugFunctionName()
    sp - 1
    ; V1.31.0: Store float to gLocal[gLocalBase + offset] from gEvalStack[]
-   ; V1.031.27: Added bounds checking
    Protected localIdx.i = gLocalBase + _AR()\i
-   If sp < 0 Or sp >= #C2MAXEVALSTACK
-      Debug "*** LSTOREF ERROR: sp=" + Str(sp) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
-   If localIdx < 0 Or localIdx >= #C2MAXLOCALS
-      Debug "*** LSTOREF ERROR: gLocal index=" + Str(localIdx) + " out of bounds at pc=" + Str(pc)
-      gExitApplication = #True
-      ProcedureReturn
-   EndIf
    CompilerIf #DEBUG
+      If sp < 0 Or sp >= gMaxEvalStack
+         Debug "*** LSTOREF ERROR: sp=" + Str(sp) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
+      If localIdx < 0 Or localIdx >= gLocalStack
+         Debug "*** LSTOREF ERROR: gLocal index=" + Str(localIdx) + " out of bounds at pc=" + Str(pc)
+         gExitApplication = #True
+         ProcedureReturn
+      EndIf
       Debug "VM LSTOREF: sp=" + Str(sp) + " gLocalBase=" + Str(gLocalBase) + " offset=" + Str(_AR()\i) + " value=" + StrD(gEvalStack(sp)\f)
    CompilerEndIf
    gLocal(localIdx)\f = gEvalStack(sp)\f
@@ -857,11 +934,17 @@ Procedure               C2PRTS()
    sp - 1
    CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
       gBatchOutput + gEvalStack(sp)\ss
+      gConsoleLine + gEvalStack(sp)\ss    ; V1.031.106: Track line for logging
       Print(gEvalStack(sp)\ss)
    CompilerElse
-      cline = cline + gEvalStack(sp)\ss
-      If gFastPrint = #False
-         vm_SetGadgetText( #edConsole, cy, cline )
+      ; V1.031.117: Test mode - output to allocated console
+      If gTestMode = #True
+         Print(gEvalStack(sp)\ss)
+      Else
+         cline = cline + gEvalStack(sp)\ss
+         If gFastPrint = #False
+            vm_SetGadgetText( #edConsole, cy, cline )
+         EndIf
       EndIf
    CompilerEndIf
    pc + 1
@@ -875,33 +958,51 @@ Procedure               C2PRTPTR()
       Case #PTR_INT, #PTR_ARRAY_INT
          CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
             gBatchOutput + Str(gEvalStack(sp)\i)
+            gConsoleLine + Str(gEvalStack(sp)\i)    ; V1.031.106: Track line for logging
             Print(Str(gEvalStack(sp)\i))
          CompilerElse
-            cline = cline + Str(gEvalStack(sp)\i)
-            If gFastPrint = #False
-               vm_SetGadgetText( #edConsole, cy, cline )
+            ; V1.031.117: Test mode - output to allocated console
+            If gTestMode = #True
+               Print(Str(gEvalStack(sp)\i))
+            Else
+               cline = cline + Str(gEvalStack(sp)\i)
+               If gFastPrint = #False
+                  vm_SetGadgetText( #edConsole, cy, cline )
+               EndIf
             EndIf
          CompilerEndIf
 
       Case #PTR_FLOAT, #PTR_ARRAY_FLOAT
          CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
             gBatchOutput + StrD(gEvalStack(sp)\f, gDecs)
+            gConsoleLine + StrD(gEvalStack(sp)\f, gDecs)    ; V1.031.106: Track line for logging
             Print(StrD(gEvalStack(sp)\f, gDecs))
          CompilerElse
-            cline = cline + StrD(gEvalStack(sp)\f, gDecs)
-            If gFastPrint = #False
-               vm_SetGadgetText( #edConsole, cy, cline )
+            ; V1.031.117: Test mode - output to allocated console
+            If gTestMode = #True
+               Print(StrD(gEvalStack(sp)\f, gDecs))
+            Else
+               cline = cline + StrD(gEvalStack(sp)\f, gDecs)
+               If gFastPrint = #False
+                  vm_SetGadgetText( #edConsole, cy, cline )
+               EndIf
             EndIf
          CompilerEndIf
 
       Case #PTR_STRING, #PTR_ARRAY_STRING
          CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
             gBatchOutput + gEvalStack(sp)\ss
+            gConsoleLine + gEvalStack(sp)\ss    ; V1.031.106: Track line for logging
             Print(gEvalStack(sp)\ss)
          CompilerElse
-            cline = cline + gEvalStack(sp)\ss
-            If gFastPrint = #False
-               vm_SetGadgetText( #edConsole, cy, cline )
+            ; V1.031.117: Test mode - output to allocated console
+            If gTestMode = #True
+               Print(gEvalStack(sp)\ss)
+            Else
+               cline = cline + gEvalStack(sp)\ss
+               If gFastPrint = #False
+                  vm_SetGadgetText( #edConsole, cy, cline )
+               EndIf
             EndIf
          CompilerEndIf
 
@@ -919,11 +1020,17 @@ Procedure               C2PRTI()
    sp - 1
    CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
       gBatchOutput + Str(gEvalStack(sp)\i)
+      gConsoleLine + Str(gEvalStack(sp)\i)    ; V1.031.106: Track line for logging
       Print(Str(gEvalStack(sp)\i))
    CompilerElse
-      cline = cline + Str(gEvalStack(sp)\i)
-      If gFastPrint = #False
-         vm_SetGadgetText( #edConsole, cy, cline )
+      ; V1.031.117: Test mode - output to allocated console
+      If gTestMode = #True
+         Print(Str(gEvalStack(sp)\i))
+      Else
+         cline = cline + Str(gEvalStack(sp)\i)
+         If gFastPrint = #False
+            vm_SetGadgetText( #edConsole, cy, cline )
+         EndIf
       EndIf
    CompilerEndIf
    pc + 1
@@ -934,11 +1041,17 @@ Procedure               C2PRTF()
    sp - 1
    CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
       gBatchOutput + StrD(gEvalStack(sp)\f, gDecs)
+      gConsoleLine + StrD(gEvalStack(sp)\f, gDecs)    ; V1.031.106: Track line for logging
       Print(StrD(gEvalStack(sp)\f, gDecs))
    CompilerElse
-      cline = cline + StrD(gEvalStack(sp)\f, gDecs)
-      If gFastPrint = #False
-         vm_SetGadgetText( #edConsole, cy, cline )
+      ; V1.031.117: Test mode - output to allocated console
+      If gTestMode = #True
+         Print(StrD(gEvalStack(sp)\f, gDecs))
+      Else
+         cline = cline + StrD(gEvalStack(sp)\f, gDecs)
+         If gFastPrint = #False
+            vm_SetGadgetText( #edConsole, cy, cline )
+         EndIf
       EndIf
    CompilerEndIf
    pc + 1
@@ -950,22 +1063,40 @@ Procedure               C2PRTC()
 
    CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
       gBatchOutput + Chr(gEvalStack(sp)\i)
-      If gEvalStack(sp)\i = 10 : PrintN( "" ) : EndIf
-   CompilerElse
       If gEvalStack(sp)\i = 10
-         If gFastPrint = #True
-            vm_SetGadgetText( #edConsole, cy, cline )
+         PrintN("")
+         ; V1.031.106: Log complete line when newline is encountered
+         If gCreateLog
+            WriteStringN(gLogfn, gConsoleLine)
          EndIf
-
-         cy + 1
-         cline = ""
-         vm_AddGadgetLine( #edConsole, "" )
-         vm_ScrollToBottom( #edConsole )
-         vm_ScrollGadget( #edConsole )
+         gConsoleLine = ""
       Else
-         cline = cline + Chr(gEvalStack(sp)\i)
-         If gFastPrint = #False
-            vm_SetGadgetText( #edConsole, cy, cline )
+         gConsoleLine + Chr(gEvalStack(sp)\i)
+      EndIf
+   CompilerElse
+      ; V1.031.117: Test mode - output to allocated console
+      If gTestMode = #True
+         If gEvalStack(sp)\i = 10
+            PrintN("")
+         Else
+            Print(Chr(gEvalStack(sp)\i))
+         EndIf
+      Else
+         If gEvalStack(sp)\i = 10
+            If gFastPrint = #True
+               vm_SetGadgetText( #edConsole, cy, cline )
+            EndIf
+
+            cy + 1
+            cline = ""
+            vm_AddGadgetLine( #edConsole, "" )
+            vm_ScrollToBottom( #edConsole )
+            vm_ScrollGadget( #edConsole )
+         Else
+            cline = cline + Chr(gEvalStack(sp)\i)
+            If gFastPrint = #False
+               vm_SetGadgetText( #edConsole, cy, cline )
+            EndIf
          EndIf
       EndIf
    CompilerEndIf
@@ -1045,23 +1176,9 @@ Procedure               C2FLOATEQUAL()
 EndProcedure
 
 Procedure               C2CALL()
+   ; V1.031.106: Refactored to use macros, removed unused variables
    vm_DebugFunctionName()
-   Protected nParams.l, nLocals.l, totalVars.l, nLocalArrays.l
-   Protected i.l, funcId.l, pcAddr.l, varSlot.l, arraySize.l
-   Protected arrayOffset.l, actualSlot.l, swapIdx.l
-   Protected savedLocalBase.l  ; V1.31.0: Save caller's localBase
-   ; V1.022.37: Temp storage for parameter swap
-   Protected tempI.i, tempF.d, tempS.s, tempPtr, tempPtrType.w
-   ; V1.023.0: Variables for function template preloading
-   Protected templateCount.l, dstStart.l
-
-   ; Read nParams, nLocals, and nLocalArrays from instruction fields
-   nParams = _AR()\j
-   nLocals = _AR()\n
-   nLocalArrays = _AR()\ndx
-   totalVars = nParams + nLocals
-   pcAddr = _AR()\i  ; PC address for jumping
-   funcId = _AR()\funcid  ; Function ID for gFuncLocalArraySlots lookup
+   Define i.l  ; Loop counter only
 
    ; V1.31.0 ISOLATED VARIABLE SYSTEM
    ; - Local variables stored in gLocal[] (separate from gVar[] and gEvalStack[])
@@ -1069,258 +1186,169 @@ Procedure               C2CALL()
    ; - No overlap possible between locals and evaluation stack
 
    ; Increment stack depth (create new frame)
-   gStackDepth = gStackDepth + 1
-
-   If gStackDepth >= gMaxStackDepth
-      Debug "*** FATAL ERROR: Stack overflow - max depth " + Str(gMaxStackDepth) + " exceeded at pc=" + Str(pc) + " funcId=" + Str(funcId)
-      End
-   EndIf
-
-   If gLocalTop + totalVars >= #C2MAXLOCALS
-      Debug "*** FATAL ERROR: Local variable overflow - max " + Str(#C2MAXLOCALS) + " exceeded at pc=" + Str(pc) + " funcId=" + Str(funcId)
-      End
-   EndIf
-
-   ; V1.31.0: Save caller's localBase and set new frame base
-   savedLocalBase = gLocalBase
-   gLocalBase = gLocalTop  ; New frame starts at current top
-
-   ; Save stack frame info
-   gStack(gStackDepth)\pc = pc + 1
-   gStack(gStackDepth)\sp = sp - nParams  ; Save sp BEFORE params were pushed (for return value)
-   gStack(gStackDepth)\localBase = savedLocalBase  ; Caller's localBase for restoration
-   gStack(gStackDepth)\localCount = totalVars
+   gStackDepth + 1
 
    CompilerIf #DEBUG
-      Debug "C2CALL: depth=" + Str(gStackDepth) + " pcAddr=" + Str(pcAddr) + " nParams=" + Str(nParams) + " sp=" + Str(sp) + " gLocalBase=" + Str(gLocalBase) + " gLocalTop=" + Str(gLocalTop)
-   CompilerEndIf
-
-   ; V1.31.0: Copy parameters from gEvalStack[] to gLocal[]
-   ; Parameters are at gEvalStack[sp-nParams..sp-1], need to reverse into LOCAL[0..nParams-1]
-   ; Codegen assigns: last declared param → LOCAL[0], first declared → LOCAL[N-1]
-   ; Caller pushes in declaration order, so we copy in reverse order
-   For i = 0 To nParams - 1
-      ; Copy from stack position (last pushed = sp-1) to LOCAL[i]
-      ; Param i comes from stack position sp - nParams + (nParams - 1 - i) = sp - 1 - i
-      gLocal(gLocalBase + i)\i = gEvalStack(sp - 1 - i)\i
-      gLocal(gLocalBase + i)\f = gEvalStack(sp - 1 - i)\f
-      gLocal(gLocalBase + i)\ss = gEvalStack(sp - 1 - i)\ss
-      gLocal(gLocalBase + i)\ptr = gEvalStack(sp - 1 - i)\ptr
-      gLocal(gLocalBase + i)\ptrtype = gEvalStack(sp - 1 - i)\ptrtype
-      CompilerIf #DEBUG
-         Debug "  Copy param[" + Str(i) + "]: gEvalStack[" + Str(sp - 1 - i) + "] -> gLocal[" + Str(gLocalBase + i) + "] i=" + Str(gLocal(gLocalBase + i)\i)
-      CompilerEndIf
-   Next
-
-   ; Pop parameters from evaluation stack (they've been copied to gLocal[])
-   sp = sp - nParams
-
-   CompilerIf #DEBUG
-      If nParams >= 3 And gStackDepth >= 6
-         Debug "  Params in gLocal: LOCAL[0]=" + Str(gLocal(gLocalBase+0)\i) + " LOCAL[1]=" + Str(gLocal(gLocalBase+1)\i) + " LOCAL[2]=" + Str(gLocal(gLocalBase+2)\i) + " depth=" + Str(gStackDepth)
+      If gStackDepth >= gFunctionStack
+         Debug "*** FATAL ERROR: Stack overflow at pc=" + Str(pc) + " funcId=" + Str(_FUNCID)
+         End
+      EndIf
+      If gLocalTop + _NPARAMS + _NLOCALS > gLocalStack
+         Debug "*** FATAL ERROR: Local variable overflow at pc=" + Str(pc)
+         End
       EndIf
    CompilerEndIf
 
+   ; Save stack frame info
+   ; V1.031.105: Skip over ARRAYINFO opcodes when saving return address
+   gStack(gStackDepth)\pc = pc + 1 + _NLOCALARRAYS
+   gStack(gStackDepth)\sp = sp - _NPARAMS       ; Save sp BEFORE params were pushed
+   gStack(gStackDepth)\localBase = gLocalBase   ; Caller's localBase for restoration
+   gStack(gStackDepth)\localCount = _NPARAMS + _NLOCALS
+
+   ; V1.31.0: Set new frame base
+   gLocalBase = gLocalTop  ; New frame starts at current top
+
+   CompilerIf #DEBUG
+      Debug "C2CALL: depth=" + Str(gStackDepth) + " pcAddr=" + Str(_PCADDR) + " nParams=" + Str(_NPARAMS) + " sp=" + Str(sp)
+   CompilerEndIf
+
+   ; V1.31.0: Copy parameters from gEvalStack[] to gLocal[] (reverse order)
+   For i = 0 To _NPARAMS - 1
+      CopyStructure(gEvalStack(sp - 1 - i), gLocal(gLocalBase + i), stVTSimple)
+      CompilerIf #DEBUG
+         Debug "  Copy param[" + Str(i) + "]: gEvalStack[" + Str(sp - 1 - i) + "] -> gLocal[" + Str(gLocalBase + i) + "]"
+      CompilerEndIf
+   Next
+
+   ; Pop parameters from evaluation stack
+   sp - _NPARAMS
+
    ; V1.023.0: Preload non-parameter locals from function template
-   ; Template covers LOCAL[nParams..totalVars-1] - the actual local variables
-   ; Parameters are at LOCAL[0..nParams-1], already copied from stack
-   If funcId >= 0 And funcId <= ArraySize(gFuncTemplates())
-      templateCount = gFuncTemplates(funcId)\localCount
-      If templateCount > 0
-         dstStart = gLocalBase + nParams
-         For i = 0 To templateCount - 1
-            ; Copy template values to gLocal[] slots AFTER parameters
-            gLocal(dstStart + i)\i = gFuncTemplates(funcId)\template(i)\i
-            gLocal(dstStart + i)\f = gFuncTemplates(funcId)\template(i)\f
-            gLocal(dstStart + i)\ss = gFuncTemplates(funcId)\template(i)\ss
-            gLocal(dstStart + i)\ptr = gFuncTemplates(funcId)\template(i)\ptr
-            gLocal(dstStart + i)\ptrtype = gFuncTemplates(funcId)\template(i)\ptrtype
+   If _FUNCID >= 0 And _FUNCID <= ArraySize(gFuncTemplates())
+      If gFuncTemplates(_FUNCID)\localCount > 0
+         For i = 0 To gFuncTemplates(_FUNCID)\localCount - 1
+            CopyStructure(gFuncTemplates(_FUNCID)\template(i), gLocal(gLocalBase + _NPARAMS + i), stVTSimple)
          Next
          CompilerIf #DEBUG
-            Debug "  Preloaded " + Str(templateCount) + " locals from template for funcId=" + Str(funcId)
+            Debug "  Preloaded " + Str(gFuncTemplates(_FUNCID)\localCount) + " locals from template"
          CompilerEndIf
       EndIf
    EndIf
 
    ; V1.31.0: Allocate local slots (advance gLocalTop)
-   gLocalTop = gLocalTop + totalVars
+   gLocalTop + _NPARAMS + _NLOCALS
 
-   ; Allocate local arrays in their respective gLocal[] slots
-   If nLocalArrays > 0
+   ; Allocate local arrays using inline ARRAYINFO opcodes
+   If _NLOCALARRAYS > 0
       CompilerIf #DEBUG
-         Debug "  Allocating " + Str(nLocalArrays) + " local arrays, funcId=" + Str(funcId)
+         Debug "  Allocating " + Str(_NLOCALARRAYS) + " local arrays from inline ARRAYINFO"
       CompilerEndIf
-      For i = 0 To nLocalArrays - 1
-         varSlot = gFuncLocalArraySlots(funcId, i)
-         arrayOffset = gVarMeta(varSlot)\paramOffset  ; Offset within local variables
-         actualSlot = gLocalBase + arrayOffset
-         arraySize = gVarMeta(varSlot)\arraySize
-
-         CompilerIf #DEBUG
-            Debug "  LocalArray[" + Str(i) + "]: varSlot=" + Str(varSlot) + " arrayOffset=" + Str(arrayOffset) + " actualSlot=" + Str(actualSlot) + " arraySize=" + Str(arraySize)
-         CompilerEndIf
-
-         If arraySize > 0
-            ReDim gLocal(actualSlot)\dta\ar(arraySize - 1)
-            gLocal(actualSlot)\dta\size = arraySize
+      For i = 0 To _NLOCALARRAYS - 1
+         If _ARRAYINFO_SIZE(i) > 0
+            ReDim gLocal(gLocalBase + _ARRAYINFO_OFFSET(i))\dta\ar(_ARRAYINFO_SIZE(i) - 1)
+            gLocal(gLocalBase + _ARRAYINFO_OFFSET(i))\dta\size = _ARRAYINFO_SIZE(i)
             CompilerIf #DEBUG
-               Debug "    Allocated array at gLocal(" + Str(actualSlot) + ") with size " + Str(arraySize)
+               Debug "    Array[" + Str(i) + "] at slot " + Str(gLocalBase + _ARRAYINFO_OFFSET(i)) + " size=" + Str(_ARRAYINFO_SIZE(i))
             CompilerEndIf
          EndIf
       Next
    EndIf
 
-   ; V1.31.0: No sp adjustment needed - gEvalStack[] is completely isolated from gLocal[]
-   ; sp remains where it was after popping parameters
-
-   pc = pcAddr  ; Jump to function address
-   gFunctionDepth = gFunctionDepth + 1  ; Increment function depth counter
+   pc = _PCADDR              ; Jump to function address
+   gFunctionDepth + 1        ; Increment function depth counter
 
 EndProcedure
 
-Procedure               C2Return()
-   vm_DebugFunctionName()
-   Protected returnValue.i, callerSp.i, i.l
-   Protected localBase.l, localCount.l
-
-   ; V1.31.0 ISOLATED VARIABLE SYSTEM
-   ; Return value from gEvalStack[], locals in gLocal[]
-
-   ; Initialize to default integer 0 (prevents uninitialized returns)
-   returnValue = 0
-   callerSp = gStack(gStackDepth)\sp
-
-   ; Save return value from top of gEvalStack[] (sp-1) if there's anything on stack
-   If sp > 0
-      returnValue = gEvalStack(sp - 1)\i
-      CompilerIf #DEBUG
-         Debug "C2Return: sp=" + Str(sp) + " returnValue=" + Str(returnValue) + " from gEvalStack(" + Str(sp-1) + ") depth=" + Str(gStackDepth)
-      CompilerEndIf
-   Else
-      CompilerIf #DEBUG
-         Debug "C2Return: WARNING! sp=" + Str(sp) + " - using default returnValue=0 depth=" + Str(gStackDepth)
-      CompilerEndIf
-   EndIf
-
-   ; Restore caller's program counter and stack pointer
-   pc = gStack(gStackDepth)\pc
-   sp = callerSp
-
-   ; V1.31.0: Clear gLocal[] slots (strings and arrays for memory management)
-   localBase = gLocalBase
-   localCount = gStack(gStackDepth)\localCount
-
-   For i = 0 To localCount - 1
-      gLocal(localBase + i)\ss = ""  ; MUST clear for PureBasic string garbage collection
-      ; Clear array data if present
-      If gLocal(localBase + i)\dta\size > 0
-         ReDim gLocal(localBase + i)\dta\ar(0)
-         gLocal(localBase + i)\dta\size = 0
+; V1.031.106: Macro for common cleanup of local slots
+Macro _CLEANUP_LOCALS(baseSlot, count)
+   For _i = 0 To (count) - 1
+      gLocal((baseSlot) + _i)\ss = ""
+      If gLocal((baseSlot) + _i)\dta\size > 0
+         ReDim gLocal((baseSlot) + _i)\dta\ar(0)
+         gLocal((baseSlot) + _i)\dta\size = 0
       EndIf
    Next
+EndMacro
 
-   ; V1.31.0: Restore gLocalBase and gLocalTop from saved frame
-   gLocalTop = gLocalBase  ; Deallocate this frame's local slots
-   gLocalBase = gStack(gStackDepth)\localBase  ; Restore caller's localBase
+Procedure               C2Return()
+   ; V1.031.106: Refactored to use macros
+   vm_DebugFunctionName()
+   Define _i.l, _retval.i = 0, _savedBase.l = gLocalBase
 
-   ; Delete current stack frame (decrement depth)
-   gStackDepth = gStackDepth - 1
-   gFunctionDepth = gFunctionDepth - 1  ; Decrement function depth counter
+   ; Save return value before cleanup
+   If sp > 0 : _retval = _POPI : EndIf
+   CompilerIf #DEBUG
+      Debug "C2Return: sp=" + Str(sp) + " retval=" + Str(_retval) + " depth=" + Str(gStackDepth)
+   CompilerEndIf
 
-   ; Push return value onto caller's gEvalStack[]
-   gEvalStack(sp)\i = returnValue
+   ; Restore caller's pc and sp
+   pc = gStack(gStackDepth)\pc
+   sp = gStack(gStackDepth)\sp
+
+   ; Clear local slots (strings/arrays for GC)
+   _CLEANUP_LOCALS(_savedBase, gStack(gStackDepth)\localCount)
+
+   ; Restore frame pointers and decrement depth
+   gLocalTop = _savedBase
+   gLocalBase = gStack(gStackDepth)\localBase
+   gStackDepth - 1
+   gFunctionDepth - 1
+
+   ; Push return value
+   gEvalStack(sp)\i = _retval
    sp + 1
 EndProcedure
 
 Procedure               C2ReturnF()
+   ; V1.031.106: Refactored to use macros
    vm_DebugFunctionName()
-   Protected returnValue.f, callerSp.i, i.l
-   Protected localBase.l, localCount.l
+   Define _i.l, _retval.d = 0.0, _savedBase.l = gLocalBase
 
-   ; V1.31.0 ISOLATED VARIABLE SYSTEM
+   ; Save return value before cleanup
+   If sp > 0 : _retval = _POPF : EndIf
 
-   ; Initialize to default float 0.0
-   returnValue = 0.0
-   callerSp = gStack(gStackDepth)\sp
-
-   ; Save float return value from top of gEvalStack[] (sp-1) if there's anything on stack
-   If sp > 0
-      returnValue = gEvalStack(sp - 1)\f
-   EndIf
-
-   ; Restore caller's program counter and stack pointer
+   ; Restore caller's pc and sp
    pc = gStack(gStackDepth)\pc
-   sp = callerSp
+   sp = gStack(gStackDepth)\sp
 
-   ; V1.31.0: Clear gLocal[] slots (strings and arrays for memory management)
-   localBase = gLocalBase
-   localCount = gStack(gStackDepth)\localCount
+   ; Clear local slots (strings/arrays for GC)
+   _CLEANUP_LOCALS(_savedBase, gStack(gStackDepth)\localCount)
 
-   For i = 0 To localCount - 1
-      gLocal(localBase + i)\ss = ""  ; MUST clear for PureBasic string garbage collection
-      ; Clear array data if present
-      If gLocal(localBase + i)\dta\size > 0
-         ReDim gLocal(localBase + i)\dta\ar(0)
-         gLocal(localBase + i)\dta\size = 0
-      EndIf
-   Next
+   ; Restore frame pointers and decrement depth
+   gLocalTop = _savedBase
+   gLocalBase = gStack(gStackDepth)\localBase
+   gStackDepth - 1
+   gFunctionDepth - 1
 
-   ; V1.31.0: Restore gLocalBase and gLocalTop from saved frame
-   gLocalTop = gLocalBase  ; Deallocate this frame's local slots
-   gLocalBase = gStack(gStackDepth)\localBase  ; Restore caller's localBase
-
-   ; Delete current stack frame (decrement depth)
-   gStackDepth = gStackDepth - 1
-   gFunctionDepth = gFunctionDepth - 1  ; Decrement function depth counter
-
-   ; Push float return value onto caller's gEvalStack[]
-   gEvalStack(sp)\f = returnValue
+   ; Push return value
+   gEvalStack(sp)\f = _retval
    sp + 1
 EndProcedure
 
 Procedure               C2ReturnS()
+   ; V1.031.106: Refactored to use macros
    vm_DebugFunctionName()
-   Protected returnValue.s, callerSp.i, i.l
-   Protected localBase.l, localCount.l
+   Define _i.l, _retval.s = "", _savedBase.l = gLocalBase
 
-   ; V1.31.0 ISOLATED VARIABLE SYSTEM
+   ; Save return value before cleanup
+   If sp > 0 : _retval = _POPS : EndIf
 
-   ; Initialize to default empty string
-   returnValue = ""
-   callerSp = gStack(gStackDepth)\sp
-
-   ; Save string return value from top of gEvalStack[] (sp-1) if there's anything on stack
-   If sp > 0
-      returnValue = gEvalStack(sp - 1)\ss
-   EndIf
-
-   ; Restore caller's program counter and stack pointer
+   ; Restore caller's pc and sp
    pc = gStack(gStackDepth)\pc
-   sp = callerSp
+   sp = gStack(gStackDepth)\sp
 
-   ; V1.31.0: Clear gLocal[] slots (strings and arrays for memory management)
-   localBase = gLocalBase
-   localCount = gStack(gStackDepth)\localCount
+   ; Clear local slots (strings/arrays for GC)
+   _CLEANUP_LOCALS(_savedBase, gStack(gStackDepth)\localCount)
 
-   For i = 0 To localCount - 1
-      gLocal(localBase + i)\ss = ""  ; MUST clear for PureBasic string garbage collection
-      ; Clear array data if present
-      If gLocal(localBase + i)\dta\size > 0
-         ReDim gLocal(localBase + i)\dta\ar(0)
-         gLocal(localBase + i)\dta\size = 0
-      EndIf
-   Next
+   ; Restore frame pointers and decrement depth
+   gLocalTop = _savedBase
+   gLocalBase = gStack(gStackDepth)\localBase
+   gStackDepth - 1
+   gFunctionDepth - 1
 
-   ; V1.31.0: Restore gLocalBase and gLocalTop from saved frame
-   gLocalTop = gLocalBase  ; Deallocate this frame's local slots
-   gLocalBase = gStack(gStackDepth)\localBase  ; Restore caller's localBase
-
-   ; Delete current stack frame (decrement depth)
-   gStackDepth = gStackDepth - 1
-   gFunctionDepth = gFunctionDepth - 1  ; Decrement function depth counter
-
-   ; Push string return value onto caller's gEvalStack[]
-   gEvalStack(sp)\ss = returnValue
+   ; Push return value
+   gEvalStack(sp)\ss = _retval
    sp + 1
 EndProcedure
 
@@ -1353,10 +1381,10 @@ XIncludeFile "c2-collections-v02.pbi"
 
 ;- End VM functions
 
-; IDE Options = PureBasic 6.21 (Linux - x64)
-; CursorPosition = 75
-; FirstLine = 62
-; Folding = ------------------------
+; IDE Options = PureBasic 6.21 (Windows - x64)
+; CursorPosition = 1079
+; FirstLine = 1054
+; Folding = -------------------------
 ; EnableAsm
 ; EnableThread
 ; EnableXP

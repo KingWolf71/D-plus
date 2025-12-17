@@ -16,82 +16,76 @@
 
 ;- Array Operations
 
+; ============================================================================
+; V1.031.106: ARRAY MACROS
+; ============================================================================
+; Uses base macros from c2-vm-commands-v13.pb plus array-specific ones:
+;   _ELEMSIZE     - Element size in slots (_AR()\j for structs, usually 1)
+;   _ARRAYSIZE    - Array size from instruction (_AR()\n)
+;   _GARR(slot)   - Global array at slot: gVar(slot)\dta\ar
+;   _GARRSIZE(slot) - Global array size: gVar(slot)\dta\size
+;   _LARR(offset) - Local array at offset: gLocal(gLocalBase+offset)\dta\ar
+;   _LARRSIZE(offset) - Local array size
+; ============================================================================
+
+Macro _ELEMSIZE : _AR()\j : EndMacro
+Macro _ARRAYSIZE : _AR()\n : EndMacro
+Macro _GARR(slot) : gVar(slot)\dta\ar : EndMacro
+Macro _GARRSIZE(slot) : gVar(slot)\dta\size : EndMacro
+Macro _LARR(offset) : gLocal(gLocalBase + (offset))\dta\ar : EndMacro
+Macro _LARRSIZE(offset) : gLocal(gLocalBase + (offset))\dta\size : EndMacro
+
 Procedure               C2ARRAYINDEX()
-   ; Compute array element index
-   ; _AR()\i = array variable slot
-   ; _AR()\j = element size (slots per element, usually 1 for primitives)
-   ; _AR()\n = (available for future use - size now in structure)
+   ; V1.031.106: Refactored to use macros
    ; Stack: index → computed element index
-
-   Protected arrSlot.i, index.i, elementSize.i
-
    vm_DebugFunctionName()
 
-   arrSlot = _AR()\i
-   elementSize = _AR()\j
-
    sp - 1
-   index = gEvalStack(sp)\i            ; Pop index from stack
-
-   ; Optional bounds checking
+   ; Bounds checking in debug mode only
    CompilerIf #DEBUG
-      If index < 0 Or index >= _AR()\n
-         ; TODO: Add runtime error handling
-         Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(_AR()\n) + ")"
+      If gEvalStack(sp)\i < 0 Or gEvalStack(sp)\i >= _ARRAYSIZE
+         Debug "Array index out of bounds: " + Str(gEvalStack(sp)\i) + " (size: " + Str(_ARRAYSIZE) + ")"
       EndIf
    CompilerEndIf
 
-   ; Push computed index back to stack (just the index, not the base)
-   gEvalStack(sp)\i = index
+   ; Index already on stack, just advance
    sp + 1
    pc + 1
 EndProcedure
 
 Procedure               C2ARRAYFETCH()
-   ; V1.18.0: Generic array fetch (copies entire stVT)
-   ; _AR()\i = array index (global varSlot OR local paramOffset)
-   ; _AR()\j = 0 for global, 1 for local
-   ; _AR()\n = (available for future use - size now in structure)
-   ; _AR()\ndx = index variable slot (if ndx >= 0, optimized path)
-
-   Protected index.i
-   CompilerIf #DEBUG
-      Protected arraySize.i
-   CompilerEndIf
-
+   ; V1.031.106: Refactored to use macros
+   ; Generic array fetch - copies entire stVTSimple to stack
+   ; _ARRSLOT = array slot/offset, _ISLOCAL = 0 for global/1 for local
+   ; _IDXSLOT = index var slot (>=0 = optimized path, <0 = from stack)
+   Define _idx.i
    vm_DebugFunctionName()
 
-   ; Get index from ndx field (optimized) or stack
-   If _AR()\ndx >= 0
-      index = gVar(_AR()\ndx)\i
+   ; Get index from optimized slot or stack
+   If _IDXSLOT >= 0
+      _idx = gVar(_IDXSLOT)\i
    Else
       sp - 1
-      index = gEvalStack(sp)\i
+      _idx = gEvalStack(sp)\i
    EndIf
 
-   ; Bounds checking and copy based on array type
-   If _AR()\j
-      ; V1.31.0: Local array - use gLocal[] with _LARRAY macro (Isolated Variable System)
+   ; Copy from array to stack based on array type
+   If _ISLOCAL
       CompilerIf #DEBUG
-         arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
-         If index < 0 Or index >= arraySize
-            Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
-            gExitApplication = #True
-            ProcedureReturn
+         If _idx < 0 Or _idx >= _LARRSIZE(_ARRSLOT)
+            Debug "Array bounds error: " + Str(_idx) + " size=" + Str(_LARRSIZE(_ARRSLOT))
+            gExitApplication = #True : ProcedureReturn
          EndIf
       CompilerEndIf
-      CopyStructure( gEvalStack(sp), gLocal(_LARRAY(_AR()\i))\dta\ar(index), stVTSimple )
+      CopyStructure(gEvalStack(sp), _LARR(_ARRSLOT)(_idx), stVTSimple)
    Else
-      ; Global array
       CompilerIf #DEBUG
-         arraySize = gVar(_AR()\i)\dta\size
-         If index < 0 Or index >= arraySize
-            Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
-            gExitApplication = #True
-            ProcedureReturn
+         If _idx < 0 Or _idx >= _GARRSIZE(_ARRSLOT)
+            Debug "Array bounds error: " + Str(_idx) + " size=" + Str(_GARRSIZE(_ARRSLOT))
+            gExitApplication = #True : ProcedureReturn
          EndIf
       CompilerEndIf
-      CopyStructure( gEvalStack(sp), gVar(_AR()\i)\dta\ar(index), stVTSimple )
+      CopyStructure(gEvalStack(sp), _GARR(_ARRSLOT)(_idx), stVTSimple)
    EndIf
 
    sp + 1
@@ -99,52 +93,38 @@ Procedure               C2ARRAYFETCH()
 EndProcedure
 
 Procedure               C2ARRAYSTORE()
-   ; V1.18.0: Generic array store (copies entire stVT)
-   ; _AR()\i = array index (global varSlot OR local paramOffset)
-   ; _AR()\j = 0 for global, 1 for local
-   ; _AR()\n = (available for future use - size now in structure)
-   ; _AR()\ndx = index variable slot (if ndx >= 0, optimized path)
-
-   Protected index.i
-   CompilerIf #DEBUG
-      Protected arraySize.i
-   CompilerEndIf
-
+   ; V1.031.106: Refactored to use macros
+   ; Generic array store - copies from stack to array element
+   Define _idx.i
    vm_DebugFunctionName()
 
-   ; Get index from ndx field (optimized) or stack
-   If _AR()\ndx >= 0
-      index = gVar(_AR()\ndx)\i
+   ; Get index from optimized slot or stack
+   If _IDXSLOT >= 0
+      _idx = gVar(_IDXSLOT)\i
       sp - 1
    Else
       sp - 1
-      index = gEvalStack(sp)\i
+      _idx = gEvalStack(sp)\i
       sp - 1
    EndIf
 
-   ; Bounds checking and copy based on array type
-   If _AR()\j
-      ; V1.31.0: Local array - use gLocal[] with _LARRAY macro (Isolated Variable System)
+   ; Copy from stack to array based on array type
+   If _ISLOCAL
       CompilerIf #DEBUG
-         arraySize = gLocal(_LARRAY(_AR()\i))\dta\size
-         If index < 0 Or index >= arraySize
-            Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
-            gExitApplication = #True
-            ProcedureReturn
+         If _idx < 0 Or _idx >= _LARRSIZE(_ARRSLOT)
+            Debug "Array bounds error: " + Str(_idx) + " size=" + Str(_LARRSIZE(_ARRSLOT))
+            gExitApplication = #True : ProcedureReturn
          EndIf
       CompilerEndIf
-      CopyStructure( gLocal(_LARRAY(_AR()\i))\dta\ar(index), gEvalStack(sp), stVTSimple )
+      CopyStructure(_LARR(_ARRSLOT)(_idx), gEvalStack(sp), stVTSimple)
    Else
-      ; Global array
       CompilerIf #DEBUG
-         arraySize = gVar(_AR()\i)\dta\size
-         If index < 0 Or index >= arraySize
-            Debug "Array index out of bounds: " + Str(index) + " (size: " + Str(arraySize) + ") at pc=" + Str(pc)
-            gExitApplication = #True
-            ProcedureReturn
+         If _idx < 0 Or _idx >= _GARRSIZE(_ARRSLOT)
+            Debug "Array bounds error: " + Str(_idx) + " size=" + Str(_GARRSIZE(_ARRSLOT))
+            gExitApplication = #True : ProcedureReturn
          EndIf
       CompilerEndIf
-      CopyStructure( gVar(_AR()\i)\dta\ar(index), gEvalStack(sp), stVTSimple )
+      CopyStructure(_GARR(_ARRSLOT)(_idx), gEvalStack(sp), stVTSimple)
    EndIf
 
    pc + 1
@@ -1056,8 +1036,8 @@ Procedure               C2ARRAYSTORE_FLOAT_LOCAL_OPT_OPT()
    localSlot = _LARRAY(_AR()\i)
    CompilerIf #DEBUG
       Debug "LSTOREARFLT_OO: pc=" + Str(pc) + " offset=" + Str(_AR()\i) + " localSlot=" + Str(localSlot) + " index=" + Str(index) + " depth=" + Str(gStackDepth)
-      If localSlot < 0 Or localSlot > gMaxStackDepth
-         Debug "  FATAL: localSlot " + Str(localSlot) + " out of bounds [0.." + Str(gMaxStackDepth) + "]"
+      If localSlot < 0 Or localSlot > gLocalStack
+         Debug "  FATAL: localSlot " + Str(localSlot) + " out of bounds [0.." + Str(gLocalStack) + "]"
          gExitApplication = #True
          ProcedureReturn
       EndIf

@@ -16,8 +16,14 @@
 #pragma ftoi "truncate"
 #pragma version on
 #pragma modulename on
-#pragma stackspace 4096
-#pragma stackdepth 2048
+#pragma GlobalStack 2048
+#pragma FunctionStack 256
+#pragma EvalStack 512
+#pragma LocalStack 256
+#pragma CreateLog on
+#pragma LogName "[default]"
+#pragma DefaultFPS 32
+#pragma ThreadKillWait 1800
 
 // =============================================================================
 // AVL Tree using Array-Based Nodes

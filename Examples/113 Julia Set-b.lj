@@ -21,8 +21,13 @@
 #pragma modulename on
 #pragma PasteToClipboard on
 #pragma floattolerance 0.0001
-#pragma stackspace 2048
-#pragma stackdepth 1024
+#pragma GlobalStack 1024
+#pragma FunctionStack 32
+#pragma EvalStack 256
+#pragma LocalStack 64
+#pragma CreateLog off
+#pragma DefaultFPS 32
+#pragma ThreadKillWait 1800
 
     /* Julia set parameters - random c value for variety */
     c_real = random(400) - 200;   /* Random real part: -2.0 to 2.0 (scaled by 100) */

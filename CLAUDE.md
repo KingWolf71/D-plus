@@ -1,5 +1,7 @@
 1. priority is on VM execution speed
-2. Linux compilation: wsl -d Ubuntu-24.04 -e bash -c "export PUREBASIC_HOME=/home/terence/Apps/purebasic621 && cd /mnt/d/OneDrive/WIP/Sources/Intense.2020/lj2 && \$PUREBASIC_HOME/compilers/pbcompiler c2-modules-V20.pb -e lj2_linux -t -cl 2>&1" (use -t for thread-safe, -cl for console mode)
+2. Windows Purebasic path D:\WIP\APPS\PureBasic.610
+2a. Linux compilation: wsl -d Ubuntu-24.04 -e bash -c "export PUREBASIC_HOME=/home/terence/Apps/purebasic621 && cd /mnt/d/OneDrive/WIP/Sources/Intense.2020/lj2 && \$PUREBASIC_HOME/compilers/pbcompiler c2-modules-V20.pb -e lj2_linux -t -cl 2>&1" (use -t for thread-safe, -cl for console mode)
+2b. Windows compilation: pbcompiler --optimizer --thread /DYNAMICCPU c2-modules-V20.pb (add /CONSOLE for console mode, requires PureBasic 6.20+)
 3. always leave definitions at beginning of procedure - no exceptions
 4. No procedure static variables; we use global variables which can be reset between runs
 5. if there is an _*.ver file add a .1 everytime we interact (MAJ.MIN.FIX)
@@ -16,4 +18,7 @@
 16. Don't use intermidiate variables in VM code; use macros instead for readility
 17. create a 7z backup with version under backups\ at least 2 times a day and before any major version
 18. No structure unions; we need to maintain compatibility with Spiderbasic
-19. Linux GUI runs non-threaded (GTK threading causes GUI unresponsiveness); Windows GUI uses threading with queue-based updates
+19. Linux GUI runs non-threaded (GTK threading causes issues); Windows GUI uses threading with timer-based queue processing
+20. Command line: lj2.exe [--test|-t] <filename.lj> - use --test for headless console output
+21. Test runner: run-tests-win.ps1 runs all example tests on Windows
+22. Stack size: 8MB via linker.txt for large compilation (comprehensive tests)
