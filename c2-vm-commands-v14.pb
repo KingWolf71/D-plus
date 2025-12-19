@@ -1260,6 +1260,152 @@ Procedure               C2CALL()
 
 EndProcedure
 
+; V1.033.12: Optimized CALL for 0 parameters - eliminates param copy loop
+Procedure               C2CALL0()
+   vm_DebugFunctionName()
+   Define i.l
+
+   gStackDepth + 1
+
+   CompilerIf #DEBUG
+      If gStackDepth >= gFunctionStack
+         Debug "*** FATAL ERROR: Stack overflow at pc=" + Str(pc) + " funcId=" + Str(_FUNCID)
+         End
+      EndIf
+   CompilerEndIf
+
+   ; Save stack frame (no params to account for in sp)
+   gStack(gStackDepth)\pc = pc + 1 + _NLOCALARRAYS
+   gStack(gStackDepth)\sp = sp                        ; sp unchanged - no params
+   gStack(gStackDepth)\localBase = gLocalBase
+   gStack(gStackDepth)\localCount = _NLOCALS          ; 0 params + nLocals
+
+   gLocalBase = gLocalTop
+
+   ; No parameter copy needed - skip straight to template preload
+   If _FUNCID >= 0 And _FUNCID <= ArraySize(gFuncTemplates())
+      If gFuncTemplates(_FUNCID)\localCount > 0
+         For i = 0 To gFuncTemplates(_FUNCID)\localCount - 1
+            CopyStructure(gFuncTemplates(_FUNCID)\template(i), gLocal(gLocalBase + i), stVTSimple)
+         Next
+      EndIf
+   EndIf
+
+   gLocalTop + _NLOCALS
+
+   ; Allocate local arrays
+   If _NLOCALARRAYS > 0
+      For i = 0 To _NLOCALARRAYS - 1
+         If _ARRAYINFO_SIZE(i) > 0
+            ReDim gLocal(gLocalBase + _ARRAYINFO_OFFSET(i))\dta\ar(_ARRAYINFO_SIZE(i) - 1)
+            gLocal(gLocalBase + _ARRAYINFO_OFFSET(i))\dta\size = _ARRAYINFO_SIZE(i)
+         EndIf
+      Next
+   EndIf
+
+   pc = _PCADDR
+   gFunctionDepth + 1
+EndProcedure
+
+; V1.033.12: Optimized CALL for 1 parameter - direct copy, no loop
+Procedure               C2CALL1()
+   vm_DebugFunctionName()
+   Define i.l
+
+   gStackDepth + 1
+
+   CompilerIf #DEBUG
+      If gStackDepth >= gFunctionStack
+         Debug "*** FATAL ERROR: Stack overflow at pc=" + Str(pc) + " funcId=" + Str(_FUNCID)
+         End
+      EndIf
+   CompilerEndIf
+
+   gStack(gStackDepth)\pc = pc + 1 + _NLOCALARRAYS
+   gStack(gStackDepth)\sp = sp - 1                    ; 1 param
+   gStack(gStackDepth)\localBase = gLocalBase
+   gStack(gStackDepth)\localCount = 1 + _NLOCALS
+
+   gLocalBase = gLocalTop
+
+   ; Direct copy of 1 param (no loop)
+   CopyStructure(gEvalStack(sp - 1), gLocal(gLocalBase), stVTSimple)
+   sp - 1
+
+   ; Template preload
+   If _FUNCID >= 0 And _FUNCID <= ArraySize(gFuncTemplates())
+      If gFuncTemplates(_FUNCID)\localCount > 0
+         For i = 0 To gFuncTemplates(_FUNCID)\localCount - 1
+            CopyStructure(gFuncTemplates(_FUNCID)\template(i), gLocal(gLocalBase + 1 + i), stVTSimple)
+         Next
+      EndIf
+   EndIf
+
+   gLocalTop + 1 + _NLOCALS
+
+   If _NLOCALARRAYS > 0
+      For i = 0 To _NLOCALARRAYS - 1
+         If _ARRAYINFO_SIZE(i) > 0
+            ReDim gLocal(gLocalBase + _ARRAYINFO_OFFSET(i))\dta\ar(_ARRAYINFO_SIZE(i) - 1)
+            gLocal(gLocalBase + _ARRAYINFO_OFFSET(i))\dta\size = _ARRAYINFO_SIZE(i)
+         EndIf
+      Next
+   EndIf
+
+   pc = _PCADDR
+   gFunctionDepth + 1
+EndProcedure
+
+; V1.033.12: Optimized CALL for 2 parameters - unrolled copy
+Procedure               C2CALL2()
+   vm_DebugFunctionName()
+   Define i.l
+
+   gStackDepth + 1
+
+   CompilerIf #DEBUG
+      If gStackDepth >= gFunctionStack
+         Debug "*** FATAL ERROR: Stack overflow at pc=" + Str(pc) + " funcId=" + Str(_FUNCID)
+         End
+      EndIf
+   CompilerEndIf
+
+   gStack(gStackDepth)\pc = pc + 1 + _NLOCALARRAYS
+   gStack(gStackDepth)\sp = sp - 2                    ; 2 params
+   gStack(gStackDepth)\localBase = gLocalBase
+   gStack(gStackDepth)\localCount = 2 + _NLOCALS
+
+   gLocalBase = gLocalTop
+
+   ; Unrolled copy of 2 params (no loop)
+   CopyStructure(gEvalStack(sp - 1), gLocal(gLocalBase), stVTSimple)      ; param 0
+   CopyStructure(gEvalStack(sp - 2), gLocal(gLocalBase + 1), stVTSimple)  ; param 1
+   sp - 2
+
+   ; Template preload
+   If _FUNCID >= 0 And _FUNCID <= ArraySize(gFuncTemplates())
+      If gFuncTemplates(_FUNCID)\localCount > 0
+         For i = 0 To gFuncTemplates(_FUNCID)\localCount - 1
+            CopyStructure(gFuncTemplates(_FUNCID)\template(i), gLocal(gLocalBase + 2 + i), stVTSimple)
+         Next
+      EndIf
+   EndIf
+
+   gLocalTop + 2 + _NLOCALS
+
+   If _NLOCALARRAYS > 0
+      For i = 0 To _NLOCALARRAYS - 1
+         If _ARRAYINFO_SIZE(i) > 0
+            ReDim gLocal(gLocalBase + _ARRAYINFO_OFFSET(i))\dta\ar(_ARRAYINFO_SIZE(i) - 1)
+            gLocal(gLocalBase + _ARRAYINFO_OFFSET(i))\dta\size = _ARRAYINFO_SIZE(i)
+         EndIf
+      Next
+   EndIf
+
+   pc = _PCADDR
+   gFunctionDepth + 1
+EndProcedure
+
 ; V1.031.106: Macro for common cleanup of local slots
 Macro _CLEANUP_LOCALS(baseSlot, count)
    For _i = 0 To (count) - 1
@@ -1367,17 +1513,19 @@ Procedure               C2HALT()
    pc + 1
 EndProcedure
 
+;- ============================================================================
+
 ;- Include Built-in Functions Module
-XIncludeFile "c2-builtins-v05.pbi"
+XIncludeFile "c2-builtins-v06.pbi"
 
 ;- Include Array Operations Module
-XIncludeFile "c2-arrays-v04.pbi"
+XIncludeFile "c2-arrays-v06.pbi"
 
 ;- Include Pointer Operations Module
-XIncludeFile "c2-pointers-v04.pbi"
+XIncludeFile "c2-pointers-v05.pbi"
 
 ;- Include Collections Module (V1.028.0 - Unified in gVar)
-XIncludeFile "c2-collections-v02.pbi"
+XIncludeFile "c2-collections-v03.pbi"
 
 ;- End VM functions
 

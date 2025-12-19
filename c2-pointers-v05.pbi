@@ -2132,21 +2132,24 @@ Procedure               C2PRTPTR_ARRAY_STR()
 EndProcedure
 
 ;- Typed Simple Variable Pointer FETCH (no If check)
+;- V1.033.5: Optimized to use PeekI/PeekD on \ptr for direct memory access
 
 Procedure               C2PTRFETCH_VAR_INT()
    ; Fetch int from simple variable pointer (no array check)
+   ; Uses PeekI on \ptr for direct memory access
    vm_DebugFunctionName()
    sp - 1
-   gEvalStack(sp)\i = gVar(gEvalStack(sp)\i)\i
+   gEvalStack(sp)\i = PeekI(gEvalStack(sp)\ptr)
    sp + 1
    pc + 1
 EndProcedure
 
 Procedure               C2PTRFETCH_VAR_FLOAT()
    ; Fetch float from simple variable pointer (no array check)
+   ; Uses PeekD on \ptr for direct memory access
    vm_DebugFunctionName()
    sp - 1
-   gEvalStack(sp)\f = gVar(gEvalStack(sp)\i)\f
+   gEvalStack(sp)\f = PeekD(gEvalStack(sp)\ptr)
    sp + 1
    pc + 1
 EndProcedure
@@ -2192,23 +2195,26 @@ Procedure               C2PTRFETCH_ARREL_STR()
 EndProcedure
 
 ;- Typed Simple Variable Pointer STORE (no If check)
+;- V1.033.5: Optimized to use PokeI/PokeD on \ptr for direct memory access
 
 Procedure               C2PTRSTORE_VAR_INT()
    ; Store int to simple variable pointer (no array check)
+   ; Uses PokeI on \ptr for direct memory access
    ; Stack: [value] [pointer]
    vm_DebugFunctionName()
    sp - 1
    sp - 1
-   gVar(gEvalStack(sp + 1)\i)\i = gEvalStack(sp)\i
+   PokeI(gEvalStack(sp + 1)\ptr, gEvalStack(sp)\i)
    pc + 1
 EndProcedure
 
 Procedure               C2PTRSTORE_VAR_FLOAT()
    ; Store float to simple variable pointer (no array check)
+   ; Uses PokeD on \ptr for direct memory access
    vm_DebugFunctionName()
    sp - 1
    sp - 1
-   gVar(gEvalStack(sp + 1)\i)\f = gEvalStack(sp)\f
+   PokeD(gEvalStack(sp + 1)\ptr, gEvalStack(sp)\f)
    pc + 1
 EndProcedure
 
@@ -2248,6 +2254,131 @@ Procedure               C2PTRSTORE_ARREL_STR()
    sp - 1
    sp - 1
    gVar(gEvalStack(sp + 1)\ptr)\dta\ar(gEvalStack(sp + 1)\i)\ss = gEvalStack(sp)\ss
+   pc + 1
+EndProcedure
+
+;- V1.033.5: Local Variable Pointer FETCH (no If check, uses gLocal[])
+
+Procedure               C2PTRFETCH_LVAR_INT()
+   ; Fetch int from local simple variable pointer (no array check)
+   ; Uses PeekI on \ptr for direct memory access
+   vm_DebugFunctionName()
+   sp - 1
+   gEvalStack(sp)\i = PeekI(gEvalStack(sp)\ptr)
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRFETCH_LVAR_FLOAT()
+   ; Fetch float from local simple variable pointer (no array check)
+   ; Uses PeekD on \ptr for direct memory access
+   vm_DebugFunctionName()
+   sp - 1
+   gEvalStack(sp)\f = PeekD(gEvalStack(sp)\ptr)
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRFETCH_LVAR_STR()
+   ; Fetch string from local simple variable pointer (no array check)
+   ; \i contains actual slot in gLocal[]
+   vm_DebugFunctionName()
+   sp - 1
+   gEvalStack(sp)\ss = gLocal(gEvalStack(sp)\i)\ss
+   sp + 1
+   pc + 1
+EndProcedure
+
+;- V1.033.5: Local Array Element Pointer FETCH (no If check)
+
+Procedure               C2PTRFETCH_LARREL_INT()
+   ; Fetch int from local array element pointer (no If check)
+   ; \ptr = array slot in gLocal[], \i = element index
+   vm_DebugFunctionName()
+   sp - 1
+   gEvalStack(sp)\i = gLocal(gEvalStack(sp)\ptr)\dta\ar(gEvalStack(sp)\i)\i
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRFETCH_LARREL_FLOAT()
+   ; Fetch float from local array element pointer (no If check)
+   vm_DebugFunctionName()
+   sp - 1
+   gEvalStack(sp)\f = gLocal(gEvalStack(sp)\ptr)\dta\ar(gEvalStack(sp)\i)\f
+   sp + 1
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRFETCH_LARREL_STR()
+   ; Fetch string from local array element pointer (no If check)
+   vm_DebugFunctionName()
+   sp - 1
+   gEvalStack(sp)\ss = gLocal(gEvalStack(sp)\ptr)\dta\ar(gEvalStack(sp)\i)\ss
+   sp + 1
+   pc + 1
+EndProcedure
+
+;- V1.033.5: Local Variable Pointer STORE (no If check)
+
+Procedure               C2PTRSTORE_LVAR_INT()
+   ; Store int to local simple variable pointer (no array check)
+   ; Uses PokeI on \ptr for direct memory access
+   ; Stack: [value] [pointer]
+   vm_DebugFunctionName()
+   sp - 1
+   sp - 1
+   PokeI(gEvalStack(sp + 1)\ptr, gEvalStack(sp)\i)
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSTORE_LVAR_FLOAT()
+   ; Store float to local simple variable pointer (no array check)
+   ; Uses PokeD on \ptr for direct memory access
+   vm_DebugFunctionName()
+   sp - 1
+   sp - 1
+   PokeD(gEvalStack(sp + 1)\ptr, gEvalStack(sp)\f)
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSTORE_LVAR_STR()
+   ; Store string to local simple variable pointer (no array check)
+   ; \i contains actual slot in gLocal[]
+   vm_DebugFunctionName()
+   sp - 1
+   sp - 1
+   gLocal(gEvalStack(sp + 1)\i)\ss = gEvalStack(sp)\ss
+   pc + 1
+EndProcedure
+
+;- V1.033.5: Local Array Element Pointer STORE (no If check)
+
+Procedure               C2PTRSTORE_LARREL_INT()
+   ; Store int to local array element pointer (no If check)
+   ; Stack: [value] [pointer]
+   vm_DebugFunctionName()
+   sp - 1
+   sp - 1
+   gLocal(gEvalStack(sp + 1)\ptr)\dta\ar(gEvalStack(sp + 1)\i)\i = gEvalStack(sp)\i
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSTORE_LARREL_FLOAT()
+   ; Store float to local array element pointer (no If check)
+   vm_DebugFunctionName()
+   sp - 1
+   sp - 1
+   gLocal(gEvalStack(sp + 1)\ptr)\dta\ar(gEvalStack(sp + 1)\i)\f = gEvalStack(sp)\f
+   pc + 1
+EndProcedure
+
+Procedure               C2PTRSTORE_LARREL_STR()
+   ; Store string to local array element pointer (no If check)
+   vm_DebugFunctionName()
+   sp - 1
+   sp - 1
+   gLocal(gEvalStack(sp + 1)\ptr)\dta\ar(gEvalStack(sp + 1)\i)\ss = gEvalStack(sp)\ss
    pc + 1
 EndProcedure
 

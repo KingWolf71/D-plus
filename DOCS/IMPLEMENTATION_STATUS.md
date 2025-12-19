@@ -1,24 +1,25 @@
 # LJ2 Implementation Status
-Version: 1.026.0
+Version: 1.033.19
 Date: December 2025
 
 ## Current File Versions
 
 | Component | File | Description |
 |-----------|------|-------------|
-| Main compiler | `c2-modules-V20.pb` | Scanner, preprocessor, main entry |
-| Definitions | `c2-inc-v16.pbi` | Constants, opcodes, structures |
-| AST parser | `c2-ast-v05.pbi` | Recursive descent parser |
-| Code generator | `c2-codegen-v05.pbi` | AST to bytecode |
-| Scanner | `c2-scanner-v04.pbi` | Tokenizer |
-| Postprocessor | `c2-postprocessor-V07.pbi` | Type inference, optimization |
-| VM core | `c2-vm-V14.pb` | Virtual machine execution |
-| VM commands | `c2-vm-commands-v13.pb` | Opcode implementations |
-| Arrays | `c2-arrays-v04.pbi` | Array operations |
-| Pointers | `c2-pointers-v04.pbi` | Pointer operations |
-| Collections | `c2-collections-v01.pbi` | Lists and Maps |
-| Built-ins | `c2-builtins-v05.pbi` | Built-in functions |
-| Test runner | `pbtester-v04.pb` | Automated testing |
+| Main compiler | `c2-modules-V21.pb` | Scanner, preprocessor, main entry |
+| Definitions | `c2-inc-v17.pbi` | Constants, opcodes, structures |
+| AST parser | `c2-ast-v06.pbi` | Recursive descent parser |
+| Code generator | `c2-codegen-v06.pbi` | AST to bytecode |
+| Scanner | `c2-scanner-v05.pbi` | Tokenizer |
+| Postprocessor | `c2-postprocessor-V09.pbi` | Type inference, optimization |
+| Optimizer | `c2-optimizer-V01.pbi` | Peephole and fusion optimizations |
+| VM core | `c2-vm-V16.pb` | Virtual machine execution |
+| VM commands | `c2-vm-commands-v14.pb` | Opcode implementations |
+| Arrays | `c2-arrays-v05.pbi` | Array operations |
+| Pointers | `c2-pointers-v05.pbi` | Pointer operations |
+| Collections | `c2-collections-v03.pbi` | Lists and Maps |
+| Built-ins | `c2-builtins-v06.pbi` | Built-in functions |
+| Test runner | `run-tests-win.ps1` | Windows PowerShell test runner |
 
 ## Implemented Features
 
@@ -106,26 +107,32 @@ Located in `Examples/`:
 - Mandelbrot set renderer (19)
 - Julia set renderer (21)
 
-## Recent Changes (v1.024.x - v1.025.0)
+## Recent Changes (v1.031.x - v1.033.x)
 
-### v1.024.25
-- Fixed FOR loop stack leak with increment/decrement update expressions
+### v1.033.19
+- Fixed c2tokens Data section alignment (added missing VOID entry)
+- ASM listing now shows correct opcode descriptions (SUB shows "-", MUL shows "*", etc.)
 
-### v1.024.26
-- Added assignment support in FOR loop update expressions (i = i + 100)
+### v1.033.17-18
+- Enhanced ASMLine macro with meaningful operation descriptions
+- Added function name lookup tables (gFuncNames) for ASM display
+- CALL opcodes now show function names in ASM output
 
-### v1.024.27
-- Added compound assignment in FOR loop updates (i += 100)
-- Added `arr` keyword alias for `array`
+### v1.033.14
+- Added LLMOV fusion optimization (LFETCH+LSTORE → LLMOV)
+- New optimizer module (c2-optimizer-V01.pbi)
 
-### v1.024.28
-- Test runner diff file generation
-- AVL tree example added
+### v1.031.120
+- Added --test/-t command line flag for headless console output
+- Re-enabled PUSH_IMM optimization for immediate values
+- Increased stack size to 8MB via linker.txt
+- Added Windows test runner (run-tests-win.ps1)
 
-### v1.025.0
-- Version advancement
-- All module files updated to new versions
-- Documentation updated
+### v1.031.103
+- Linux GUI now runs non-threaded (GTK threading fix)
+- Windows GUI uses threading with queue-based updates
+- Added collections module (c2-collections-v02.pbi)
+- Improved isolated variable system
 
 ## Backup System
 

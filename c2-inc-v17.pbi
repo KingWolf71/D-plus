@@ -47,9 +47,9 @@
 ; ======================================================================================================
 
 #DEBUG            = 0
-#C2PROFILER       = 1
-#C2PROFILER_LOG   = 1     ; V1.031.112: Append profiler data to cumulative log file
-#VM_INLINE_HOT    = 1     ; V1.031.111: Inline hot opcodes (LFETCH, PUSH, LSTORE, ADD) in VM loop
+#C2PROFILER       = 0     ; V1.033.16: Disabled for true VM speed test
+#C2PROFILER_LOG   = 0     ; V1.031.112: Append profiler data to cumulative log file
+#VM_INLINE_HOT    = 1     ; V1.033.15: Inline hot opcodes (LFETCHS, STORE, LSTORES, SUB, JMP, NEG + originals) in VM loop
 
 #INV$             = ~"\""
 #C2MAXTOKENS      = 500   ; Legacy, use #C2TOKENCOUNT for actual count
@@ -58,7 +58,7 @@
 ; V1.31.0: Isolated Variable System array sizes - now use global variables:
 ; gLocalStack, gMaxEvalStack, gGlobalStack, gFunctionStack (set via pragmas)
 
-#C2FLAG_TYPE      = 28   ; Mask for type bits only (INT | FLOAT | STR = 4|8|16 = 28)
+#C2FLAG_TYPE      = 28   ; Mask for type bits only (INT | FLOAT | STR = 4|8|16 = 28); VOID is separate
 #C2FLAG_CONST     = 1
 #C2FLAG_IDENT     = 2
 #C2FLAG_INT       = 4
@@ -74,6 +74,7 @@
 #C2FLAG_MAP       = 4096 ; V1.026.0: Variable is a map (string key -> value)
 #C2FLAG_ARRAYPTR  = 8192 ; V1.027.0: Pointer points to array element (vs simple variable)
 #C2FLAG_ASSIGNED  = 16384 ; V1.027.9: Variable has been assigned (prevents late PRELOAD marking)
+#C2FLAG_VOID      = 32768 ; V1.033.11: Void type (no value, for functions/placeholders)
 
 ; V1.026.0: Default max maps - can be changed via #pragma maxmaps
 #C2_DEFAULT_MAX_MAPS = 64
@@ -103,6 +104,7 @@ Enumeration
    #ljINT
    #ljFLOAT
    #ljSTRING
+   #ljVOID        ; V1.033.11: Void type (no return value, placeholders, generic pointers)
    #ljStructType  ; V1.022.80: Struct type hint for arrays and variables (distinct from #ljStruct keyword)
    #ljTypeGuess   ; V1.022.80: Type inferred from first assignment (allows multi-pass refinement)
    #ljArray
@@ -205,6 +207,9 @@ Enumeration
    #ljreturnF
    #ljreturnS
    #ljCall
+   #ljCALL0        ; V1.033.12: Optimized call - 0 parameters (no param copy loop)
+   #ljCALL1        ; V1.033.12: Optimized call - 1 parameter (direct copy)
+   #ljCALL2        ; V1.033.12: Optimized call - 2 parameters (unrolled copy)
    #ljARRAYINFO    ; V1.031.105: Local array info for CALL (i=paramOffset, j=arraySize)
 
    #ljUNKNOWN
@@ -470,6 +475,7 @@ Enumeration
    #ljCAST_INT       ; Cast expression to integer: (int)expr
    #ljCAST_FLOAT     ; Cast expression to float: (float)expr
    #ljCAST_STRING    ; Cast expression to string: (string)expr
+   #ljCAST_VOID      ; V1.033.11: Discard expression value: (void)expr
 
    ;- Structure Support (V1.021.0)
    #ljStruct         ; struct keyword
@@ -749,6 +755,20 @@ Enumeration
    #ljPTRSUB_ASSIGN_STRING        ; ptr -= offset for string pointer
    #ljPTRSUB_ASSIGN_ARRAY         ; ptr -= offset for array pointer
 
+   ;- V1.033.5: Local Pointer Fetch/Store (no If check, uses gLocal[])
+   #ljPTRFETCH_LVAR_INT           ; Fetch int from local simple variable pointer
+   #ljPTRFETCH_LVAR_FLOAT         ; Fetch float from local simple variable pointer
+   #ljPTRFETCH_LVAR_STR           ; Fetch string from local simple variable pointer
+   #ljPTRFETCH_LARREL_INT         ; Fetch int from local array element pointer
+   #ljPTRFETCH_LARREL_FLOAT       ; Fetch float from local array element pointer
+   #ljPTRFETCH_LARREL_STR         ; Fetch string from local array element pointer
+   #ljPTRSTORE_LVAR_INT           ; Store int to local simple variable pointer
+   #ljPTRSTORE_LVAR_FLOAT         ; Store float to local simple variable pointer
+   #ljPTRSTORE_LVAR_STR           ; Store string to local simple variable pointer
+   #ljPTRSTORE_LARREL_INT         ; Store int to local array element pointer
+   #ljPTRSTORE_LARREL_FLOAT       ; Store float to local array element pointer
+   #ljPTRSTORE_LARREL_STR         ; Store string to local array element pointer
+
    #ljEOF
 EndEnumeration
 
@@ -951,6 +971,10 @@ Global               gnTempSlotCounter.i  ; V1.022.20: Counter for temp slot nam
 Global               gExtraStructSlots.i  ; V1.029.5: Extra slots pushed for struct parameters
 Global               gDotFieldType.w      ; V1.029.19: Field type from DOT notation handler (for typed LFETCH)
 
+; V1.033.17: ASM listing name lookup tables (populated during codegen, used by ASMLine)
+Global Dim           gFuncNames.s(512)       ; funcId -> function name (for CALL display)
+Global Dim           gLocalNames.s(512, 64)  ; (funcId, paramOffset) -> local variable name
+
 ;- Macros
 Macro          _ASMLineHelper1(view, uvar)
    CompilerIf view
@@ -992,6 +1016,22 @@ Macro                   _VarExpand(vr)
    If gVarMeta( vr )\flags & #C2FLAG_IDENT : temp + " VAR"    : EndIf
 EndMacro
 
+; V1.033.17: Helper macro to look up local variable name by paramOffset
+; Uses gVarMeta to find mangled name matching funcName_varName pattern
+; Uses gAsmCurrentFunc to track which function we're in during ASM display
+Global gAsmCurrentFunc.i = -1      ; Current function ID for ASM display
+Global gAsmLocalName.s = ""        ; Result of local name lookup
+Global _asmGetLocalPrefix.s        ; Temp for _GetLocalName macro
+Global _asmGetLocalPrefixLen.i     ; Temp for _GetLocalName macro
+Global _asmGetLocalIdx.i           ; Temp for _GetLocalName macro
+Global _asmFuncName.s              ; Temp for ASMLine CALL display
+Global _asmSrcLocal.s              ; Temp for ASMLine LLMOV display
+
+; _GetLocalName macro - simplified to just show offset (name lookup too complex for macro expansion)
+Macro _GetLocalName(paramOffset)
+   gAsmLocalName = "L" + Str(paramOffset)
+EndMacro
+
 Macro          ASMLine(obj,show)
    CompilerIf show = 1
       line = RSet( Str( i + 1 ), 9 ) + "  "
@@ -1020,12 +1060,22 @@ Macro          ASMLine(obj,show)
       CompilerElse
          line + "  (" +Str(obj\i) + ") " + Str(ListIndex(obj)+1+obj\i)
       CompilerEndIf
-   ElseIf obj\code = #ljCall
+   ElseIf obj\code = #ljCall Or obj\code = #ljCALL0 Or obj\code = #ljCALL1 Or obj\code = #ljCALL2
+      ; V1.033.12: Include optimized CALL0, CALL1, CALL2 opcodes
       CompilerIf show
-         ; V1.023.20: Fix target display to be 1-indexed (matching line numbers)
-         line + "  (" +Str(obj\i) + ") " + Str(i+1+obj\i) + " [nParams=" + Str(obj\j) + " nLocals=" + Str(obj\n) + " nArrays=" + Str(obj\ndx) + "]"
+         ; Runtime: just show basic CALL info (no compile-time metadata available)
+         line + "  (" +Str(obj\i) + ") " + Str(i+1+obj\i) + " [params=" + Str(obj\j) + " locals=" + Str(obj\n) + "]"
       CompilerElse
-         line + "  (" +Str(obj\i) + ") " + Str(ListIndex(obj)+1+obj\i) + " [nParams=" + Str(obj\j) + " nLocals=" + Str(obj\n) + " nArrays=" + Str(obj\ndx) + "]"
+         ; V1.033.17: Compile-time: Look up and display function name
+         gAsmCurrentFunc = obj\funcid
+         _asmFuncName = ""
+         If obj\funcid >= 0 And obj\funcid < 512
+            _asmFuncName = gFuncNames(obj\funcid)
+         EndIf
+         If _asmFuncName = ""
+            _asmFuncName = "func#" + Str(obj\funcid)
+         EndIf
+         line + _asmFuncName + "() [params=" + Str(obj\j) + " locals=" + Str(obj\n) + "]"
       CompilerEndIf
    ; Specialized array operations (no runtime branching) - opcode name encodes all info
    ElseIf obj\code = #ljARRAYFETCH_INT_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_INT_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_INT_LOCAL_OPT Or obj\code = #ljARRAYFETCH_INT_LOCAL_STACK Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_OPT Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_STACK Or obj\code = #ljARRAYFETCH_STR_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_STR_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_STR_LOCAL_OPT Or obj\code = #ljARRAYFETCH_STR_LOCAL_STACK Or obj\code = #ljARRAYSTORE_INT_GLOBAL_OPT_OPT Or obj\code = #ljARRAYSTORE_INT_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_INT_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_INT_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_OPT_OPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_OPT_OPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_OPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_OPT_OPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_OPT_OPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_STACK_STACK
@@ -1104,26 +1154,49 @@ Macro          ASMLine(obj,show)
       ; V1.023.31: Don't use sp-1 for value display - sp is runtime, not compile-time
       line + "[sp] --> [" + gVarMeta( obj\i )\name + "] (slot=" + Str(obj\i) + ")"
       flag + 1
-   ; Local variable STORE operations - show paramOffset
+   ; Local variable STORE operations - show paramOffset with name
    ; V1.023.21: Added PLSTORE to display
    ElseIf obj\code = #ljLSTORE Or obj\code = #ljLSTORES Or obj\code = #ljLSTOREF Or obj\code = #ljPLSTORE
-      ; V1.023.31: Don't use sp-1 for value display - sp is runtime, not compile-time
-      line + "[sp] --> [LOCAL[" + Str(obj\i) + "]]"
+      CompilerIf show
+         line + "[sp] --> [LOCAL[" + Str(obj\i) + "]]"
+      CompilerElse
+         ; V1.033.17: Show local variable name at compile-time
+         _GetLocalName(obj\i)
+         line + "[sp] --> " + gAsmLocalName
+      CompilerEndIf
       flag + 1
-   ; Local variable FETCH operations - show paramOffset
+   ; Local variable FETCH operations - show paramOffset with name
    ElseIf obj\code = #ljLFETCH Or obj\code = #ljLFETCHS Or obj\code = #ljLFETCHF
-      line + "[LOCAL[" + Str(obj\i) + "]] --> [sp]"
+      CompilerIf show
+         line + "[LOCAL[" + Str(obj\i) + "]] --> [sp]"
+      CompilerElse
+         ; V1.033.17: Show local variable name at compile-time
+         _GetLocalName(obj\i)
+         line + gAsmLocalName + " --> [sp]"
+      CompilerEndIf
       flag + 1
-   ; Local variable MOV operations - show both indices
+   ; Local variable MOV operations - show both indices with name
    ElseIf obj\code = #ljLMOV Or obj\code = #ljLMOVS Or obj\code = #ljLMOVF
-      line + "[slot" + Str(obj\j) + "] --> [LOCAL[" + Str(obj\i) + "]]"
+      CompilerIf show
+         line + "[slot" + Str(obj\j) + "] --> [LOCAL[" + Str(obj\i) + "]]"
+      CompilerElse
+         ; V1.033.17: Show local variable name at compile-time
+         _GetLocalName(obj\i)
+         line + "[" + gVarMeta(obj\j)\name + "] --> " + gAsmLocalName
+      CompilerEndIf
       flag + 1
    ; In-place increment/decrement operations
    ElseIf obj\code = #ljINC_VAR Or obj\code = #ljDEC_VAR Or obj\code = #ljINC_VAR_PRE Or obj\code = #ljDEC_VAR_PRE Or obj\code = #ljINC_VAR_POST Or obj\code = #ljDEC_VAR_POST
       line + "[" + gVarMeta(obj\i)\name + "]"
       flag + 1
    ElseIf obj\code = #ljLINC_VAR Or obj\code = #ljLDEC_VAR Or obj\code = #ljLINC_VAR_PRE Or obj\code = #ljLDEC_VAR_PRE Or obj\code = #ljLINC_VAR_POST Or obj\code = #ljLDEC_VAR_POST
-      line + "[LOCAL[" + Str(obj\i) + "]]"
+      CompilerIf show
+         line + "[LOCAL[" + Str(obj\i) + "]]"
+      CompilerElse
+         ; V1.033.17: Show local variable name at compile-time
+         _GetLocalName(obj\i)
+         line + gAsmLocalName + "++"
+      CompilerEndIf
       flag + 1
    ; In-place compound assignment operations
    ElseIf obj\code = #ljADD_ASSIGN_VAR Or obj\code = #ljSUB_ASSIGN_VAR Or obj\code = #ljMUL_ASSIGN_VAR Or obj\code = #ljDIV_ASSIGN_VAR Or obj\code = #ljMOD_ASSIGN_VAR Or obj\code = #ljFLOATADD_ASSIGN_VAR Or obj\code = #ljFLOATSUB_ASSIGN_VAR Or obj\code = #ljFLOATMUL_ASSIGN_VAR Or obj\code = #ljFLOATDIV_ASSIGN_VAR
@@ -1149,11 +1222,110 @@ Macro          ASMLine(obj,show)
       flag + 1
       _ASMLineHelper1( 0, obj\i )
       line + "[sp] --> [" + gVarMeta( obj\i )\name + "]"
-   ElseIf obj\code = #ljNEGATE Or obj\code = #ljNOT 
+   ElseIf obj\code = #ljNEGATE
       flag + 1
-      line  + "  op (sp - 1)"
-   ElseIf obj\code <> #ljHALT And obj\code <> #ljreturn And obj\code <> #ljreturnF And obj\code <> #ljreturnS
-      line  + "   (sp - 2) -- (sp - 1)"
+      line + "[sp] = -[sp]"
+   ElseIf obj\code = #ljFLOATNEG
+      flag + 1
+      line + "[sp] = -[sp] (float)"
+   ElseIf obj\code = #ljNOT
+      flag + 1
+      line + "[sp] = ![sp]"
+   ; V1.033.16: Meaningful ASM output for arithmetic/comparison ops
+   ElseIf obj\code = #ljADD
+      line + "[sp-1] + [sp] --> [sp-1]"
+   ElseIf obj\code = #ljSUBTRACT
+      line + "[sp-1] - [sp] --> [sp-1]"
+   ElseIf obj\code = #ljMULTIPLY
+      line + "[sp-1] * [sp] --> [sp-1]"
+   ElseIf obj\code = #ljDIVIDE
+      line + "[sp-1] / [sp] --> [sp-1]"
+   ElseIf obj\code = #ljMOD
+      line + "[sp-1] % [sp] --> [sp-1]"
+   ElseIf obj\code = #ljFLOATADD
+      line + "[sp-1] +. [sp] --> [sp-1]"
+   ElseIf obj\code = #ljFLOATSUB
+      line + "[sp-1] -. [sp] --> [sp-1]"
+   ElseIf obj\code = #ljFLOATMUL
+      line + "[sp-1] *. [sp] --> [sp-1]"
+   ElseIf obj\code = #ljFLOATDIV
+      line + "[sp-1] /. [sp] --> [sp-1]"
+   ElseIf obj\code = #ljSTRADD
+      line + "[sp-1] + [sp] --> [sp-1] (str)"
+   ElseIf obj\code = #ljEQUAL
+      line + "[sp-1] == [sp] --> [sp-1]"
+   ElseIf obj\code = #ljNotEqual
+      line + "[sp-1] != [sp] --> [sp-1]"
+   ElseIf obj\code = #ljLESS
+      line + "[sp-1] < [sp] --> [sp-1]"
+   ElseIf obj\code = #ljLESSEQUAL
+      line + "[sp-1] <= [sp] --> [sp-1]"
+   ElseIf obj\code = #ljGREATER
+      line + "[sp-1] > [sp] --> [sp-1]"
+   ElseIf obj\code = #ljGreaterEqual
+      line + "[sp-1] >= [sp] --> [sp-1]"
+   ElseIf obj\code = #ljFLOATEQ
+      line + "[sp-1] ==. [sp] --> [sp-1]"
+   ElseIf obj\code = #ljFLOATNE
+      line + "[sp-1] !=. [sp] --> [sp-1]"
+   ElseIf obj\code = #ljFLOATLE
+      line + "[sp-1] <=. [sp] --> [sp-1]"
+   ElseIf obj\code = #ljFLOATGE
+      line + "[sp-1] >=. [sp] --> [sp-1]"
+   ElseIf obj\code = #ljFLOATLESS
+      line + "[sp-1] <. [sp] --> [sp-1]"
+   ElseIf obj\code = #ljFLOATGR
+      line + "[sp-1] >. [sp] --> [sp-1]"
+   ElseIf obj\code = #ljSTREQ
+      line + "[sp-1] == [sp] --> [sp-1] (str)"
+   ElseIf obj\code = #ljSTRNE
+      line + "[sp-1] != [sp] --> [sp-1] (str)"
+   ElseIf obj\code = #ljAND
+      line + "[sp-1] & [sp] --> [sp-1]"
+   ElseIf obj\code = #ljOr
+      line + "[sp-1] | [sp] --> [sp-1]"
+   ElseIf obj\code = #ljXOR
+      line + "[sp-1] ^ [sp] --> [sp-1]"
+   ElseIf obj\code = #ljFTOI
+      line + "[sp] = int([sp])"
+   ElseIf obj\code = #ljITOF
+      line + "[sp] = float([sp])"
+   ElseIf obj\code = #ljFTOS
+      line + "[sp] = str([sp]) (float)"
+   ElseIf obj\code = #ljITOS
+      line + "[sp] = str([sp]) (int)"
+   ElseIf obj\code = #ljSTOF
+      line + "[sp] = float([sp]) (str)"
+   ElseIf obj\code = #ljSTOI
+      line + "[sp] = int([sp]) (str)"
+   ElseIf obj\code = #ljDUP Or obj\code = #ljDUP_I Or obj\code = #ljDUP_F Or obj\code = #ljDUP_S
+      line + "[sp] = [sp-1] (dup)"
+   ElseIf obj\code = #ljDROP
+      line + "sp--"
+   ElseIf obj\code = #ljPUSH_IMM
+      line + "[" + Str(obj\i) + "] --> [sp] (imm)"
+   ElseIf obj\code = #ljLLMOV Or obj\code = #ljLLMOVS Or obj\code = #ljLLMOVF
+      CompilerIf show
+         line + "[LOCAL[" + Str(obj\j) + "]] --> [LOCAL[" + Str(obj\i) + "]]"
+      CompilerElse
+         ; V1.033.17: Show local variable names for both src and dst
+         _GetLocalName(obj\j)
+         _asmSrcLocal = gAsmLocalName
+         _GetLocalName(obj\i)
+         line + _asmSrcLocal + " --> " + gAsmLocalName
+      CompilerEndIf
+   ElseIf obj\code = #ljLGMOV Or obj\code = #ljLGMOVS Or obj\code = #ljLGMOVF
+      CompilerIf show
+         line + "[LOCAL[" + Str(obj\j) + "]] --> [slot" + Str(obj\i) + "]"
+      CompilerElse
+         ; V1.033.17: Show local variable name for source
+         _GetLocalName(obj\j)
+         line + gAsmLocalName + " --> [" + gVarMeta(obj\i)\name + "]"
+      CompilerEndIf
+   ElseIf obj\code = #ljHALT
+      line + "(end)"
+   ElseIf obj\code = #ljreturn Or obj\code = #ljreturnF Or obj\code = #ljreturnS
+      line + "(return)"
    EndIf
    CompilerIf Not show
       If flag
@@ -1203,6 +1375,8 @@ c2tokens:
    Data.s   "FLT"
    Data.i   0, 0
    Data.s   "STR"
+   Data.i   0, 0
+   Data.s   "VOID"        ; V1.033.19: Must match #ljVOID enum entry added in V1.033.11
    Data.i   0, 0
    Data.s   "STRUCTTYPE"  ; V1.022.80: New enum entry - must be in DataSection to maintain alignment
    Data.i   0, 0
@@ -1399,6 +1573,12 @@ c2tokens:
    Data.s   "RETS"
    Data.i   0, 0
    Data.s   "CALL"
+   Data.i   0, 0
+   Data.s   "CALL0"         ; V1.033.12: Optimized 0-param call
+   Data.i   0, 0
+   Data.s   "CALL1"         ; V1.033.12: Optimized 1-param call
+   Data.i   0, 0
+   Data.s   "CALL2"         ; V1.033.12: Optimized 2-param call
    Data.i   0, 0
    Data.s   "ARRAYINFO"     ; V1.031.105: Local array info (i=paramOffset, j=arraySize)
    Data.i   0, 0

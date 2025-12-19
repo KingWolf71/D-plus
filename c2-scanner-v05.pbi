@@ -494,6 +494,10 @@ EndProcedure
                      typeHint = #ljINT
                      varName = Left(text, Len(text) - 2)
                      temp = LCase(varName)
+                  ElseIf Right(temp, 2) = ".v"  ; V1.033.11: Void type suffix
+                     typeHint = #ljVOID
+                     varName = Left(text, Len(text) - 2)
+                     temp = LCase(varName)
                   EndIf
 
                   ; Check keywords FIRST (before functions) - keywords have priority

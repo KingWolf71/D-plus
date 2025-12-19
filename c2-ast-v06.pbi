@@ -879,10 +879,10 @@
 
       Expect( "paren_expr", #ljLeftParent )
 
-      ; V1.18.63: Check for cast syntax: (int), (float), (string)
+      ; V1.18.63: Check for cast syntax: (int), (float), (string), (void)
       If TOKEN()\TokenExtra = #ljIDENT
          castType = LCase(TOKEN()\value)
-         If castType = "int" Or castType = "float" Or castType = "string"
+         If castType = "int" Or castType = "float" Or castType = "string" Or castType = "void"
             ; This is a cast expression
             NextToken()  ; Consume the type name
             Expect( "paren_expr", #ljRightParent )
@@ -898,6 +898,8 @@
                   *p = MakeNode( #ljCAST_FLOAT, *castExpr, 0 )
                Case "string"
                   *p = MakeNode( #ljCAST_STRING, *castExpr, 0 )
+               Case "void"  ; V1.033.11: Discard return value
+                  *p = MakeNode( #ljCAST_VOID, *castExpr, 0 )
             EndSelect
 
             ProcedureReturn *p

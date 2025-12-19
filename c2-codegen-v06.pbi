@@ -1835,6 +1835,8 @@
             ProcedureReturn #C2FLAG_FLOAT
          Case #ljCAST_STRING
             ProcedureReturn #C2FLAG_STR
+         Case #ljCAST_VOID  ; V1.033.11: Void cast returns void type
+            ProcedureReturn #C2FLAG_VOID
 
          ; Pointer operations (V1.19.3) - return type based on pointer's declared type
          Case #ljPTRFETCH
@@ -4939,6 +4941,10 @@
                   gCurrentFunctionName = MapKey(mapModules())
                   ; Track current function ID for nLocals counting
                   gCodeGenFunction = mapModules()\function
+                  ; V1.033.17: Populate function name lookup table for ASMLine display
+                  If gCodeGenFunction >= 0 And gCodeGenFunction < 512
+                     gFuncNames(gCodeGenFunction) = Mid(gCurrentFunctionName, 2)  ; Remove leading underscore
+                  EndIf
                   ; V1.029.75: Debug match found (only for functions 5,6,7,8)
                   CompilerIf #DEBUG
                      If ljfDebugId >= 5 And ljfDebugId <= 8
@@ -5379,7 +5385,6 @@
                ; User-defined function - emit CALL with function ID
                ; Store nParams in j and nLocals in n (no packing)
                Protected nLocals.l, nLocalArrays.l
-               EmitInt( #ljCall, funcId )
 
                ; Find nLocals and nLocalArrays for this function
                ForEach mapModules()
@@ -5389,6 +5394,18 @@
                      Break
                   EndIf
                Next
+
+               ; V1.033.12: Use optimized CALL opcodes for 0-2 parameters
+               Select paramCount
+                  Case 0
+                     EmitInt( #ljCALL0, funcId )
+                  Case 1
+                     EmitInt( #ljCALL1, funcId )
+                  Case 2
+                     EmitInt( #ljCALL2, funcId )
+                  Default
+                     EmitInt( #ljCall, funcId )
+               EndSelect
 
                ; Store separately: j = nParams, n = nLocals, ndx = nLocalArrays, funcid = function ID
                llObjects()\j = paramCount
@@ -5418,7 +5435,7 @@
             EmitInt( *x\NodeType )
 
          ; Cast operators (V1.18.63) - smart type conversion based on source and target
-         Case #ljCAST_INT, #ljCAST_FLOAT, #ljCAST_STRING
+         Case #ljCAST_INT, #ljCAST_FLOAT, #ljCAST_STRING, #ljCAST_VOID
             ; Generate code for the expression to be cast
             CodeGenerator( *x\left )
 
@@ -5453,6 +5470,10 @@
                      EmitInt( #ljFTOS )  ; float -> string
                   EndIf
                   ; If already string, no conversion needed
+
+               Case #ljCAST_VOID  ; V1.033.11: Discard value
+                  ; Expression was already evaluated, just drop the result
+                  EmitInt( #ljDROP )
             EndSelect
 
          ; V1.022.64: Array resize operation

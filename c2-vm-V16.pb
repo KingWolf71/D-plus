@@ -168,6 +168,7 @@ Module C2VM
    ;- Macros
    ; V1.031.101: Queue-based threading for GUI
    ; V1.031.106: Added logging support for console mode
+   ; V1.033.13: Fixed test mode - use PrintN when gTestMode is set
    Macro             vm_ConsoleOrGUI( mytext )
       CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
          PrintN( mytext )
@@ -175,7 +176,9 @@ Module C2VM
             WriteStringN(gLogfn, mytext)
          EndIf
       CompilerElse
-         If gRunThreaded
+         If gTestMode = #True
+            PrintN( mytext )
+         ElseIf gRunThreaded
             vmQueueGUIMessage(#MSG_ADD_LINE, #edConsole, 0, mytext)
          Else
             AddGadgetItem( #edConsole, -1, mytext )
@@ -276,6 +279,7 @@ Module C2VM
 
    ; V1.031.111: Inline hot opcode macros for VM loop optimization
    ; These eliminate procedure call overhead for the most frequently executed opcodes
+   ; V1.033.15: Extended to top 6 hot opcodes (LFETCHS, STORE, LSTORES, SUB, JMP, NEG)
    CompilerIf #VM_INLINE_HOT > 0
       Macro vm_InlineLFETCH()
          gEvalStack(sp)\i = gLocal(gLocalBase + arCode(pc)\i)\i
@@ -299,6 +303,33 @@ Module C2VM
       Macro vm_InlinePUSH_IMM()
          gEvalStack(sp)\i = arCode(pc)\i
          sp + 1 : pc + 1
+      EndMacro
+      ; V1.033.15: Additional hot opcodes from benchmark analysis
+      Macro vm_InlineLFETCHS()
+         gEvalStack(sp)\ss = gLocal(gLocalBase + arCode(pc)\i)\ss
+         sp + 1 : pc + 1
+      EndMacro
+      Macro vm_InlineSTORE()
+         sp - 1
+         gVar(arCode(pc)\i)\i = gEvalStack(sp)\i
+         pc + 1
+      EndMacro
+      Macro vm_InlineLSTORES()
+         sp - 1
+         gLocal(gLocalBase + arCode(pc)\i)\ss = gEvalStack(sp)\ss
+         pc + 1
+      EndMacro
+      Macro vm_InlineSUB()
+         sp - 1
+         gEvalStack(sp-1)\i = gEvalStack(sp-1)\i - gEvalStack(sp)\i
+         pc + 1
+      EndMacro
+      Macro vm_InlineJMP()
+         pc + arCode(pc)\i
+      EndMacro
+      Macro vm_InlineNEG()
+         gEvalStack(sp-1)\i = -gEvalStack(sp-1)\i
+         pc + 1
       EndMacro
    CompilerEndIf
 
@@ -458,8 +489,8 @@ Module C2VM
       ProcedureReturn #True
    EndProcedure
 
-   XIncludeFile      "c2-vm-commands-v13.pb"
-   ; Note: c2-pointers-v04.pbi and c2-collections-v02.pbi included via c2-vm-commands-v13.pb
+   XIncludeFile      "c2-vm-commands-v14.pb"
+   ; Note: c2-pointers-v05.pbi and c2-collections-v03.pbi included via c2-vm-commands-v14.pb
    ; V1.028.0: Collections (lists/maps) now unified in gVar\ll() and gVar\map()
 
    ;- Console GUI
@@ -662,6 +693,9 @@ Module C2VM
       ; FTOI is set dynamically in RunVM() based on #pragma ftoi
 
       *ptrJumpTable( #ljCall )            = @C2CALL()
+      *ptrJumpTable( #ljCALL0 )           = @C2CALL0()   ; V1.033.12: 0 params
+      *ptrJumpTable( #ljCALL1 )           = @C2CALL1()   ; V1.033.12: 1 param
+      *ptrJumpTable( #ljCALL2 )           = @C2CALL2()   ; V1.033.12: 2 params
       *ptrJumpTable( #ljreturn )          = @C2Return()
       *ptrJumpTable( #ljreturnF )         = @C2ReturnF()
       *ptrJumpTable( #ljreturnS )         = @C2ReturnS()
@@ -986,6 +1020,22 @@ Module C2VM
       *ptrJumpTable( #ljPTRSTORE_ARREL_INT )  = @C2PTRSTORE_ARREL_INT()
       *ptrJumpTable( #ljPTRSTORE_ARREL_FLOAT )= @C2PTRSTORE_ARREL_FLOAT()
       *ptrJumpTable( #ljPTRSTORE_ARREL_STR )  = @C2PTRSTORE_ARREL_STR()
+      ; V1.033.5: Local variable pointer FETCH
+      *ptrJumpTable( #ljPTRFETCH_LVAR_INT )   = @C2PTRFETCH_LVAR_INT()
+      *ptrJumpTable( #ljPTRFETCH_LVAR_FLOAT ) = @C2PTRFETCH_LVAR_FLOAT()
+      *ptrJumpTable( #ljPTRFETCH_LVAR_STR )   = @C2PTRFETCH_LVAR_STR()
+      ; V1.033.5: Local array element pointer FETCH
+      *ptrJumpTable( #ljPTRFETCH_LARREL_INT ) = @C2PTRFETCH_LARREL_INT()
+      *ptrJumpTable( #ljPTRFETCH_LARREL_FLOAT)= @C2PTRFETCH_LARREL_FLOAT()
+      *ptrJumpTable( #ljPTRFETCH_LARREL_STR ) = @C2PTRFETCH_LARREL_STR()
+      ; V1.033.5: Local variable pointer STORE
+      *ptrJumpTable( #ljPTRSTORE_LVAR_INT )   = @C2PTRSTORE_LVAR_INT()
+      *ptrJumpTable( #ljPTRSTORE_LVAR_FLOAT ) = @C2PTRSTORE_LVAR_FLOAT()
+      *ptrJumpTable( #ljPTRSTORE_LVAR_STR )   = @C2PTRSTORE_LVAR_STR()
+      ; V1.033.5: Local array element pointer STORE
+      *ptrJumpTable( #ljPTRSTORE_LARREL_INT ) = @C2PTRSTORE_LARREL_INT()
+      *ptrJumpTable( #ljPTRSTORE_LARREL_FLOAT)= @C2PTRSTORE_LARREL_FLOAT()
+      *ptrJumpTable( #ljPTRSTORE_LARREL_STR ) = @C2PTRSTORE_LARREL_STR()
       ; Typed pointer arithmetic
       *ptrJumpTable( #ljPTRADD_INT )          = @C2PTRADD_INT()
       *ptrJumpTable( #ljPTRADD_FLOAT )        = @C2PTRADD_FLOAT()
@@ -1202,10 +1252,29 @@ Module C2VM
          CompilerEndIf
 
          ; V1.031.111: Inline hot opcodes to eliminate procedure call overhead
+         ; V1.033.15: Extended with LFETCHS, STORE, LSTORES, SUB, JMP, NEG
          CompilerIf #VM_INLINE_HOT > 0
-            If opcode = #ljLFETCH
+            If opcode <= #ljNEGATE
+               ; Hot opcodes in low range: JMP (#121), NEG (#122)
+               If opcode = #ljJMP
+                  vm_InlineJMP()
+               ElseIf opcode = #ljNEGATE
+                  vm_InlineNEG()
+               Else
+                  *opcodeHandler = *ptrJumpTable(opcode)
+                  CallFunctionFast(*opcodeHandler)
+               EndIf
+            ElseIf opcode = #ljLFETCHS
+               vm_InlineLFETCHS()
+            ElseIf opcode = #ljLSTORES
+               vm_InlineLSTORES()
+            ElseIf opcode = #ljStore
+               vm_InlineSTORE()
+            ElseIf opcode = #ljSUBTRACT
+               vm_InlineSUB()
+            ElseIf opcode = #ljLFETCH
                vm_InlineLFETCH()
-            ElseIf opcode = #ljPUSH_IMM   ; V1.031.113: Check PUSH_IMM first (most common after optimization)
+            ElseIf opcode = #ljPUSH_IMM
                vm_InlinePUSH_IMM()
             ElseIf opcode = #ljPush
                vm_InlinePUSH()
@@ -1367,8 +1436,14 @@ Module C2VM
       vm_SetGlobalFromPragma( 0, "createlog", gCreateLog )
 
       ; V1.031.106: Set appname BEFORE logname so [default] works correctly
+      ; V1.033.3: Strip quotes from appname pragma value
       temp     = mapPragmas("appname")
-      If temp > "" : gszAppname = temp : EndIf
+      If temp > ""
+         If Left(temp, 1) = #DQUOTE$ And Right(temp, 1) = #DQUOTE$
+            temp = Mid(temp, 2, Len(temp) - 2)
+         EndIf
+         gszAppname = temp
+      EndIf
 
       temp  = mapPragmas("logname")
       If temp <> ""
@@ -1496,14 +1571,17 @@ Module C2VM
          ; V1.031.104: Timer-based GUI queue processing for Linux threading support
          AddWindowTimer(#MainWindow, #C2VM_QUEUE_TIMER, 32)  ; ~60fps
          BindEvent(#PB_Event_Timer, @vmTimerCallback())
-      
+
          While Not gExitApplication
             Event = WaitWindowEvent(gDefFPS)
-   
+
             ; V1.031.96: Check pending RunVM flag - execute outside callback context
             If gRunVMPending
                gRunVMPending = #False
                vm_InitializeVM()
+
+               ; V1.033.4: Set window title AFTER pragmas are loaded
+               SetWindowTitle( #MainWindow, gszAppname )
 
                If gConsole = #True
                   ResizeWindow( #MainWindow, gWindowX, gWindowY, gWidth, gHeight )
@@ -1632,9 +1710,9 @@ Module C2VM
 EndModule
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 484
-; FirstLine = 530
-; Folding = -----------
+; CursorPosition = 1504
+; FirstLine = 1500
+; Folding = -------------
 ; Markers = 1302,1397
 ; EnableAsm
 ; EnableThread

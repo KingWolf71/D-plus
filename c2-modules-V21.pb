@@ -16,13 +16,13 @@
 ;- Constants
 ; ======================================================================================================
 
-;DisableDebugger
-EnableDebugger  ; V1.031.109: Disabled for performance - Debug statements now suppressed
+DisableDebugger
+;EnableDebugger  ; V1.031.109: Disabled for performance - Debug statements now suppressed
 
 DeclareModule C2Common
 
    ;#DEBUG = 0
-   XIncludeFile         "c2-inc-v16.pbi"
+   XIncludeFile         "c2-inc-v17.pbi"
 EndDeclareModule
 
 Module C2Common
@@ -55,7 +55,7 @@ DeclareModule C2Lang
    Declare              LoadLJ( file.s )
 EndDeclareModule
 
-XIncludeFile            "c2-vm-V15.pb"
+XIncludeFile            "c2-vm-V16.pb"
 
 Module C2Lang
    EnableExplicit
@@ -207,7 +207,8 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
    ;- =====================================
    ;- Add compiler parts
    ;- =====================================
-   XIncludeFile         "c2-postprocessor-V07.pbi"
+   XIncludeFile         "c2-postprocessor-V09.pbi"
+   XIncludeFile         "c2-optimizer-V01.pbi"
 
    CreateRegularExpression( #C2REG_FLOATS, gszFloating )
    
@@ -650,9 +651,9 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       SetError( "Invalid file", #C2ERR_INVALID_FILE )
    EndProcedure
 
-   XIncludeFile         "c2-scanner-v04.pbi"
-   XIncludeFile         "c2-ast-v05.pbi"
-   XIncludeFile         "c2-codegen-v05.pbi"
+   XIncludeFile         "c2-scanner-v05.pbi"
+   XIncludeFile         "c2-ast-v06.pbi"
+   XIncludeFile         "c2-codegen-v06.pbi"
 
    ;- =====================================
    ;- Preprocessors
@@ -1610,12 +1611,15 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          Debug " -- InitJumpTracker: Calculating initial jump offsets..."
          InitJumpTracker()
 
-         ; PostProcessor does type fixups AND optimizations
-         ; Type fixups are necessary, so we always run it
-         ; The pragma controls optimization passes within PostProcessor
-         ; Optimization passes will call AdjustJumpsForNOOP() to adjust offsets incrementally
-         Debug " -- Postprocessor: Optimizing and fixing bytecode..."
+         ; V1.033.0: PostProcessor now only does essential type fixups
+         ; Optimizations are handled by separate Optimizer()
+         Debug " -- Postprocessor: Type resolution and specialization..."
          PostProcessor()
+
+         ; V1.033.0: Optimizer handles peephole, constant folding, and other optimizations
+         ; The pragma "optimizecode" controls whether optimizations run
+         Debug " -- Optimizer: Peephole and instruction fusion..."
+         Optimizer()
 
          ; V1.020.077: FixJMP now just applies adjusted offsets and patches functions
          ; Jump tracker was already populated by InitJumpTracker() before optimization
@@ -1623,6 +1627,11 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          FixJMP()
          LastElement( llObjects() )
          EmitInt( #LJEOF )
+
+         ; V1.033.8: Auto-calculate stack sizes based on compiled code
+         ; This eliminates manual #pragma GlobalStack, FunctionStack, EvalStack, LocalStack
+         Debug " -- CalculateStackSizes: Auto-sizing VM arrays..."
+         CalculateStackSizes()
 
          ;- This is a "hack" to merge with VM
          vm_ListToArray( llObjects, arCode )
@@ -1764,7 +1773,7 @@ CompilerIf #PB_Compiler_IsMainFile
 
 CompilerEndIf
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 12
+; CursorPosition = 10
 ; Folding = --------
 ; Markers = 569,718
 ; Optimizer
@@ -1774,7 +1783,7 @@ CompilerEndIf
 ; LinkerOptions = linker.txt
 ; CompileSourceDirectory
 ; Warnings = Display
-; EnableCompileCount = 2380
+; EnableCompileCount = 2395
 ; EnableBuildCount = 0
 ; EnableExeConstant
 ; IncludeVersionInfo
