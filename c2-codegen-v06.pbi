@@ -406,8 +406,6 @@
                      ; V1.023.16: Use PLSTORE for pointer types to preserve ptr/ptrtype metadata
                      llObjects()\code = #ljPLSTORE
                   Else
-                     ; V1.031.29: Debug - trace LSTORE via PUSH+STORE opt (param path)
-                     OSDebug("V1.031.: PUSH+STORE OPT1 LSTORE: var='" + gVarMeta(nVar)\name + "' slot=" + Str(nVar) + " localOffset3=" + Str(localOffset3))
                      llObjects()\code = #ljLSTORE
                   EndIf
                   ; Set the local variable index (paramOffset)
@@ -511,8 +509,6 @@
                      ; V1.023.16: Use PLSTORE for pointer types to preserve ptr/ptrtype metadata
                      llObjects()\code = #ljPLSTORE
                   Else
-                     ; V1.031.29: Debug - trace LSTORE via FETCH+STORE opt keep path
-                     OSDebug("V1.031.: FETCH+STORE OPT KEEP LSTORE: var='" + gVarMeta(nVar)\name + "' slot=" + Str(nVar) + " localOffset4=" + Str(localOffset4))
                      llObjects()\code = #ljLSTORE
                   EndIf
                   ; Set the local variable index (paramOffset)
@@ -658,8 +654,6 @@
                   If gEmitIntCmd = #ljGETSTRUCTADDR Or gEmitIntCmd = #ljGETADDR Or gEmitIntCmd = #ljGETADDRF Or gEmitIntCmd = #ljGETADDRS Or gEmitIntCmd = #ljGETARRAYADDR Or gEmitIntCmd = #ljGETARRAYADDRF Or gEmitIntCmd = #ljGETARRAYADDRS Or gVarMeta(nVar)\flags & #C2FLAG_POINTER
                      llObjects()\code = #ljPLSTORE
                   Else
-                     ; V1.031.29: Debug - trace LSTORE via EmitInt STORE->LSTORE conversion
-                     OSDebug("V1.031.: EMITINT LSTORE: var='" + gVarMeta(nVar)\name + "' slot=" + Str(nVar) + " paramOffset=" + Str(gVarMeta(nVar)\paramOffset) + " flags=$" + Hex(gVarMeta(nVar)\flags,#PB_Word))
                      llObjects()\code = #ljLSTORE
                   EndIf
                   llObjects()\i = gVarMeta(nVar)\paramOffset
@@ -1922,22 +1916,21 @@
             ; Look up the function's declared return type
             If *funcNode
                funcId = Val(*funcNode\value)
-               
+
                ; Check if it's a built-in function
                ; V1.023.30: Check for type conversion opcodes first (str(), strf())
+               ; V1.033.52: FIX - Use mapBuiltins lookup instead of >= comparison
+               ; to avoid collision with user function IDs that exceed #ljBUILTIN_RANDOM
                If funcId = #ljITOS Or funcId = #ljFTOS
                   ProcedureReturn #C2FLAG_STR
-               ElseIf funcId >= #ljBUILTIN_RANDOM
-                  ; Built-in functions - look up in mapBuiltins for return type
+               Else
+                  ; First try mapBuiltins (built-in functions)
                   ForEach mapBuiltins()
                      If mapBuiltins()\opcode = funcId
                         ProcedureReturn mapBuiltins()\returnType
                      EndIf
                   Next
-                  ; Default for unknown built-ins
-                  ProcedureReturn #C2FLAG_INT
-               Else
-                  ; User-defined function - look up in mapModules
+                  ; Then try mapModules (user-defined functions)
                   ForEach mapModules()
                      If mapModules()\function = funcId
                         ProcedureReturn mapModules()\returnType
@@ -2053,8 +2046,6 @@
                   ElseIf localExprType & #C2FLAG_STR
                      llObjects()\code = #ljLSTORES
                   Else
-                     ; V1.031.29: Debug - trace LSTORE via GetExprSlotOrTemp local temp
-                     OSDebug("V1.031.: GETEXPR LOCAL TEMP LSTORE: slot=" + Str(identSlot) + " localTempOffset=" + Str(localTempOffset))
                      llObjects()\code = #ljLSTORE
                   EndIf
                   llObjects()\i = localTempOffset
@@ -2146,8 +2137,6 @@
                      Debug "V1.022.101: Complex expr to LOCAL[" + Str(complexLocalOffset) + "] using LSTORES (string)"
                   CompilerEndIf
                Else
-                  ; V1.031.29: Debug - trace LSTORE via complex expr local temp
-                  OSDebug("V1.031.: COMPLEX EXPR LOCAL TEMP LSTORE: complexLocalOffset=" + Str(complexLocalOffset))
                   llObjects()\code = #ljLSTORE
                EndIf
                llObjects()\i = complexLocalOffset
@@ -2272,13 +2261,6 @@
          gCurrentFunctionName = ""
       EndIf
       gCodeGenRecursionDepth + 1
-
-      ; V1.030.50: WATCHPOINT - track slot 176 structType on EVERY CodeGenerator call
-      Static cg176LastStructType.s = ""
-      If gnLastVariable > 176 And gVarMeta(176)\structType <> cg176LastStructType
-         Debug "V1.030.50: CG ENTRY slot176 CHANGED! was '" + cg176LastStructType + "' now '" + gVarMeta(176)\structType + "' node=" + *x\nodeType + " value='" + *x\value + "'"
-         cg176LastStructType = gVarMeta(176)\structType
-      EndIf
 
       ; If no node, return immediately
       If Not *x
@@ -2486,8 +2468,6 @@
                         EmitInt( #ljLSTORES, localParamOffset )
                         gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_STR
                      Else
-                        ; V1.031.28: Debug - trace unexpected LSTORE emission
-                        OSDebug("V1.031.: LSTORE EMIT: var='" + gVarMeta(n)\name + "' offset=" + Str(localParamOffset) + " typeHint=" + Str(*x\typeHint) + " spIsStructParam=" + Str(spIsStructParam) + " structType='" + spStructType + "'")
                         EmitInt( #ljLSTORE, localParamOffset )
                         gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_INT
                      EndIf
@@ -4816,6 +4796,10 @@
             EndIf
 
          Case #ljSEQ
+            ; V1.033.31: Iterative SEQ processing to prevent stack overflow on large files
+            ; The AST uses LEFT-recursive SEQ: SEQ(SEQ(SEQ(..., stmt1), stmt2), stmt3)
+            ; We flatten by following the left chain, collecting right children, then process in order
+
             ; Check if this SEQ eventually leads to a return statement
             ; Patterns: SEQ(?, SEQ(expr, #ljreturn)) or SEQ(?, SEQ(?, SEQ(expr, #ljreturn)))
             isReturnSeq = #False
@@ -4837,7 +4821,6 @@
 
             If isReturnSeq
                ; This is a return statement - handle specially
-               ; Process left (previous statements) if any
                If *x\left
                   CodeGenerator( *x\left )
                EndIf
@@ -4866,40 +4849,74 @@
                   EmitInt( #ljreturn )
                EndIf
             Else
-               ; V1.031.107: Iterative SEQ processing to avoid stack overflow
-               ; SEQ nodes form a linked list: left=statement, right=next SEQ or final statement
-               ; Converting from recursive to iterative eliminates stack depth issues
-               ; with large source files (1000+ statements)
-               Protected *currentSeq.stTree = *x
-               While *currentSeq And *currentSeq\NodeType = #ljSEQ
-                  ; Process left child (actual statement) - recurse but with limited depth
-                  If *currentSeq\left
-                     CodeGenerator( *currentSeq\left )
+               ; V1.033.31: Iterative flattening for LEFT-recursive SEQ chains
+               ; Flatten the left-recursive SEQ chain into a list, then process in order
+               ; This avoids deep recursion for files with many statements
+
+               ; Count depth of left SEQ chain
+               Protected *seqWalk.stTree = *x
+               Protected seqDepth.i = 0
+               While *seqWalk And *seqWalk\NodeType = #ljSEQ
+                  seqDepth + 1
+                  *seqWalk = *seqWalk\left
+               Wend
+
+               ; If shallow (< 100 levels), use simple recursion for efficiency
+               If seqDepth < 100
+                  If *x\left
+                     CodeGenerator( *x\left )
                   EndIf
+                  If *x\right
+                     CodeGenerator( *x\right )
+                     If *x\right\NodeType = #ljPOST_INC Or *x\right\NodeType = #ljPOST_DEC Or
+                        *x\right\NodeType = #ljPRE_INC Or *x\right\NodeType = #ljPRE_DEC
+                        EmitInt( #ljDROP )
+                     EndIf
+                  EndIf
+               Else
+                  ; Deep chain - use iterative approach
+                  ; Collect all nodes by walking the left chain, then process in correct order
+                  NewList llSeqNodes.i()
 
-                  ; Move to right child
-                  If *currentSeq\right
-                     If *currentSeq\right\NodeType = #ljSEQ
-                        ; Right is another SEQ - continue iterating (no recursion)
-                        *currentSeq = *currentSeq\right
+                  ; Walk down the left chain, collecting right children and leaf left
+                  *seqWalk = *x
+                  While *seqWalk And *seqWalk\NodeType = #ljSEQ
+                     ; Add right child to list (these are the statements)
+                     If *seqWalk\right
+                        AddElement(llSeqNodes())
+                        llSeqNodes() = *seqWalk\right
+                     EndIf
+                     ; Move to left child (next SEQ or bottom statement)
+                     If *seqWalk\left And *seqWalk\left\NodeType = #ljSEQ
+                        *seqWalk = *seqWalk\left
                      Else
-                        ; Right is not SEQ - process it and handle drop logic, then exit
-                        CodeGenerator( *currentSeq\right )
-
-                        ; V1.020.053: Drop unused values from statement-level operations (RIGHT child)
-                        ; POST_INC and POST_DEC push old value, PRE_INC and PRE_DEC push new value
-                        ; When used as statements, these values are unused and must be dropped
-                        ; V1.031.10: Use DROP (discard without storing) instead of POP
-                        If *currentSeq\right\NodeType = #ljPOST_INC Or *currentSeq\right\NodeType = #ljPOST_DEC Or
-                           *currentSeq\right\NodeType = #ljPRE_INC Or *currentSeq\right\NodeType = #ljPRE_DEC
-                           EmitInt( #ljDROP )
+                        ; Bottom of chain - add the final left child
+                        If *seqWalk\left
+                           AddElement(llSeqNodes())
+                           llSeqNodes() = *seqWalk\left
                         EndIf
                         Break
                      EndIf
-                  Else
-                     Break
+                  Wend
+
+                  ; Process in reverse order (oldest statement first)
+                  ; The list was built from newest to oldest, so reverse iterate
+                  If LastElement(llSeqNodes())
+                     Repeat
+                        Protected *stmtNode.stTree = llSeqNodes()
+                        If *stmtNode
+                           CodeGenerator(*stmtNode)
+                           ; Handle DROP for increment/decrement statements
+                           If *stmtNode\NodeType = #ljPOST_INC Or *stmtNode\NodeType = #ljPOST_DEC Or
+                              *stmtNode\NodeType = #ljPRE_INC Or *stmtNode\NodeType = #ljPRE_DEC
+                              EmitInt( #ljDROP )
+                           EndIf
+                        EndIf
+                     Until Not PreviousElement(llSeqNodes())
                   EndIf
-               Wend
+
+                  FreeList(llSeqNodes())
+               EndIf
             EndIf
 
             ; NOTE: Don't reset gCodeGenFunction here!
@@ -4942,7 +4959,9 @@
                   ; Track current function ID for nLocals counting
                   gCodeGenFunction = mapModules()\function
                   ; V1.033.17: Populate function name lookup table for ASMLine display
-                  If gCodeGenFunction >= 0 And gCodeGenFunction < 512
+                  ; V1.033.17/50: Populate function name lookup table for ASMLine display
+                  If gCodeGenFunction >= 0
+                     EnsureFuncArrayCapacity(gCodeGenFunction)
                      gFuncNames(gCodeGenFunction) = Mid(gCurrentFunctionName, 2)  ; Remove leading underscore
                   EndIf
                   ; V1.029.75: Debug match found (only for functions 5,6,7,8)
@@ -5179,14 +5198,20 @@
                   Protected arrayOpcode.i
                   Protected arrayType.i = gVarMeta(n)\flags & #C2FLAG_TYPE
 
+                  ; V1.033.34: Debug trace for GETARRAYADDR type selection
+                  OSDebug("V1.033.34: GETARRAYADDR for '" + *x\left\left\value + "' n=" + Str(n) + " name='" + gVarMeta(n)\name + "' flags=$" + Hex(gVarMeta(n)\flags,#PB_Word) + " arrayType=$" + Hex(arrayType,#PB_Word) + " isLocal=" + Str(isLocalArray) + " paramOffset=" + Str(gVarMeta(n)\paramOffset))
+
                   If isLocalArray
                      ; V1.027.2: Use local array address opcodes
                      If arrayType = #C2FLAG_STR
                         arrayOpcode = #ljGETLOCALARRAYADDRS
+                        OSDebug("  -> Branch: LOCAL STR, opcode=" + Str(arrayOpcode))
                      ElseIf arrayType = #C2FLAG_FLOAT
                         arrayOpcode = #ljGETLOCALARRAYADDRF
+                        OSDebug("  -> Branch: LOCAL FLOAT, opcode=" + Str(arrayOpcode))
                      Else
                         arrayOpcode = #ljGETLOCALARRAYADDR
+                        OSDebug("  -> Branch: LOCAL INT (default), opcode=" + Str(arrayOpcode))
                      EndIf
                      ; Emit with paramOffset (VM will calculate actualSlot = localSlotStart + paramOffset)
                      EmitInt( arrayOpcode, localArrayOffset )
@@ -5194,10 +5219,13 @@
                      ; Global array - use standard GETARRAYADDR with global slot
                      If arrayType = #C2FLAG_STR
                         arrayOpcode = #ljGETARRAYADDRS
+                        OSDebug("  -> Branch: GLOBAL STR, opcode=" + Str(arrayOpcode))
                      ElseIf arrayType = #C2FLAG_FLOAT
                         arrayOpcode = #ljGETARRAYADDRF
+                        OSDebug("  -> Branch: GLOBAL FLOAT, opcode=" + Str(arrayOpcode))
                      Else
                         arrayOpcode = #ljGETARRAYADDR
+                        OSDebug("  -> Branch: GLOBAL INT (default), opcode=" + Str(arrayOpcode))
                      EndIf
                      EmitInt( arrayOpcode, n )
                   EndIf
@@ -5356,11 +5384,23 @@
                EndIf
             EndIf
 
-            ; Check if this is a built-in function (opcode >= #ljBUILTIN_RANDOM)
+            ; Check if this is a built-in function
             ; V1.023.29: Also check for type conversion opcodes (str(), strf())
             ; V1.026.0: Check for list/map collection functions
+            ; V1.033.53: FIX - User function IDs now start at 1000 (#C2FUNCSTART)
+            ; This avoids collision with built-in opcodes (which end at ~493).
+            ; The mapBuiltins check is kept as additional safety.
             Protected isListFunc.i = Bool(funcId >= #ljLIST_ADD And funcId <= #ljLIST_SORT)
             Protected isMapFunc.i = Bool(funcId >= #ljMAP_PUT And funcId <= #ljMAP_VALUE)
+            Protected isBuiltinFunc.i = #False
+
+            ; Check if funcId is a registered built-in
+            ForEach mapBuiltins()
+               If mapBuiltins()\opcode = funcId
+                  isBuiltinFunc = #True
+                  Break
+               EndIf
+            Next
 
             If isListFunc Or isMapFunc
                ; V1.026.0: Collection function - first param is collection variable
@@ -5377,7 +5417,7 @@
                   ; Will be resolved in postprocessor based on list variable type
                   llObjects()\n = 0
                EndIf
-            ElseIf funcId >= #ljBUILTIN_RANDOM Or funcId = #ljITOS Or funcId = #ljFTOS
+            ElseIf isBuiltinFunc Or funcId = #ljITOS Or funcId = #ljFTOS
                ; Built-in function or type conversion - emit opcode directly
                EmitInt( funcId )
                llObjects()\j = paramCount
@@ -5589,12 +5629,6 @@
             SetError("Error in CodeGenerator at node " + Str(*x\NodeType) + " " + *x\value + " ---> " + gszATR(*x\NodeType)\s, #C2ERR_CODEGEN_FAILED)
 
       EndSelect
-
-      ; V1.030.50: WATCHPOINT EXIT - check if slot 176 structType changed during this CG call
-      If gnLastVariable > 176 And gVarMeta(176)\structType <> cg176LastStructType
-         Debug "V1.030.50: CG EXIT slot176 CHANGED! was '" + cg176LastStructType + "' now '" + gVarMeta(176)\structType + "' node=" + *x\nodeType + " value='" + *x\value + "'"
-         cg176LastStructType = gVarMeta(176)\structType
-      EndIf
 
       gCodeGenRecursionDepth - 1
 

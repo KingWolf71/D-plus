@@ -250,11 +250,6 @@ Module C2VM
             cmpResult = 0
          CompilerEndIf
       EndIf
-      CompilerIf #DEBUG
-         If gStackDepth >= 6
-            Debug "C2CMP: pc=" + Str(pc) + " left=" + Str(cmpLeft) + " right=" + Str(cmpRight) + " result=" + Str(cmpResult) + " sp=" + Str(sp) + " depth=" + Str(gStackDepth)
-         EndIf
-      CompilerEndIf
       pc + 1
    EndMacro
    Macro             vm_BitOperation( operand )
@@ -592,6 +587,7 @@ Module C2VM
       *ptrJumpTable( #ljLLMOV )           = @C2LLMOV()
       *ptrJumpTable( #ljLLMOVS )          = @C2LLMOVS()
       *ptrJumpTable( #ljLLMOVF )          = @C2LLMOVF()
+      *ptrJumpTable( #ljLLPMOV )          = @C2LLPMOV()  ; V1.033.41: Pointer variant
       *ptrJumpTable( #ljLFETCH )          = @C2LFETCH()
       *ptrJumpTable( #ljLFETCHS )         = @C2LFETCHS()
       *ptrJumpTable( #ljLFETCHF )         = @C2LFETCHF()
@@ -1094,35 +1090,69 @@ Module C2VM
       InitListPool()
       InitMapPool()
 
+      ; V1.033.47: Ensure gVar is sized to accommodate all variables
+      ; This prevents array bounds errors when gnLastVariable exceeds default gGlobalStack
+      If gnLastVariable > ArraySize(gVar()) + 1
+         ReDim gVar.stVT(gnLastVariable + 64)  ; Add margin for safety
+      EndIf
+
    EndProcedure
 
    Procedure            vmTransferMetaToRuntime()
       ; V1.023.0: Transfer compile-time data to runtime using templates
-      ; Global variables: use gGlobalTemplate (preloaded values)
-      ; Constants: still transfer from gVarMeta
-      ; Arrays: still need ReDim for element allocation
+      ; V1.033.46: VM now uses ONLY gGlobalTemplate, not gVarMeta
+      ; This allows VM to be independent of compiler structures
       Protected i
       Protected structByteSize.i  ; V1.029.40: For struct allocation
+      Protected templateSize.i    ; V1.033.47: For bounds checking
+      Protected gVarSize.i        ; V1.033.47: gVar array size
 
       CompilerIf #DEBUG
          Debug "=== vmTransferMetaToRuntime: Transferring " + Str(gnLastVariable) + " variables ==="
          Debug "  gnGlobalVariables=" + Str(gnGlobalVariables) + " gnLastVariable=" + Str(gnLastVariable)
       CompilerEndIf
 
-      ; V1.023.17: Single loop through all slots - check flags to determine source
-      ; Slots aren't allocated in order (constants before variables)
+      ; V1.033.47: Verify arrays are properly sized before accessing
+      templateSize = ArraySize(gGlobalTemplate()) + 1  ; ArraySize returns highest index, so add 1 for count
+      gVarSize = ArraySize(gVar()) + 1
+
+      CompilerIf #DEBUG
+         Debug "vmTransferMetaToRuntime: gnLastVariable=" + Str(gnLastVariable) + " templateSize=" + Str(templateSize) + " gVarSize=" + Str(gVarSize)
+      CompilerEndIf
+
+      ; V1.033.49: Now that BuildVariableTemplates() is called AFTER Optimizer(),
+      ; template should always be sized correctly. Keep check as safety assertion.
+      If gnLastVariable > templateSize
+         CompilerIf #DEBUG
+            Debug "ERROR: gGlobalTemplate too small! gnLastVariable=" + Str(gnLastVariable) + " templateSize=" + Str(templateSize)
+         CompilerEndIf
+         ProcedureReturn
+      EndIf
+
+      ; V1.033.48: Dynamically resize gVar if needed (instead of returning early)
+      ; This ensures VM can run even if pragmas set a smaller GlobalStack than needed
+      If gnLastVariable > gVarSize
+         CompilerIf #DEBUG
+            Debug "vmTransferMetaToRuntime: Resizing gVar from " + Str(gVarSize) + " to " + Str(gnLastVariable + 64)
+         CompilerEndIf
+         ReDim gVar.stVT(gnLastVariable + 64)  ; Add margin for safety
+         gVarSize = ArraySize(gVar()) + 1      ; Update cached size
+      EndIf
+
+      ; V1.033.46: Single loop using gGlobalTemplate only (no gVarMeta access)
       For i = 0 To gnLastVariable - 1
-         If gVarMeta(i)\flags & #C2FLAG_CONST
-            ; This is a constant - transfer from gVarMeta
-            gVar(i)\i = gVarMeta(i)\valueInt
-            gVar(i)\f = gVarMeta(i)\valueFloat
-            gVar(i)\ss = gVarMeta(i)\valueString
+         If gGlobalTemplate(i)\flags & #C2FLAG_CONST
+            ; This is a constant - transfer from template
+            gVar(i)\i = gGlobalTemplate(i)\i
+            gVar(i)\f = gGlobalTemplate(i)\f
+            gVar(i)\ss = gGlobalTemplate(i)\ss
 
             CompilerIf #DEBUG
-               Debug "  Transfer constant [" + Str(i) + "]: i=" + Str(gVarMeta(i)\valueInt) + " f=" + StrD(gVarMeta(i)\valueFloat, 6) + " ss='" + gVarMeta(i)\valueString + "'"
+               Debug "  Transfer constant [" + Str(i) + "]: i=" + Str(gGlobalTemplate(i)\i) + " f=" + StrD(gGlobalTemplate(i)\f, 6) + " ss='" + gGlobalTemplate(i)\ss + "'"
             CompilerEndIf
-         Else
-            ; This is a variable - use gGlobalTemplate (preloaded values)
+         ElseIf gGlobalTemplate(i)\paramOffset = -1
+            ; This is a GLOBAL variable - use gGlobalTemplate (preloaded values)
+            ; Local variables (paramOffset >= 0) are initialized at function call time
             gVar(i)\i = gGlobalTemplate(i)\i
             gVar(i)\f = gGlobalTemplate(i)\f
             gVar(i)\ss = gGlobalTemplate(i)\ss
@@ -1137,20 +1167,20 @@ Module C2VM
          EndIf
 
          ; Allocate array storage if this is an array variable
-         If gVarMeta(i)\flags & #C2FLAG_ARRAY And gVarMeta(i)\arraySize > 0
-            ReDim gVar(i)\dta\ar(gVarMeta(i)\arraySize - 1)  ; 0-based indexing
-            gVar(i)\dta\size = gVarMeta(i)\arraySize  ; Store size in structure
+         If gGlobalTemplate(i)\flags & #C2FLAG_ARRAY And gGlobalTemplate(i)\arraySize > 0
+            ReDim gVar(i)\dta\ar(gGlobalTemplate(i)\arraySize - 1)  ; 0-based indexing
+            gVar(i)\dta\size = gGlobalTemplate(i)\arraySize  ; Store size in structure
          EndIf
 
          ; V1.029.40: Allocate struct memory for global struct variables
          ; Local structs are allocated at function call time via STRUCT_ALLOC_LOCAL
-         If gVarMeta(i)\flags & #C2FLAG_STRUCT And gVarMeta(i)\paramOffset < 0
+         If gGlobalTemplate(i)\flags & #C2FLAG_STRUCT And gGlobalTemplate(i)\paramOffset < 0
             ; Calculate byte size: elementSize is field count, multiply by 8 bytes per field
-            structByteSize = gVarMeta(i)\elementSize * 8
+            structByteSize = gGlobalTemplate(i)\elementSize * 8
             If structByteSize > 0
                gVar(i)\ptr = AllocateMemory(structByteSize)
                CompilerIf #DEBUG
-                  Debug "  Allocate struct [" + Str(i) + "] '" + gVarMeta(i)\name + "': " + Str(structByteSize) + " bytes at ptr=" + Str(gVar(i)\ptr)
+                  Debug "  Allocate struct [" + Str(i) + "]: " + Str(structByteSize) + " bytes at ptr=" + Str(gVar(i)\ptr)
                CompilerEndIf
             EndIf
          EndIf
@@ -1193,8 +1223,9 @@ Module C2VM
       ResetCollections()
 
       ; V1.031.106: Reset console line buffer for logging
-      gConsoleLine = ""
-      gBatchOutput = ""
+      gConsoleLine   = ""
+      gBatchOutput   = ""
+      gAutoclose     = 0   ; Reset - vmPragmaSet will set from mapPragmas if pragma exists
 
    EndProcedure
 
@@ -1233,7 +1264,8 @@ Module C2VM
       CompilerEndIf
       
       ; Transfer compile-time metadata to runtime values
-      ; In the future, this will load from JSON/XML instead of gVarMeta
+      ; V1.033.46: Uses gGlobalTemplate only (VM is now independent of gVarMeta)
+      ; In the future, this will load from JSON/XML
       vmTransferMetaToRuntime()      
       
       ; V1.31.0: Isolated Variable System - sp indexes into gEvalStack[], not gVar[]
@@ -1525,12 +1557,13 @@ Module C2VM
          SetGadgetText(#edConsole, "")
          ClearDebugOutput()
 
-         ; Clear VM state
-         vmClearRun()
-
+         ; V1.033.33: Stop thread FIRST before clearing VM state to avoid race condition
          If gRunThreaded = #True And IsThread( gthRun )
             vmStopVMThread( gthRun )
          EndIf
+
+         ; Clear VM state (now safe since thread is stopped)
+         vmClearRun()
 
          gModuleName = filename
          AddGadgetItem(#edConsole, -1, "Loading: " + filename)
@@ -1619,13 +1652,14 @@ Module C2VM
                         filename = OpenFileRequester( "Please choose source", "./Examples/", "LJ Files|*.lj", 0 )
                      CompilerEndIf
    
-                     ; Always clear VM state before loading new file
-                     vmClearRun()
-   
+                     ; V1.033.33: Stop thread FIRST before clearing VM state to avoid race condition
                      If gRunThreaded = #True And IsThread( gthRun )
                         vmStopVMThread( gthRun )
                      EndIf
-   
+
+                     ; Clear VM state (now safe since thread is stopped)
+                     vmClearRun()
+
                      If filename > ""
                         DebugShowFilename()
                         gModuleName = filename
@@ -1710,10 +1744,10 @@ Module C2VM
 EndModule
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1504
-; FirstLine = 1500
-; Folding = -------------
-; Markers = 1302,1397
+; CursorPosition = 1191
+; FirstLine = 1169
+; Folding = --------------
+; Markers = 1303,1398
 ; EnableAsm
 ; EnableThread
 ; EnableXP

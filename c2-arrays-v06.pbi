@@ -1349,7 +1349,12 @@ Procedure C2ARRAYOFSTRUCT_FETCH_INT()
    Protected elementSize.i, fieldOffset.i
    vm_DebugFunctionName()
 
-   index = gVar(_AR()\ndx)\i
+   ; V1.033.36: Handle local index slots (negative ndx = local offset encoded as -(offset+2))
+   If _AR()\ndx < -1
+      index = gLocal(_LARRAY(-(_AR()\ndx + 2)))\i
+   Else
+      index = gVar(_AR()\ndx)\i
+   EndIf
    elementSize = _AR()\j
    fieldOffset = _AR()\n
 
@@ -1375,7 +1380,12 @@ Procedure C2ARRAYOFSTRUCT_FETCH_FLOAT()
    Protected elementSize.i, fieldOffset.i
    vm_DebugFunctionName()
 
-   index = gVar(_AR()\ndx)\i
+   ; V1.033.36: Handle local index slots (negative ndx = local offset encoded as -(offset+2))
+   If _AR()\ndx < -1
+      index = gLocal(_LARRAY(-(_AR()\ndx + 2)))\i
+   Else
+      index = gVar(_AR()\ndx)\i
+   EndIf
    elementSize = _AR()\j
    fieldOffset = _AR()\n
 
@@ -1396,7 +1406,12 @@ Procedure C2ARRAYOFSTRUCT_FETCH_STR()
    Protected elementSize.i, fieldOffset.i
    vm_DebugFunctionName()
 
-   index = gVar(_AR()\ndx)\i
+   ; V1.033.36: Handle local index slots (negative ndx = local offset encoded as -(offset+2))
+   If _AR()\ndx < -1
+      index = gLocal(_LARRAY(-(_AR()\ndx + 2)))\i
+   Else
+      index = gVar(_AR()\ndx)\i
+   EndIf
    elementSize = _AR()\j
    fieldOffset = _AR()\n
 
@@ -1424,7 +1439,12 @@ Procedure C2ARRAYOFSTRUCT_STORE_INT()
    sp - 1
    value = gEvalStack(sp)\i
 
-   index = gVar(_AR()\ndx)\i
+   ; V1.033.36: Handle local index slots (negative ndx = local offset encoded as -(offset+2))
+   If _AR()\ndx < -1
+      index = gLocal(_LARRAY(-(_AR()\ndx + 2)))\i
+   Else
+      index = gVar(_AR()\ndx)\i
+   EndIf
    elementSize = _AR()\j
    fieldOffset = _AR()\n
 
@@ -1453,7 +1473,12 @@ Procedure C2ARRAYOFSTRUCT_STORE_FLOAT()
    sp - 1
    value = gEvalStack(sp)\f
 
-   index = gVar(_AR()\ndx)\i
+   ; V1.033.36: Handle local index slots (negative ndx = local offset encoded as -(offset+2))
+   If _AR()\ndx < -1
+      index = gLocal(_LARRAY(-(_AR()\ndx + 2)))\i
+   Else
+      index = gVar(_AR()\ndx)\i
+   EndIf
    elementSize = _AR()\j
    fieldOffset = _AR()\n
 
@@ -1477,7 +1502,12 @@ Procedure C2ARRAYOFSTRUCT_STORE_STR()
    sp - 1
    value = gEvalStack(sp)\ss
 
-   index = gVar(_AR()\ndx)\i
+   ; V1.033.36: Handle local index slots (negative ndx = local offset encoded as -(offset+2))
+   If _AR()\ndx < -1
+      index = gLocal(_LARRAY(-(_AR()\ndx + 2)))\i
+   Else
+      index = gVar(_AR()\ndx)\i
+   EndIf
    elementSize = _AR()\j
    fieldOffset = _AR()\n
 

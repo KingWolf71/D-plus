@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LJ2 Compiler Analysis Report</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+            padding: 2rem;
+            background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+            color: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(37, 99, 235, 0.3);
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        header .version {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        header .date {
+            opacity: 0.7;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+
+        .overall-score {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 2rem;
+            margin: 2rem 0;
+            padding: 2rem;
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+
+        .score-circle {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background: conic-gradient(var(--primary) 0deg, var(--primary) calc(7.2 * 36deg), #e2e8f0 calc(7.2 * 36deg));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .score-circle::before {
+            content: '';
+            position: absolute;
+            width: 120px;
+            height: 120px;
+            background: var(--card-bg);
+            border-radius: 50%;
+        }
+
+        .score-circle .score {
+            position: relative;
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .score-details {
+            text-align: left;
+        }
+
+        .score-details h2 {
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .score-details p {
+            color: var(--text-muted);
+            max-width: 400px;
+        }
+
+        .section {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 1.5rem 2rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+
+        .section h2 {
+            color: var(--primary);
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 0.75rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .section h3 {
+            color: var(--text);
+            margin: 1.5rem 0 1rem 0;
+            font-size: 1.1rem;
+        }
+
+        .grade {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-left: auto;
+        }
+
+        .grade-high { background: #dcfce7; color: #166534; }
+        .grade-medium { background: #fef3c7; color: #92400e; }
+        .grade-low { background: #fee2e2; color: #991b1b; }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        .metric-card {
+            background: var(--bg);
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .metric-card .value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .metric-card .label {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .issue {
+            background: var(--bg);
+            border-left: 4px solid var(--warning);
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .issue.critical {
+            border-left-color: var(--danger);
+        }
+
+        .issue.info {
+            border-left-color: var(--primary);
+        }
+
+        .issue h4 {
+            color: var(--text);
+            margin-bottom: 0.5rem;
+        }
+
+        .issue p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .issue code {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            display: block;
+            margin: 0.75rem 0;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            white-space: pre;
+        }
+
+        .issue .file-ref {
+            color: var(--primary);
+            font-size: 0.85rem;
+            font-family: monospace;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background: var(--bg);
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        tr:hover {
+            background: var(--bg);
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar .fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .recommendation {
+            display: flex;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--bg);
+            border-radius: 8px;
+            margin: 0.75rem 0;
+        }
+
+        .recommendation .priority {
+            min-width: 80px;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            text-align: center;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .priority-high { background: #fee2e2; color: #991b1b; }
+        .priority-medium { background: #fef3c7; color: #92400e; }
+        .priority-low { background: #dbeafe; color: #1e40af; }
+
+        .strengths-list, .weaknesses-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .strengths-list li::before {
+            content: '✓ ';
+            color: var(--success);
+            font-weight: bold;
+        }
+
+        .weaknesses-list li::before {
+            content: '✗ ';
+            color: var(--danger);
+            font-weight: bold;
+        }
+
+        .strengths-list li, .weaknesses-list li {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+
+            .overall-score {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .score-details {
+                text-align: center;
+            }
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            background: var(--bg);
+            border-radius: 4px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin: 0.2rem;
+        }
+
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            padding: 1.5rem;
+            background: var(--bg);
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+
+        .flow-step {
+            background: var(--primary);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .flow-arrow {
+            color: var(--text-muted);
+            font-size: 1.2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>LJ2 Compiler Analysis Report</h1>
+            <div class="version">Version 1.033.57</div>
+            <div class="date">Generated: December 20, 2025</div>
+        </header>
+
+        <div class="overall-score">
+            <div class="score-circle">
+                <span class="score">7.2</span>
+            </div>
+            <div class="score-details">
+                <h2>Overall Rating: 7.2 / 10</h2>
+                <p><strong>Strengths:</strong> Well-architected compiler pipeline, performance-focused VM design, extensive optimization passes</p>
+                <p><strong>Weaknesses:</strong> Complex state management, scattered error handling, high technical debt in type system</p>
+            </div>
+        </div>
+
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="value">5,045</div>
+                <div class="label">Lines Stress Tested</div>
+            </div>
+            <div class="metric-card">
+                <div class="value">4,100+</div>
+                <div class="label">Functions Compiled</div>
+            </div>
+            <div class="metric-card">
+                <div class="value">26,326</div>
+                <div class="label">VM Instructions</div>
+            </div>
+            <div class="metric-card">
+                <div class="value">493+</div>
+                <div class="label">Opcodes Defined</div>
+            </div>
+        </div>
+
+        <!-- Section 1: Architecture -->
+        <div class="section">
+            <h2>1. Architecture Analysis <span class="grade grade-high">7.5/10</span></h2>
+
+            <h3>Compiler Pipeline</h3>
+            <div class="flow-diagram">
+                <span class="flow-step">Pre-processor</span>
+                <span class="flow-arrow">→</span>
+                <span class="flow-step">Scanner</span>
+                <span class="flow-arrow">→</span>
+                <span class="flow-step">AST</span>
+                <span class="flow-arrow">→</span>
+                <span class="flow-step">CodeGen</span>
+                <span class="flow-arrow">→</span>
+                <span class="flow-step">PostProcessor</span>
+                <span class="flow-arrow">→</span>
+                <span class="flow-step">Optimizer</span>
+                <span class="flow-arrow">→</span>
+                <span class="flow-step">VM</span>
+            </div>
+
+            <div class="two-column">
+                <div>
+                    <h3>Strengths</h3>
+                    <ul class="strengths-list">
+                        <li>Clean separation of compilation phases</li>
+                        <li>Modular file organization (.pbi includes)</li>
+                        <li>Standard compiler architecture pattern</li>
+                        <li>Type inference as separate pass</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3>Weaknesses</h3>
+                    <ul class="weaknesses-list">
+                        <li>50+ global variables for state management</li>
+                        <li>Fragile initialization order dependencies</li>
+                        <li>Multiple passes over same data</li>
+                        <li>Non-reentrant, thread-unsafe design</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="issue">
+                <h4>Issue: Global Variable Overload</h4>
+                <p class="file-ref">File: c2-modules-V21.pb (lines 164-191)</p>
+                <code>Global gLineNumber, gStack, gCol, gMemSize, gPos, gHoles
+Global gFloats, gIntegers, gStrings, gNextFunction
+Global gCurrFunction, gCodeGenFunction, gCodeGenParamIndex
+; ... 50+ more globals</code>
+                <p>No clear ownership/lifecycle for each global. Hard to trace dependencies. Impossible to compile multiple files in parallel.</p>
+            </div>
+        </div>
+
+        <!-- Section 2: VM Implementation -->
+        <div class="section">
+            <h2>2. VM Implementation <span class="grade grade-high">8.1/10</span></h2>
+
+            <h3>Key Design Features</h3>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="value">3</div>
+                    <div class="label">Isolated Arrays (gVar, gLocal, gEvalStack)</div>
+                </div>
+                <div class="metric-card">
+                    <div class="value">36</div>
+                    <div class="label">Specialized Array Opcodes</div>
+                </div>
+                <div class="metric-card">
+                    <div class="value">14</div>
+                    <div class="label">Pointer Type Tags</div>
+                </div>
+                <div class="metric-card">
+                    <div class="value">6</div>
+                    <div class="label">Inlined Hot Opcodes</div>
+                </div>
+            </div>
+
+            <div class="two-column">
+                <div>
+                    <h3>Strengths</h3>
+                    <ul class="strengths-list">
+                        <li>Isolated variable system eliminates stack/local overlap bugs</li>
+                        <li>Specialized opcodes eliminate runtime branching</li>
+                        <li>Inline hot opcodes reduce procedure call overhead</li>
+                        <li>Direct array access with no indirection</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3>Weaknesses</h3>
+                    <ul class="weaknesses-list">
+                        <li>493+ opcodes creates maintenance burden</li>
+                        <li>Opcode explosion from specialization</li>
+                        <li>Two code paths (inlined vs proc calls)</li>
+                        <li>Pointer type tag encoding inconsistent</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="issue info">
+                <h4>Variable Type Structure</h4>
+                <p class="file-ref">File: c2-vm-V16.pb (lines 79-145)</p>
+                <code>Structure stVT
+   ss.s              ; String value
+   i.i               ; Integer value
+   f.d               ; Float value (double)
+   *ptr              ; Pointer field (separate from .i)
+   ptrtype.w         ; Type tag: 0=not ptr, 1-14=pointer types
+   dta.stVTArray     ; For arrays
+   List ll.stVTSimple()    ; Linked list
+   Map Map.stVTSimple()    ; String-key map
+EndStructure</code>
+            </div>
+        </div>
+
+        <!-- Section 3: Error Handling -->
+        <div class="section">
+            <h2>3. Error Handling <span class="grade grade-low">5.1/10</span></h2>
+
+            <p style="color: var(--danger); font-weight: 600; margin-bottom: 1rem;">⚠ Major Weakness Area</p>
+
+            <div class="issue critical">
+                <h4>Critical: No Error Recovery</h4>
+                <p>First error halts compilation completely. No ability to collect multiple errors for user feedback.</p>
+            </div>
+
+            <div class="issue critical">
+                <h4>Critical: Scattered Error Reporting</h4>
+                <p class="file-ref">File: c2-modules-V21.pb (lines 251-269)</p>
+                <code>Macro SetError(text, err)
+   If err > 0 And err < 10
+      gszlastError = text + " on line " + Str(gLineNumber)
+   ElseIf err >= 10
+      gszlastError = text + " on line " + Str(llTokenList()\row)
+   ; Different data sources for different error codes!</code>
+                <p>Error codes 0-10 and 10+ use different data sources. Error messages reference deleted tokens after optimization.</p>
+            </div>
+
+            <div class="issue">
+                <h4>Missing Validation</h4>
+                <ul style="margin-left: 1.5rem; color: var(--text-muted);">
+                    <li>No array bounds checking in VM</li>
+                    <li>No null pointer checks</li>
+                    <li>Loose parameter count validation</li>
+                    <li>Warning system defined but unused</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Section 4: Type System -->
+        <div class="section">
+            <h2>4. Type System <span class="grade grade-medium">6.2/10</span></h2>
+
+            <h3>Two-Phase Type Inference</h3>
+            <div class="flow-diagram">
+                <span class="flow-step">Phase A: Pointer Discovery</span>
+                <span class="flow-arrow">→</span>
+                <span class="flow-step">Phase B: Type Transformations</span>
+            </div>
+
+            <div class="issue">
+                <h4>Issue: Name Mangling Dependency</h4>
+                <p class="file-ref">File: c2-typeinfer-V01.pbi (lines 105-117)</p>
+                <code>; Depends on pattern: funcName_varName
+If LCase(Left(gVarMeta(varIdx)\name, Len(currentFunctionName) + 1)) =
+   LCase(currentFunctionName + "_")
+   ; Match found...</code>
+                <p>Type inference relies on name mangling pattern not enforced elsewhere. Pattern changes break type inference silently.</p>
+            </div>
+
+            <div class="issue">
+                <h4>Issue: Flag Overloading</h4>
+                <p class="file-ref">File: c2-inc-v17.pbi (lines 62-78)</p>
+                <code>#C2FLAG_INT       = 4      ; 0b00100
+#C2FLAG_FLOAT     = 8      ; 0b01000
+#C2FLAG_STR       = 16     ; 0b10000
+#C2FLAG_POINTER   = 256    ; Separate flag - creates confusion
+#C2FLAG_STRUCT    = 512    ; Is POINTER|INT a pointer to int?</code>
+            </div>
+        </div>
+
+        <!-- Section 5: Code Quality Issues -->
+        <div class="section">
+            <h2>5. Critical Issues & Technical Debt</h2>
+
+            <div class="issue critical">
+                <h4>Issue #1: DOT to Backslash Conversion (Fragile Heuristic)</h4>
+                <p class="file-ref">File: c2-modules-V21.pb (lines 1356-1458)</p>
+                <code>; V1.030.23: Fixed decimal detection
+; Multiple fix attempts: v30.16, v30.17, v30.22, v30.23
+If nextCh >= "0" And nextCh <= "9"
+   isDecimal = #True
+EndIf</code>
+                <p>Still doesn't handle: method chaining (obj.method().field), generics (Array.Type), mixed notation.</p>
+            </div>
+
+            <div class="issue critical">
+                <h4>Issue #2: Implicit Return Handling</h4>
+                <p class="file-ref">File: c2-postprocessor-V10.pbi (lines 366-399)</p>
+                <p>Overwrites NOOPIF (which may be target of jump) without updating jump tracker. Can break backward jumps in loops.</p>
+            </div>
+
+            <div class="issue">
+                <h4>Issue #3: Struct Type Tracking</h4>
+                <p class="file-ref">File: c2-codegen-v06.pbi (line 882)</p>
+                <code>OSDebug("V1.031.29: WARNING - structType is EMPTY!
+        This will cause field walk to fail.")</code>
+                <p>Known issue - struct type information sometimes lost mid-compilation.</p>
+            </div>
+
+            <div class="issue">
+                <h4>Issue #4: String Deduplication Missing</h4>
+                <p>Each identical string constant gets its own slot. No interning pool for repeated strings.</p>
+            </div>
+        </div>
+
+        <!-- Section 6: File Quality Ratings -->
+        <div class="section">
+            <h2>6. File Quality Ratings</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Size</th>
+                        <th>Quality</th>
+                        <th>Main Issues</th>
+                        <th>Grade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>c2-modules-V21.pb</code></td>
+                        <td>1834 LOC</td>
+                        <td>Decent</td>
+                        <td>Global overload, macro usage</td>
+                        <td><span class="grade grade-medium">7.0</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>c2-vm-V16.pb</code></td>
+                        <td>~3000 LOC</td>
+                        <td>Good</td>
+                        <td>Macro inlining, hard to debug</td>
+                        <td><span class="grade grade-high">7.5</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>c2-inc-v17.pbi</code></td>
+                        <td>~1000 LOC</td>
+                        <td>Fair</td>
+                        <td>Flag overloading, structure fragmentation</td>
+                        <td><span class="grade grade-medium">6.5</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>c2-codegen-v06.pbi</code></td>
+                        <td>2500+ LOC</td>
+                        <td>Fair</td>
+                        <td>Complex, type handling gaps</td>
+                        <td><span class="grade grade-medium">6.8</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>c2-optimizer-V01.pbi</code></td>
+                        <td>~700 LOC</td>
+                        <td>Good</td>
+                        <td>Incomplete coverage</td>
+                        <td><span class="grade grade-high">7.3</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>c2-typeinfer-V01.pbi</code></td>
+                        <td>~800 LOC</td>
+                        <td>Fair</td>
+                        <td>Two-pass approach, name mangling</td>
+                        <td><span class="grade grade-medium">6.5</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>c2-postprocessor-V10.pbi</code></td>
+                        <td>~500 LOC</td>
+                        <td>Fair</td>
+                        <td>Jump offset recalc fragile</td>
+                        <td><span class="grade grade-medium">6.2</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>c2-pointers-v05.pbi</code></td>
+                        <td>~400 LOC</td>
+                        <td>Good</td>
+                        <td>Sound logic</td>
+                        <td><span class="grade grade-high">7.8</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>c2-arrays-v06.pbi</code></td>
+                        <td>~600 LOC</td>
+                        <td>Fair</td>
+                        <td>Opcode variants complexity</td>
+                        <td><span class="grade grade-medium">6.8</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Section 7: Scorecard -->
+        <div class="section">
+            <h2>7. Summary Scorecard</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Score</th>
+                        <th>Assessment</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Architecture</td>
+                        <td>7.5/10</td>
+                        <td>Good structure, fragile integration</td>
+                        <td><div class="progress-bar"><div class="fill" style="width: 75%; background: var(--success);"></div></div></td>
+                    </tr>
+                    <tr>
+                        <td>Code Organization</td>
+                        <td>6.8/10</td>
+                        <td>Modular but global state chaos</td>
+                        <td><div class="progress-bar"><div class="fill" style="width: 68%; background: var(--warning);"></div></div></td>
+                    </tr>
+                    <tr>
+                        <td>Error Handling</td>
+                        <td>5.1/10</td>
+                        <td>Minimal, no recovery</td>
+                        <td><div class="progress-bar"><div class="fill" style="width: 51%; background: var(--danger);"></div></div></td>
+                    </tr>
+                    <tr>
+                        <td>Type System</td>
+                        <td>6.2/10</td>
+                        <td>Works but complex, fragile</td>
+                        <td><div class="progress-bar"><div class="fill" style="width: 62%; background: var(--warning);"></div></div></td>
+                    </tr>
+                    <tr>
+                        <td>VM Design</td>
+                        <td>8.1/10</td>
+                        <td>Well-thought-out, opcode explosion</td>
+                        <td><div class="progress-bar"><div class="fill" style="width: 81%; background: var(--success);"></div></div></td>
+                    </tr>
+                    <tr>
+                        <td>Memory Management</td>
+                        <td>7.8/10</td>
+                        <td>Smart templates, some leaks</td>
+                        <td><div class="progress-bar"><div class="fill" style="width: 78%; background: var(--success);"></div></div></td>
+                    </tr>
+                    <tr>
+                        <td>Optimization</td>
+                        <td>7.0/10</td>
+                        <td>Good coverage, incomplete fusion</td>
+                        <td><div class="progress-bar"><div class="fill" style="width: 70%; background: var(--warning);"></div></div></td>
+                    </tr>
+                    <tr>
+                        <td>Maintainability</td>
+                        <td>6.5/10</td>
+                        <td>Documentation exists, macros hurt</td>
+                        <td><div class="progress-bar"><div class="fill" style="width: 65%; background: var(--warning);"></div></div></td>
+                    </tr>
+                    <tr>
+                        <td>Performance</td>
+                        <td>7.9/10</td>
+                        <td>Fast VM, compiler not optimized</td>
+                        <td><div class="progress-bar"><div class="fill" style="width: 79%; background: var(--success);"></div></div></td>
+                    </tr>
+                    <tr>
+                        <td>Testing/Validation</td>
+                        <td>4.2/10</td>
+                        <td>Minimal error checks, no unit tests</td>
+                        <td><div class="progress-bar"><div class="fill" style="width: 42%; background: var(--danger);"></div></div></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Section 8: Recommendations -->
+        <div class="section">
+            <h2>8. Recommendations</h2>
+
+            <h3>High Priority</h3>
+            <div class="recommendation">
+                <span class="priority priority-high">CRITICAL</span>
+                <div>
+                    <strong>Fix Implicit Return Hole Tracking</strong>
+                    <p style="color: var(--text-muted);">Update jump tracker when converting NOOPIF to return instruction to prevent broken backward jumps.</p>
+                </div>
+            </div>
+            <div class="recommendation">
+                <span class="priority priority-high">HIGH</span>
+                <div>
+                    <strong>Consolidate Opcode Variants</strong>
+                    <p style="color: var(--text-muted);">Reduce 36 ARRAYSTORE variants to single flexible opcode. Trade 2-5% speed for 500+ lines less code.</p>
+                </div>
+            </div>
+            <div class="recommendation">
+                <span class="priority priority-high">HIGH</span>
+                <div>
+                    <strong>Refactor Global State</strong>
+                    <p style="color: var(--text-muted);">Introduce stCompilerContext structure. Enables parallel compilation and easier testing.</p>
+                </div>
+            </div>
+
+            <h3>Medium Priority</h3>
+            <div class="recommendation">
+                <span class="priority priority-medium">MEDIUM</span>
+                <div>
+                    <strong>Add Error Recovery</strong>
+                    <p style="color: var(--text-muted);">Collect 3-5 errors before stopping. Better developer experience.</p>
+                </div>
+            </div>
+            <div class="recommendation">
+                <span class="priority priority-medium">MEDIUM</span>
+                <div>
+                    <strong>Unify Type Inference</strong>
+                    <p style="color: var(--text-muted);">Merge two-pass approach to eliminate name-mangling dependency.</p>
+                </div>
+            </div>
+            <div class="recommendation">
+                <span class="priority priority-medium">MEDIUM</span>
+                <div>
+                    <strong>Add String Interning</strong>
+                    <p style="color: var(--text-muted);">Deduplicate constant strings to reduce memory usage in large programs.</p>
+                </div>
+            </div>
+
+            <h3>Low Priority</h3>
+            <div class="recommendation">
+                <span class="priority priority-low">LOW</span>
+                <div>
+                    <strong>Replace Macro Hot Paths with Inline Procedures</strong>
+                    <p style="color: var(--text-muted);">Better debugging, no code duplication, minimal performance impact.</p>
+                </div>
+            </div>
+            <div class="recommendation">
+                <span class="priority priority-low">LOW</span>
+                <div>
+                    <strong>Add Unit Test Framework</strong>
+                    <p style="color: var(--text-muted);">Automated regression testing for compiler phases.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer style="text-align: center; padding: 2rem; color: var(--text-muted);">
+            <p>LJ2 Compiler Analysis Report | Version 1.033.57</p>
+            <p style="font-size: 0.85rem;">Generated by Claude Code Analysis</p>
+        </footer>
+    </div>
+</body>
+</html>

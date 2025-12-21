@@ -19,6 +19,7 @@
 17. create a 7z backup with version under backups\ at least 2 times a day and before any major version
 18. No structure unions; we need to maintain compatibility with Spiderbasic
 19. Linux GUI runs non-threaded (GTK threading causes issues); Windows GUI uses threading with timer-based queue processing
-20. Command line: lj2.exe [--test|-t] <filename.lj> - use --test for headless console output
+20. Command line: lj2.exe [--test|-t] [-x|--autoquit <seconds>] <filename.lj> - use --test for headless console output, -x for auto-close timer
 21. Test runner: run-tests-win.ps1 runs all example tests on Windows
 22. Stack size: 8MB via linker.txt for large compilation (comprehensive tests)
+23. delete executables prior to compile - always

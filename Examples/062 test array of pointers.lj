@@ -74,12 +74,14 @@ assertEqual(400, d);
 // Test 3: Reorder pointers
 print("Test 3: Pointer Array Reordering");
 
-// Swap pointers
-temp = ptrs[0];
+// Swap pointers - temp needs to hold pointer values
+// First assign from address to make temp a pointer type
+temp = &a;        // temp is now a pointer
+temp = ptrs[0];   // Copy pointer from array
 ptrs[0] = ptrs[3];
 ptrs[3] = temp;
 
-temp = ptrs[1];
+temp = ptrs[1];   // Reuse temp
 ptrs[1] = ptrs[2];
 ptrs[2] = temp;
 

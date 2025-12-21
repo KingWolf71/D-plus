@@ -65,8 +65,9 @@ Module C2Lang
 ; ======================================================================================================
 
    #C2REG_FLOATS        = 1
-   #C2FUNCSTART         = 2
+   #C2FUNCSTART         = 1000     ; V1.033.53: Must be > #C2TOKENCOUNT (493) to avoid opcode collision
    #MAX_RECURSESTACK    = 150
+   #MAX_LOOP_HOLES      = 64       ; V1.033.23: Max break/continue holes per loop
       
    Structure stSymbols
       name.s
@@ -127,9 +128,9 @@ Module C2Lang
       loopStart.i           ; Hole ID for continue target
       *loopStartPtr         ; Pointer to loop start NOOPIF
       *loopUpdatePtr        ; Pointer to update section (for FOR loops, continue jumps here)
-      breakHoles.i[32]      ; Array of break hole IDs to fix at loop end
+      breakHoles.i[#MAX_LOOP_HOLES]      ; Array of break hole IDs to fix at loop end
       breakCount.i          ; Number of break holes
-      continueHoles.i[32]   ; V1.024.2: Array of continue hole IDs for FOR loops
+      continueHoles.i[#MAX_LOOP_HOLES]   ; V1.024.2: Array of continue hole IDs for FOR loops
       continueCount.i       ; V1.024.2: Number of continue holes
       isSwitch.b            ; True if this is a switch (break only, no continue)
       isForLoop.b           ; True if for loop (continue goes to update, not start)
@@ -176,6 +177,8 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
    Global               gCodeGenParamIndex
    Global               gCodeGenLocalIndex      ; Current local variable offset (nParams + local count)
    Global               gCodeGenRecursionDepth
+   Global               gCGCallCount.i          ; V1.033.26: Debug counter for CodeGenerator calls
+   Global               gSEQLoopCount.i         ; V1.033.26: Debug counter for SEQ loop iterations
    Global               gCurrentFunctionName.s  ; Current function being compiled (for local variable scoping)
    Global               gLastExpandParamsCount  ; Last actual parameter count from expand_params() for built-ins
    Global               gIsNumberFlag
@@ -207,7 +210,9 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
    ;- =====================================
    ;- Add compiler parts
    ;- =====================================
-   XIncludeFile         "c2-postprocessor-V09.pbi"
+   ; V1.033.23: TypeInference + PostProcessor V10 (debugging)
+   XIncludeFile         "c2-typeinfer-V01.pbi"
+   XIncludeFile         "c2-postprocessor-V10.pbi"
    XIncludeFile         "c2-optimizer-V01.pbi"
 
    CreateRegularExpression( #C2REG_FLOATS, gszFloating )
@@ -534,6 +539,10 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       ClearMap( mapModules() )
       ClearMap( mapVariableTypes() )
 
+      ; V1.033.47: Reset gGlobalTemplate to match gnLastVariable reset
+      ; This prevents stale template data from previous compilations
+      ReDim gGlobalTemplate.stVarTemplate(0)
+
       ; Add #LJ2_VERSION from _lj2.ver file
       verFile = ReadFile(#PB_Any, "_lj2.ver")
       If verFile
@@ -572,6 +581,8 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       gCodeGenParamIndex      = -1
       gCodeGenLocalIndex      = 0
       gCodeGenRecursionDepth  = 0
+      gCGCallCount            = 0   ; V1.033.26: Debug counter reset
+      gSEQLoopCount           = 0   ; V1.033.26: Debug counter reset
       gCurrentFunctionName    = ""  ; Empty = global scope
       gLastExpandParamsCount  = 0
       gIsNumberFlag           = 0
@@ -1611,15 +1622,23 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          Debug " -- InitJumpTracker: Calculating initial jump offsets..."
          InitJumpTracker()
 
-         ; V1.033.0: PostProcessor now only does essential type fixups
-         ; Optimizations are handled by separate Optimizer()
-         Debug " -- Postprocessor: Type resolution and specialization..."
+         ; V1.033.23: TypeInference handles type resolution, V10 handles correctness
+         Debug " -- TypeInference: Unified type resolution..."
+         TypeInference()
+
+         Debug " -- Postprocessor: Correctness passes..."
          PostProcessor()
 
          ; V1.033.0: Optimizer handles peephole, constant folding, and other optimizations
          ; The pragma "optimizecode" controls whether optimizations run
-         Debug " -- Optimizer: Peephole and instruction fusion..."
+         Debug " -- Optimizer: Peephole and fusion optimizations..."
          Optimizer()
+
+         ; V1.033.49: Build variable templates AFTER optimizer
+         ; The optimizer can create new constants via constant folding, incrementing gnLastVariable.
+         ; Must build templates after optimizer to include all constants in gGlobalTemplate.
+         Debug " -- BuildVariableTemplates: Creating gGlobalTemplate and gFuncTemplates..."
+         BuildVariableTemplates()
 
          ; V1.020.077: FixJMP now just applies adjusted offsets and patches functions
          ; Jump tracker was already populated by InitJumpTracker() before optimization
@@ -1718,17 +1737,28 @@ CompilerIf #PB_Compiler_IsMainFile
    ;filename = ".\Examples\28 test pointers comprehensive.lj"
    ;filename = ".\Examples\27 test function pointers.lj"
    ;filename = ".\Examples\38 test struct arrays.lj"
-   ;filename = ".\Examples\106 address book.lj"
+   ;filename = ".\Examples\106 addr65ess book.lj"
    
    filename = ".\Examples\001 Simple while.lj"
    ;filename = ".\Examples\002 if else.lj"
-   filename = ".\Examples\200 opcode benchmark.lj"
+   ;filename = ".\Examples\200 opcode benchmark.lj"
    
    ; V1.031.32: Command line argument support
    ; V1.031.117: Added --test flag for console output without GUI
    Define paramCount.i
    Define paramIdx.i
    Define param.s
+   Define earlyDebug.i = #False
+   Define gCmdAutoclose.i = 0   ; V1.033.43: -x/--autoquit seconds from command line
+
+   ; V1.033.26: Check for --test early so we can output debug info
+   For paramIdx = 0 To CountProgramParameters() - 1
+      If ProgramParameter(paramIdx) = "--test" Or ProgramParameter(paramIdx) = "-t"
+         earlyDebug = #True
+         OpenConsole()
+         Break
+      EndIf
+   Next
 
    If CountProgramParameters() > 0
       paramCount = CountProgramParameters()
@@ -1737,6 +1767,13 @@ CompilerIf #PB_Compiler_IsMainFile
          param = ProgramParameter(paramIdx)
          If param = "--test" Or param = "-t"
             C2VM::gTestMode = #True
+         ; V1.033.43: -x/--autoquit command line option (store for later)
+         ElseIf param = "-x" Or param = "--autoquit"
+            ; Next parameter should be seconds - store in global for adding to mapPragmas after LoadLJ
+            If paramIdx + 1 < paramCount
+               paramIdx + 1
+               gCmdAutoclose = Val(ProgramParameter(paramIdx))
+            EndIf
          ElseIf Left(param, 1) <> "-"
             ; Not a flag - must be filename
             filename = param
@@ -1756,24 +1793,32 @@ CompilerIf #PB_Compiler_IsMainFile
       Debug "==========================================="
       Debug "Executing: " + filename
       Debug "==========================================="
-      
+
       If C2Lang::LoadLJ( filename )
          Debug "Error: " + C2Lang::Error( @err )
+         If C2VM::gTestMode : PrintN("LOAD ERROR: " + C2Lang::Error( @err )) : EndIf
       Else
+         ; V1.033.43: Add autoclose pragma from command line if specified
+         If gCmdAutoclose > 0
+            C2Common::mapPragmas("autoclose") = Str(gCmdAutoclose)
+         EndIf
          C2VM::gModuleName = filename
          ; V1.023.26: Only run VM if compilation succeeds (returns 0)
          ; Compile returns: 0=success, 1=scanner error, -1=AST/CodeGen error
-         If C2Lang::Compile() = 0
+         Define compileResult.i = C2Lang::Compile()
+         If compileResult = 0
             C2VM::RunVM()
          Else
             Debug "Compilation failed - VM not started"
+            If C2VM::gTestMode : PrintN("COMPILATION FAILED - VM not started") : EndIf
          EndIf
       EndIf
    EndIf
 
 CompilerEndIf
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 10
+; CursorPosition = 1744
+; FirstLine = 1717
 ; Folding = --------
 ; Markers = 569,718
 ; Optimizer
@@ -1783,7 +1828,7 @@ CompilerEndIf
 ; LinkerOptions = linker.txt
 ; CompileSourceDirectory
 ; Warnings = Display
-; EnableCompileCount = 2395
+; EnableCompileCount = 2452
 ; EnableBuildCount = 0
 ; EnableExeConstant
 ; IncludeVersionInfo

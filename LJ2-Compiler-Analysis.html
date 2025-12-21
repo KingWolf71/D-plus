@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LJ2 Compiler Analysis - v1.032</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #2980b9;
+            border-bottom: 2px solid #bdc3c7;
+            padding-bottom: 5px;
+            margin-top: 30px;
+        }
+        h3 {
+            color: #27ae60;
+            margin-top: 20px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 15px 0;
+            background-color: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+        code {
+            background-color: #ecf0f1;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+        }
+        pre {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        .grade {
+            display: inline-block;
+            background-color: #27ae60;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+        .strength {
+            background-color: #d5f4e6;
+            border-left: 4px solid #27ae60;
+            padding: 10px 15px;
+            margin: 10px 0;
+        }
+        .weakness {
+            background-color: #fdeaea;
+            border-left: 4px solid #e74c3c;
+            padding: 10px 15px;
+            margin: 10px 0;
+        }
+        .recommendation {
+            background-color: #fff3cd;
+            border-left: 4px solid #f39c12;
+            padding: 10px 15px;
+            margin: 10px 0;
+        }
+        .priority-high {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        .priority-medium {
+            color: #f39c12;
+            font-weight: bold;
+        }
+        .priority-low {
+            color: #3498db;
+            font-weight: bold;
+        }
+        .header-info {
+            background-color: #34495e;
+            color: white;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .header-info p {
+            margin: 5px 0;
+        }
+        .pipeline {
+            background-color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+            font-family: 'Consolas', monospace;
+            margin: 15px 0;
+        }
+        .pipeline-arrow {
+            color: #3498db;
+            font-weight: bold;
+        }
+        ul {
+            padding-left: 25px;
+        }
+        li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header-info">
+    <h1 style="color: white; border: none; margin: 0;">LJ2 Compiler Analysis</h1>
+    <p><strong>Version:</strong> 1.032.121</p>
+    <p><strong>Date:</strong> December 17, 2025</p>
+    <p><strong>Platform:</strong> PureBasic 6.20+ (Windows/Linux)</p>
+    <p><strong>Codebase Size:</strong> ~28,000 lines across 12 modules</p>
+</div>
+
+<h2>1. Executive Summary</h2>
+
+<p><strong>Architecture Quality:</strong> <span class="grade">B+</span> <em>(Strong foundation, manageable technical debt)</em></p>
+
+<p>The LJ2 compiler is a well-structured C-to-bytecode transpiler with excellent runtime performance characteristics.
+The isolated memory model and aggressive type specialization strategy make it suitable for performance-critical applications.</p>
+
+<h2>2. Architecture Overview</h2>
+
+<h3>Compiler Pipeline</h3>
+<div class="pipeline">
+    Source Code <span class="pipeline-arrow">→</span> Preprocessor <span class="pipeline-arrow">→</span> Scanner <span class="pipeline-arrow">→</span> AST <span class="pipeline-arrow">→</span> CodeGenerator <span class="pipeline-arrow">→</span> Postprocessor <span class="pipeline-arrow">→</span> VM Bytecode<br><br>
+    <small>(.lj files) → (Macros) → (Tokens) → (Tree) → (Instructions) → (28 Passes) → (Executable)</small>
+</div>
+
+<h3>Module Structure</h3>
+<table>
+    <tr>
+        <th>File</th>
+        <th>Lines</th>
+        <th>Purpose</th>
+    </tr>
+    <tr>
+        <td><code>c2-modules-V21.pb</code></td>
+        <td>1,779</td>
+        <td>Main compiler entry, phase orchestration</td>
+    </tr>
+    <tr>
+        <td><code>c2-inc-v17.pbi</code></td>
+        <td>2,145</td>
+        <td>Constants, structures, 200+ opcode definitions</td>
+    </tr>
+    <tr>
+        <td><code>c2-scanner-v05.pbi</code></td>
+        <td>589</td>
+        <td>Lexical analysis, token building</td>
+    </tr>
+    <tr>
+        <td><code>c2-ast-v06.pbi</code></td>
+        <td>3,473</td>
+        <td>Recursive descent parser, AST building</td>
+    </tr>
+    <tr>
+        <td><code>c2-codegen-v06.pbi</code></td>
+        <td>5,645</td>
+        <td>Bytecode generation, variable metadata</td>
+    </tr>
+    <tr>
+        <td><code>c2-postprocessor-V08.pbi</code></td>
+        <td>3,915</td>
+        <td>28 optimization passes</td>
+    </tr>
+    <tr>
+        <td><code>c2-vm-V16.pb</code></td>
+        <td>1,646</td>
+        <td>VM runtime, jump table dispatch</td>
+    </tr>
+    <tr>
+        <td><code>c2-vm-commands-v14.pb</code></td>
+        <td>1,394</td>
+        <td>200+ opcode implementations</td>
+    </tr>
+</table>
+
+<h2>3. Key Strengths</h2>
+
+<div class="strength">
+    <strong>Isolated Memory Model (V1.31.0)</strong><br>
+    Three completely separate arrays prevent stack/local corruption bugs:
+    <ul>
+        <li><code>gVar[2048]</code> - Global variables only</li>
+        <li><code>gLocal[128]</code> - Local variables per function frame</li>
+        <li><code>gEvalStack[1024]</code> - Evaluation stack only</li>
+    </ul>
+</div>
+
+<div class="strength">
+    <strong>Aggressive Type Specialization</strong><br>
+    28 optimization passes convert ~200 generic opcodes into 1000+ specialized variants, eliminating 99% of runtime type checking.
+</div>
+
+<div class="strength">
+    <strong>Jump Table VM Dispatch</strong><br>
+    O(1) opcode dispatch with inlined hot paths for LFETCH, PUSH, LSTORE, ADD operations.
+</div>
+
+<div class="strength">
+    <strong>Comprehensive Language Features</strong><br>
+    Structs, pointers, arrays, linked lists, maps, function pointers, nested structures - all with type-safe operations.
+</div>
+
+<h2>4. Optimization Passes</h2>
+
+<table>
+    <tr>
+        <th>Pass</th>
+        <th>Function</th>
+        <th>Impact</th>
+    </tr>
+    <tr>
+        <td>1-1b</td>
+        <td>Pointer type tracking</td>
+        <td>Identifies pointer variables from usage</td>
+    </tr>
+    <tr>
+        <td>2</td>
+        <td>Type-based opcode fixups</td>
+        <td>PUSH→PUSHF, FETCH→PFETCH</td>
+    </tr>
+    <tr>
+        <td>9</td>
+        <td>Array index optimization</td>
+        <td>Local indices in ndx field (recursion-safe)</td>
+    </tr>
+    <tr>
+        <td>10</td>
+        <td>Array specialization</td>
+        <td>81 variants for zero-branching</td>
+    </tr>
+    <tr>
+        <td>14</td>
+        <td>Redundant assignment elimination</td>
+        <td>Removes <code>x = x</code> patterns</td>
+    </tr>
+    <tr>
+        <td>15</td>
+        <td>Dead code elimination</td>
+        <td>Unreachable code removal</td>
+    </tr>
+    <tr>
+        <td>16-17</td>
+        <td>Constant folding</td>
+        <td>Compile-time arithmetic</td>
+    </tr>
+    <tr>
+        <td>18</td>
+        <td>Arithmetic identities</td>
+        <td><code>x + 0 → x</code>, <code>x * 1 → x</code></td>
+    </tr>
+    <tr>
+        <td>19-20</td>
+        <td>String optimizations</td>
+        <td>Constant concatenation</td>
+    </tr>
+    <tr>
+        <td>25</td>
+        <td>NOOP removal</td>
+        <td>Final cleanup pass</td>
+    </tr>
+    <tr>
+        <td>28</td>
+        <td>PUSH_IMM conversion</td>
+        <td>Immediate value encoding</td>
+    </tr>
+</table>
+
+<h2>5. Performance Profile</h2>
+
+<p><em>Based on opcode benchmark (50,000 iterations, 25M+ operations)</em></p>
+
+<table>
+    <tr>
+        <th>Operation</th>
+        <th>Count</th>
+        <th>Time</th>
+        <th>Quality</th>
+    </tr>
+    <tr>
+        <td>LFETCH (local var read)</td>
+        <td>7,021,037</td>
+        <td>0.105s</td>
+        <td>Excellent</td>
+    </tr>
+    <tr>
+        <td>PUSH_IMM (constants)</td>
+        <td>4,559,025</td>
+        <td>0.069s</td>
+        <td>Excellent</td>
+    </tr>
+    <tr>
+        <td>LSTORE (local var write)</td>
+        <td>3,593,500</td>
+        <td>0.065s</td>
+        <td>Excellent</td>
+    </tr>
+    <tr>
+        <td>ADD</td>
+        <td>2,696,500</td>
+        <td>0.041s</td>
+        <td>Excellent</td>
+    </tr>
+    <tr>
+        <td>JZ (conditional jump)</td>
+        <td>2,122,013</td>
+        <td>0.043s</td>
+        <td>Excellent</td>
+    </tr>
+    <tr>
+        <td>LT (comparison)</td>
+        <td>1,767,013</td>
+        <td>0.032s</td>
+        <td>Excellent</td>
+    </tr>
+    <tr>
+        <td>CALL/RET</td>
+        <td>710,024</td>
+        <td>0.028s</td>
+        <td>Good</td>
+    </tr>
+</table>
+
+<p><strong>Total Runtime:</strong> 0.87 seconds for 25M+ operations</p>
+
+<h2>6. Areas for Improvement</h2>
+
+<div class="weakness">
+    <strong>Postprocessor Complexity</strong><br>
+    28 interdependent passes (3,915 lines) creates maintenance burden. Pass ordering dependencies are implicit rather than documented.
+</div>
+
+<div class="weakness">
+    <strong>Type Inference Spread</strong><br>
+    Type information is gathered across multiple phases (scanner, first assignment, postprocessor) rather than unified type checking.
+</div>
+
+<div class="weakness">
+    <strong>Fixed Memory Sizes</strong><br>
+    Arrays have fixed sizes (gVar[2048], gLocal[128]) despite pragma support for configuration.
+</div>
+
+<h2>7. Recommendations</h2>
+
+<div class="recommendation">
+    <span class="priority-high">HIGH PRIORITY</span> - <strong>Postprocessor Documentation</strong><br>
+    Create pass dependency graph. Break 28 passes into logical groups (dead code, constant folding, specialization).
+</div>
+
+<div class="recommendation">
+    <span class="priority-high">HIGH PRIORITY</span> - <strong>Peephole Optimizer</strong><br>
+    Add pattern-matching for common sequences:
+    <ul>
+        <li><code>PUSH + PUSH + ADD → PUSH (result)</code></li>
+        <li><code>LFETCH + LSTORE same slot → eliminate</code></li>
+        <li><code>JMP to next instruction → eliminate</code></li>
+    </ul>
+</div>
+
+<div class="recommendation">
+    <span class="priority-medium">MEDIUM PRIORITY</span> - <strong>Register Allocation for Hot Variables</strong><br>
+    LFETCH/LSTORE account for ~20% of execution time. Keeping loop counters in "virtual registers" could improve tight loops.
+</div>
+
+<div class="recommendation">
+    <span class="priority-medium">MEDIUM PRIORITY</span> - <strong>Struct Field Caching</strong><br>
+    Nested struct field lookup is O(n) per access. Cache field offsets after first resolution.
+</div>
+
+<div class="recommendation">
+    <span class="priority-low">LOW PRIORITY</span> - <strong>Register-Based VM</strong><br>
+    Major rewrite, but would reduce bytecode size 20-30% and improve performance significantly.
+</div>
+
+<h2>8. Language Feature Status</h2>
+
+<table>
+    <tr>
+        <th>Feature</th>
+        <th>Status</th>
+        <th>Notes</th>
+    </tr>
+    <tr>
+        <td>Integers, Floats, Strings</td>
+        <td>✅ Complete</td>
+        <td>Type inference + annotations</td>
+    </tr>
+    <tr>
+        <td>Control Flow (if/while/for/switch)</td>
+        <td>✅ Complete</td>
+        <td>break/continue supported</td>
+    </tr>
+    <tr>
+        <td>Functions</td>
+        <td>✅ Complete</td>
+        <td>Parameters, returns, recursion</td>
+    </tr>
+    <tr>
+        <td>Arrays</td>
+        <td>✅ Complete</td>
+        <td>Dynamic sizing, multi-type</td>
+    </tr>
+    <tr>
+        <td>Structures</td>
+        <td>✅ Complete</td>
+        <td>Nested, arrays within structs</td>
+    </tr>
+    <tr>
+        <td>Pointers</td>
+        <td>✅ Complete</td>
+        <td>Arithmetic, function pointers</td>
+    </tr>
+    <tr>
+        <td>Collections (List/Map)</td>
+        <td>✅ Complete</td>
+        <td>Unified in gVar structure</td>
+    </tr>
+    <tr>
+        <td>Built-in Functions</td>
+        <td>✅ 30+ functions</td>
+        <td>Math, string, I/O</td>
+    </tr>
+    <tr>
+        <td>Modules/Imports</td>
+        <td>❌ Missing</td>
+        <td>Consider for code organization</td>
+    </tr>
+    <tr>
+        <td>Classes/OOP</td>
+        <td>❌ Missing</td>
+        <td>Keep simple - structs suffice</td>
+    </tr>
+    <tr>
+        <td>Error Handling</td>
+        <td>❌ Missing</td>
+        <td>try/catch not implemented</td>
+    </tr>
+</table>
+
+<h2>9. Road to Grade A</h2>
+
+<p>To elevate the compiler from <span class="grade">B+</span> to <span class="grade" style="background-color: #f39c12;">A</span>, the following improvements are required:</p>
+
+<h3>Gap Analysis</h3>
+<table>
+    <tr>
+        <th>Current State (B+)</th>
+        <th>A-Grade Requirement</th>
+    </tr>
+    <tr>
+        <td>28 passes with implicit dependencies</td>
+        <td>Documented pass dependency graph</td>
+    </tr>
+    <tr>
+        <td>No peephole optimization</td>
+        <td>Pattern-based bytecode folding</td>
+    </tr>
+    <tr>
+        <td>All locals use LFETCH/LSTORE</td>
+        <td>Hot variable "registers" for loops</td>
+    </tr>
+    <tr>
+        <td>Basic constant folding</td>
+        <td>Full constant propagation</td>
+    </tr>
+    <tr>
+        <td>Single benchmark</td>
+        <td>Performance regression test suite</td>
+    </tr>
+</table>
+
+<h3>1. Peephole Optimizer (Biggest Impact)</h3>
+<p>Add a final pass that pattern-matches and folds common sequences:</p>
+<pre>
+Pattern                              → Replacement
+──────────────────────────────────────────────────────────
+LFETCH x; LSTORE x                  → (eliminate - no-op)
+PUSH a; PUSH b; ADD; LSTORE x       → LADD_IMM x, a, b
+LFETCH x; PUSH 1; ADD; LSTORE x     → LINC_VAR x (exists!)
+JMP +1                              → (eliminate)
+PUSH 0; JZ label                    → JMP label (always jumps)
+PUSH 1; JZ label                    → (eliminate - never jumps)
+</pre>
+<p><strong>Expected improvement:</strong> 5-10% speedup on typical code</p>
+
+<h3>2. Loop Variable Optimization</h3>
+<p>Benchmark shows LFETCH at 7M calls (0.105s) - most are loop counters. Add "virtual registers" for hot variables:</p>
+<pre>
+; Before (current)
+LFETCH i        ; load from gLocal[]
+PUSH 1
+ADD
+LSTORE i        ; store back
+
+; After (optimized with virtual register)
+LINC_REG r0     ; single instruction for loop counter
+</pre>
+<p>Track loop counter variables during codegen, allocate them to dedicated fast slots.</p>
+
+<h3>3. Constant Propagation</h3>
+<p>Current implementation folds <code>5 + 3 → 8</code>. Missing: propagate known values through code:</p>
+<pre>
+x = 10;
+y = x + 5;    // Currently: LFETCH x, PUSH 5, ADD
+              // Should become: PUSH 15 (x is known to be 10)
+</pre>
+
+<h3>4. Pass Dependency Documentation</h3>
+<p>Create a formal dependency graph:</p>
+<pre>
+Pass 1  → Pass 2  (needs pointer info)
+Pass 9  → Pass 10 (array indices must be set)
+Pass 16 → Pass 18 (fold constants before identities)
+Pass 25 must be LAST (NOOP removal)
+Pass 28 must be after all gVarMeta usage
+</pre>
+
+<h3>5. Performance Regression Tests</h3>
+<p>Add timing assertions to test suite to catch performance regressions:</p>
+<pre>
+# run-perf-tests.ps1
+$baseline = @{
+    "201 opcode benchmark clean.lj" = 0.95  # max seconds
+    "110 Primes.lj" = 0.50
+    "112 Mandelbrot.lj" = 1.20
+}
+</pre>
+
+<h3>Quick Wins (Immediate Implementation)</h3>
+<table>
+    <tr>
+        <th>Change</th>
+        <th>Effort</th>
+        <th>Impact</th>
+    </tr>
+    <tr>
+        <td>Eliminate <code>LFETCH x; LSTORE x</code></td>
+        <td>2 hours</td>
+        <td>~2% speedup</td>
+    </tr>
+    <tr>
+        <td>Fold <code>PUSH 0; ADD</code> → remove</td>
+        <td>1 hour</td>
+        <td>~1% speedup</td>
+    </tr>
+    <tr>
+        <td>Fold <code>PUSH 1; MUL</code> → remove</td>
+        <td>1 hour</td>
+        <td>~1% speedup</td>
+    </tr>
+    <tr>
+        <td>Document pass dependencies</td>
+        <td>3 hours</td>
+        <td>Maintainability++</td>
+    </tr>
+</table>
+
+<h3>A-Grade Checklist</h3>
+<table>
+    <tr>
+        <th>Requirement</th>
+        <th>Status</th>
+    </tr>
+    <tr>
+        <td>Peephole optimizer (10+ patterns)</td>
+        <td>☐ Not implemented</td>
+    </tr>
+    <tr>
+        <td>Loop counter optimization</td>
+        <td>☐ Not implemented</td>
+    </tr>
+    <tr>
+        <td>Constant propagation across assignments</td>
+        <td>☐ Not implemented</td>
+    </tr>
+    <tr>
+        <td>Pass dependency documentation</td>
+        <td>☐ Not implemented</td>
+    </tr>
+    <tr>
+        <td>Performance regression suite</td>
+        <td>☐ Not implemented</td>
+    </tr>
+    <tr>
+        <td>No redundant LFETCH/LSTORE in output</td>
+        <td>☐ Not verified</td>
+    </tr>
+</table>
+
+<h2>10. Conclusion</h2>
+
+<p>The LJ2 compiler demonstrates <strong>strong engineering fundamentals</strong> with particular excellence in:</p>
+<ul>
+    <li>Memory isolation preventing corruption bugs</li>
+    <li>Compile-time type specialization for runtime performance</li>
+    <li>Comprehensive C-like language feature set</li>
+</ul>
+
+<p>The primary technical debt is in the postprocessor's 28-pass architecture, which would benefit from documentation and modularization.
+However, the current design prioritizes <strong>VM execution speed</strong> - which is achieved effectively.</p>
+
+<p><strong>Recommendation:</strong> Focus on incremental improvements (peephole optimization, documentation) rather than architectural rewrites.
+The isolated memory model is a significant asset worth preserving.</p>
+
+<p><strong>Path to Grade A:</strong> Implement the peephole optimizer and document pass dependencies. These two changes alone would
+significantly improve both performance and maintainability, pushing the grade to a solid A.</p>
+
+<hr>
+<p style="color: #7f8c8d; font-size: 0.9em;">
+    Generated: December 17, 2025<br>
+    LJ2 Version: 1.032.122<br>
+    Analysis by: Claude Code
+</p>
+
+</body>
+</html>

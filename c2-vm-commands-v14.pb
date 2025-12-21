@@ -389,6 +389,15 @@ Procedure               C2LLMOVF()
    pc + 1
 EndProcedure
 
+Procedure               C2LLPMOV()
+   vm_DebugFunctionName()
+   ; V1.033.41: LL PMOV - Local to Local pointer move (copies i, ptr, ptrtype)
+   gLocal(gLocalBase + _AR()\i)\i = gLocal(gLocalBase + _AR()\j)\i
+   gLocal(gLocalBase + _AR()\i)\ptr = gLocal(gLocalBase + _AR()\j)\ptr
+   gLocal(gLocalBase + _AR()\i)\ptrtype = gLocal(gLocalBase + _AR()\j)\ptrtype
+   pc + 1
+EndProcedure
+
 Procedure               C2LFETCH()
    vm_DebugFunctionName()
    ; V1.31.0: Fetch from gLocal[gLocalBase + offset] to gEvalStack[]
@@ -413,9 +422,6 @@ EndProcedure
 Procedure               C2LFETCHF()
    vm_DebugFunctionName()
    ; V1.31.0: Fetch float from gLocal[gLocalBase + offset] to gEvalStack[]
-   CompilerIf #DEBUG
-      Debug "VM LFETCHF: sp=" + Str(sp) + " gLocalBase=" + Str(gLocalBase) + " offset=" + Str(_AR()\i) + " floatVal=" + StrD(gLocal(gLocalBase + _AR()\i)\f)
-   CompilerEndIf
    gEvalStack(sp)\f = gLocal(gLocalBase + _AR()\i)\f
    sp + 1
    pc + 1
@@ -481,7 +487,6 @@ Procedure               C2LSTOREF()
          gExitApplication = #True
          ProcedureReturn
       EndIf
-      Debug "VM LSTOREF: sp=" + Str(sp) + " gLocalBase=" + Str(gLocalBase) + " offset=" + Str(_AR()\i) + " value=" + StrD(gEvalStack(sp)\f)
    CompilerEndIf
    gLocal(localIdx)\f = gEvalStack(sp)\f
    pc + 1
@@ -672,24 +677,9 @@ Procedure               C2JZ()
    vm_DebugFunctionName()
    sp - 1
    ; V1.31.0: Read from gEvalStack[]
-   CompilerIf #DEBUG
-      If gStackDepth >= 6
-         Debug "C2JZ: pc=" + Str(pc) + " sp=" + Str(sp) + " value=" + Str(gEvalStack(sp)\i) + " offset=" + Str(_AR()\i) + " depth=" + Str(gStackDepth)
-      EndIf
-   CompilerEndIf
    If Not gEvalStack(sp)\i
-      CompilerIf #DEBUG
-         If gStackDepth >= 6
-            Debug "  → JUMPING to pc=" + Str(pc + _AR()\i)
-         EndIf
-      CompilerEndIf
       pc + _AR()\i
    Else
-      CompilerIf #DEBUG
-         If gStackDepth >= 6
-            Debug "  → NOT jumping, continuing to pc=" + Str(pc + 1)
-         EndIf
-      CompilerEndIf
       pc + 1
    EndIf
 EndProcedure
@@ -1209,16 +1199,9 @@ Procedure               C2CALL()
    ; V1.31.0: Set new frame base
    gLocalBase = gLocalTop  ; New frame starts at current top
 
-   CompilerIf #DEBUG
-      Debug "C2CALL: depth=" + Str(gStackDepth) + " pcAddr=" + Str(_PCADDR) + " nParams=" + Str(_NPARAMS) + " sp=" + Str(sp)
-   CompilerEndIf
-
    ; V1.31.0: Copy parameters from gEvalStack[] to gLocal[] (reverse order)
    For i = 0 To _NPARAMS - 1
       CopyStructure(gEvalStack(sp - 1 - i), gLocal(gLocalBase + i), stVTSimple)
-      CompilerIf #DEBUG
-         Debug "  Copy param[" + Str(i) + "]: gEvalStack[" + Str(sp - 1 - i) + "] -> gLocal[" + Str(gLocalBase + i) + "]"
-      CompilerEndIf
    Next
 
    ; Pop parameters from evaluation stack
@@ -1230,9 +1213,6 @@ Procedure               C2CALL()
          For i = 0 To gFuncTemplates(_FUNCID)\localCount - 1
             CopyStructure(gFuncTemplates(_FUNCID)\template(i), gLocal(gLocalBase + _NPARAMS + i), stVTSimple)
          Next
-         CompilerIf #DEBUG
-            Debug "  Preloaded " + Str(gFuncTemplates(_FUNCID)\localCount) + " locals from template"
-         CompilerEndIf
       EndIf
    EndIf
 
@@ -1424,9 +1404,6 @@ Procedure               C2Return()
 
    ; Save return value before cleanup
    If sp > 0 : _retval = _POPI : EndIf
-   CompilerIf #DEBUG
-      Debug "C2Return: sp=" + Str(sp) + " retval=" + Str(_retval) + " depth=" + Str(gStackDepth)
-   CompilerEndIf
 
    ; Restore caller's pc and sp
    pc = gStack(gStackDepth)\pc

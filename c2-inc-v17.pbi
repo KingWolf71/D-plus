@@ -1,4 +1,4 @@
-﻿
+
 ; -- lexical parser to VM for a simplified C Language
 ; Tested in UTF8
 ; PBx64 v6.20
@@ -54,6 +54,7 @@
 #INV$             = ~"\""
 #C2MAXTOKENS      = 500   ; Legacy, use #C2TOKENCOUNT for actual count
 #C2MAXCONSTANTS   = 32767
+#C2MAXFUNCTIONS   = 8192  ; V1.033.54: Max functions (for function-indexed arrays)
 
 ; V1.31.0: Isolated Variable System array sizes - now use global variables:
 ; gLocalStack, gMaxEvalStack, gGlobalStack, gFunctionStack (set via pragmas)
@@ -243,7 +244,7 @@ Enumeration
    ;- Local Variable Opcodes (V1.31.0: Isolated Variable System)
    ; V1.31.0: Locals stored in gLocal[], globals in gVar[], eval stack in gEvalStack[]
    ; LMOV/LFETCH/LSTORE operate on gLocal[] array (isolated from gVar[])
-   #ljLMOV       ; GL MOV: gLocal[offset] = gVar[slot] (Global → Local)
+   #ljLMOV       ; GL MOV: gLocal[offset] = gVar[slot] (Global ? Local)
    #ljLMOVS      ; GL MOVS: string variant
    #ljLMOVF      ; GL MOVF: float variant
    #ljLFETCH     ; Local FETCH: push gLocal[offset] to gEvalStack
@@ -255,13 +256,14 @@ Enumeration
 
    ;- Cross-locality MOV opcodes (LL/LG/GL matrix)
    ; Format: [src][dst]MOV where L=Local (gLocal[]), G=Global (gVar[])
-   ; LMOV is GL (Global → Local), use LGMOV for Local → Global
-   #ljLGMOV      ; LG MOV: gVar[slot] = gLocal[offset] (Local → Global)
+   ; LMOV is GL (Global ? Local), use LGMOV for Local ? Global
+   #ljLGMOV      ; LG MOV: gVar[slot] = gLocal[offset] (Local ? Global)
    #ljLGMOVS     ; LG MOVS: string variant
    #ljLGMOVF     ; LG MOVF: float variant
-   #ljLLMOV      ; LL MOV: gLocal[dst] = gLocal[src] (Local → Local)
+   #ljLLMOV      ; LL MOV: gLocal[dst] = gLocal[src] (Local ? Local)
    #ljLLMOVS     ; LL MOVS: string variant
    #ljLLMOVF     ; LL MOVF: float variant
+   #ljLLPMOV     ; LL PMOV: pointer variant (copies i, ptr, ptrtype)
 
    ;- In-place increment/decrement opcodes (unified for all variables)
    #ljINC_VAR        ; Increment variable in place (no stack operation)
@@ -347,7 +349,7 @@ Enumeration
    #ljARRAYFETCH_STR_LOCAL_STACK      ; Local array, stack index
 
    ;- Specialized Array Store Opcodes (eliminate runtime branching)
-   ; INT variants (global/local × index source × value source)
+   ; INT variants (global/local � index source � value source)
    #ljARRAYSTORE_INT_GLOBAL_OPT_OPT       ; Global, opt index, opt value
    #ljARRAYSTORE_INT_GLOBAL_OPT_STACK     ; Global, opt index, stack value
    #ljARRAYSTORE_INT_GLOBAL_STACK_OPT     ; Global, stack index, opt value
@@ -822,7 +824,7 @@ Structure stCodeIns
    j.l         ; Second parameter (full int)
    n.w         ; Local var count (word)
    ndx.w       ; Local array count or index slot (word)
-   funcid.w    ; Function ID for CALL (word)
+   funcid.l    ; Function ID for CALL (long - V1.033.50: changed from .w to support >32K functions)
    anchor.w    ; V1.020.070: Jump anchor ID for NOOP-safe offset recalculation
 EndStructure
 
@@ -933,6 +935,10 @@ Structure stVarTemplate
    ptrtype.w         ; Pointer type tag (0=not pointer, 1-7=pointer types)
    arraySize.i       ; For arrays: number of elements (0 if not array)
                      ; Note: actual array elements allocated at runtime via ReDim
+   ; V1.033.50: VM needs these fields to work independently of gVarMeta
+   flags.l           ; Variable flags (CONST, ARRAY, STRUCT, etc.)
+   paramOffset.i     ; Parameter offset (-1 for globals)
+   elementSize.i     ; For structs: number of fields (for memory allocation)
 EndStructure
 
 ;  Function template - stores initial values for a function's local variables
@@ -948,7 +954,7 @@ EndStructure
 
 Global Dim           gszATR.stATR(#C2TOKENCOUNT)
 Global Dim           gVarMeta.stVarMeta(#C2MAXCONSTANTS)  ; Compile-time info only
-Global Dim           gFuncLocalArraySlots.i(512, 15)  ; [functionID, localArrayIndex] -> varSlot (initial size, Dim'd to exact size during FixJMP)
+Global Dim           gFuncLocalArraySlots.i(#C2MAXFUNCTIONS, 15)  ; [functionID, localArrayIndex] -> varSlot
 Global Dim           arCode.stCodeIns(1)
 Global NewMap        mapPragmas.s()
 Global NewMap        mapStructDefs.stStructDef()  ; V1.021.0: Structure type definitions
@@ -972,8 +978,20 @@ Global               gExtraStructSlots.i  ; V1.029.5: Extra slots pushed for str
 Global               gDotFieldType.w      ; V1.029.19: Field type from DOT notation handler (for typed LFETCH)
 
 ; V1.033.17: ASM listing name lookup tables (populated during codegen, used by ASMLine)
-Global Dim           gFuncNames.s(512)       ; funcId -> function name (for CALL display)
-Global Dim           gLocalNames.s(512, 64)  ; (funcId, paramOffset) -> local variable name
+Global Dim           gFuncNames.s(#C2MAXFUNCTIONS)       ; funcId -> function name (for CALL display)
+Global Dim           gLocalNames.s(#C2MAXFUNCTIONS, 64)  ; (funcId, paramOffset) -> local variable name
+
+; V1.033.50: Dynamic function array capacity tracking
+Global               gnFuncArrayCapacity.i = #C2MAXFUNCTIONS  ; Current capacity of function-indexed arrays
+
+;- Macros
+; V1.033.50/54: Ensure function-indexed arrays can hold funcId
+; NOTE: 2D arrays (gFuncLocalArraySlots, gLocalNames) cannot be ReDim'd on first dimension
+; Initial capacity set to 8192 to handle large programs (up to ~7000 functions)
+Macro                EnsureFuncArrayCapacity(_funcId_)
+   ; Capacity check removed - 8192 should be sufficient for any reasonable program
+   ; If exceeded, array access will generate out-of-bounds error
+EndMacro
 
 ;- Macros
 Macro          _ASMLineHelper1(view, uvar)

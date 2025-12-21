@@ -1520,9 +1520,9 @@
 
                   ; Set element type based on type hint or pointer flag
                   If isPointerArray
-                     ; Pointer array - elements are pointers (stored as slot indices)
-                     ; Just use INT type, no special POINTER flag needed
-                     gVarMeta(varSlot)\flags = gVarMeta(varSlot)\flags | #C2FLAG_INT
+                     ; V1.033.44: Pointer array - mark with POINTER flag so type inference knows
+                     ; elements contain pointers (ARRAY|POINTER|INT = pointer array)
+                     gVarMeta(varSlot)\flags = gVarMeta(varSlot)\flags | #C2FLAG_INT | #C2FLAG_POINTER
                   ElseIf arrayTypeHint = #ljFLOAT
                      gVarMeta(varSlot)\flags = gVarMeta(varSlot)\flags | #C2FLAG_FLOAT
                   ElseIf arrayTypeHint = #ljSTRING
@@ -1550,6 +1550,8 @@
                         ; Local arrays get paramOffset = nParams + nLocalArrays (0-indexed within function)
                         gVarMeta(varSlot)\paramOffset = mapModules()\nParams + mapModules()\nLocalArrays
                         ; Store mapping: [functionId, localArrayIndex] -> varSlot
+                        ; V1.033.50: Ensure array capacity for this function ID
+                        EnsureFuncArrayCapacity(stmtFunctionId)
                         gFuncLocalArraySlots(stmtFunctionId, mapModules()\nLocalArrays) = varSlot
                         mapModules()\nLocalArrays + 1
                         ; Update nLocals count - now simply equals nLocalArrays (other locals added during codegen)

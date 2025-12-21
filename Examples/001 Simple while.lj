@@ -20,7 +20,6 @@
 #pragma DefaultFPS 32
 #pragma ThreadKillWait 1800
 #pragma DumpASM off
-#pragma autoclose 12
 
 count = 1;
  while (count < 10) {

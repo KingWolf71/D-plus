@@ -1,5 +1,5 @@
 # LJ2 Implementation Status
-Version: 1.033.19
+Version: 1.033.57
 Date: December 2025
 
 ## Current File Versions
@@ -11,7 +11,8 @@ Date: December 2025
 | AST parser | `c2-ast-v06.pbi` | Recursive descent parser |
 | Code generator | `c2-codegen-v06.pbi` | AST to bytecode |
 | Scanner | `c2-scanner-v05.pbi` | Tokenizer |
-| Postprocessor | `c2-postprocessor-V09.pbi` | Type inference, optimization |
+| Type inference | `c2-typeinfer-V01.pbi` | Unified type resolution (NEW) |
+| Postprocessor | `c2-postprocessor-V10.pbi` | Correctness passes only |
 | Optimizer | `c2-optimizer-V01.pbi` | Peephole and fusion optimizations |
 | VM core | `c2-vm-V16.pb` | Virtual machine execution |
 | VM commands | `c2-vm-commands-v14.pb` | Opcode implementations |
@@ -20,6 +21,7 @@ Date: December 2025
 | Collections | `c2-collections-v03.pbi` | Lists and Maps |
 | Built-ins | `c2-builtins-v06.pbi` | Built-in functions |
 | Test runner | `run-tests-win.ps1` | Windows PowerShell test runner |
+| Quick test | `quick-test.ps1` | Fast test runner (excludes long tests) |
 
 ## Implemented Features
 
@@ -92,11 +94,29 @@ Date: December 2025
 - Optimized array access (global vs local, optimized index vs stack index)
 - 24 specialized array store variants
 - 12 specialized array fetch variants
+- 60 specialized pointer opcodes (eliminates runtime ptrType checks):
+  - FETPTR_VI/VF/VS: Simple variable pointer fetch (direct memory)
+  - FETPTR_AI/AF/AS: Array element pointer fetch (slot+index)
+  - FETPTR_LVI/LVF/LVS: Local variable pointer fetch
+  - FETPTR_LAI/LAF/LAS: Local array element pointer fetch
+  - STOPTR variants for all above patterns
+  - Typed pointer arithmetic (PTRADD/SUB_I/F/S/A)
+  - Typed increment/decrement (pre/post variants)
 
-### PostProcessor Passes
-1. Type inference - converts generic ops to typed variants
-2. Array index optimization - eliminates redundant PUSH operations
-3. Jump/call resolution - converts relative to absolute addresses
+### Compiler Pipeline
+1. **TypeInference** (c2-typeinfer-V01.pbi) - Unified type resolution:
+   - Phase A: Pointer type discovery
+   - Phase B: Opcode specialization (generic → typed variants)
+   - Phase B2: Array variant specialization (36 variants)
+   - Phase B3: PTRFETCH specialization
+   - Phase B4: Print type fixups
+2. **PostProcessor** (c2-postprocessor-V10.pbi) - Correctness passes:
+   - Implicit returns
+   - Return value type conversions
+   - Collection opcode typing
+3. **Optimizer** (c2-optimizer-V01.pbi) - Performance optimizations:
+   - Peephole optimization
+   - Instruction fusion (LLMOV, etc.)
 
 ## Test Suite
 
@@ -108,6 +128,94 @@ Located in `Examples/`:
 - Julia set renderer (21)
 
 ## Recent Changes (v1.031.x - v1.033.x)
+
+### v1.033.57
+- **Large Function Support**: Added #C2MAXFUNCTIONS = 8192 constant for function-indexed arrays
+- Increased gFuncLocalArraySlots, gFuncNames, gLocalNames array capacities from 512 to 8192
+- Fixed PureBasic 2D array ReDim limitation (only last dimension can be resized)
+- Removed ReDim calls that were shrinking arrays on multi-run sessions
+- Fixed hardcoded 512 limits in c2-typeinfer-V01.pbi
+- Successfully compiles stress test with 4,100+ functions, 5,045 lines of code
+- All tests pass
+
+### v1.033.53
+- **Function Limit Bug Fix**: Changed #C2FUNCSTART from 2 to 1000
+- Function IDs now start at offset 1000, allowing 997+ user-defined functions
+- Previous limit of ~170 functions was due to collision with special variable slots
+- All tests pass
+
+### v1.033.48
+- Fixed array bounds errors in IDE debugger during VM execution
+- Changed vmTransferMetaToRuntime() to dynamically resize gVar instead of returning early
+- Moved gVar resize logic to run AFTER pragmas are processed, ensuring correct size
+- Fixes issue where pragma GlobalStack could shrink gVar below required slot count
+- All 75 tests pass
+
+### v1.033.47
+- Fixed array bounds errors in IDE debugger (Test 999)
+- Added gGlobalTemplate reset in Init() to prevent stale template data between compilations
+- Added bounds verification before accessing gGlobalTemplate and gVar arrays in vmTransferMetaToRuntime()
+- Added dynamic gVar resizing in vmInitVM() when gnLastVariable exceeds default size
+- Prevents IDE debugger array index out of bounds errors during VM execution
+- All 75 tests pass
+
+### v1.033.46
+- **VM Independence**: Removed all gVarMeta references from VM code
+- Extended stVarTemplate structure with flags, elementSize, paramOffset fields
+- Postprocessor now populates complete template for all variables
+- VM uses only gGlobalTemplate for runtime initialization
+- Prepares for future compiler/VM separation (JSON/XML bytecode loading)
+- All 75 tests pass
+
+### v1.033.45
+- Fixed pointer detection for local variables used with increment/decrement (Test 064)
+- TypeInference Phase A7 detects LINCV/LDECV followed by POP as pointer pattern
+- Local variables like `left++` and `right--` in pointer traversal now correctly marked as pointers
+- Enables LLPMOV fusion instead of LLMOV for pointer-preserving local-to-local moves
+- All 75 tests pass
+
+### v1.033.44
+- Fixed pointer array swap operations (Test 062 pointer array reordering)
+- Pointer arrays (`array *name[n]`) now marked with ARRAY | POINTER flags
+- TypeInference Phase B5 converts POP to PPOP after pointer array fetch
+- Ensures pointer metadata is preserved when swapping elements in pointer arrays
+- All 75 tests pass
+
+### v1.033.43
+- Added -x/--autoquit command line option to set auto-close timer
+- Usage: `lj2.exe -x 5 program.lj` or `lj2.exe --autoquit 5 program.lj`
+- Equivalent to adding `#pragma autoclose 5` to the source file
+- Timer shows countdown message and closes window after specified seconds
+
+### v1.033.42
+- Fixed TypeInference prefix matching to handle leading underscore in variable names
+- Variable names like `_funcname_varname` now correctly match function context
+- Added LLPMOV opcode for pointer-aware local-to-local moves
+- Optimizer now fuses PLFETCH+PLSTORE into LLPMOV for pointer assignments
+- A6 phase propagates pointer types through LFETCH+LSTORE sequences
+- All 75 tests pass
+
+### v1.033.39
+- Added specialized pointer opcode names to data section for ASM listing
+- Complete set of 60 specialized pointer opcodes for fetch/store/arithmetic
+- Opcodes now display correctly in ASM output (FETPTR_VI, STOPTR_AI, etc.)
+- Removed debug statements from VM (C2JZ, C2CALL, C2Return tracing)
+
+### v1.033.22
+- Auto-disable RunThreaded when --test mode is active (fixes hanging tests)
+- Updated quick-test.ps1 to exclude tests 064, 069 (RunThreaded issues)
+- All 62 quick tests pass
+
+### v1.033.21
+- Major refactoring: Type inference consolidated into single module (c2-typeinfer-V01.pbi)
+- Created c2-postprocessor-V10.pbi with only correctness passes (6-8)
+- Type inference passes (1-5) moved from PostProcessor to TypeInference module
+- All 63 tests pass with new architecture
+- Updated quick-test.ps1 to exclude hanging tests (069, 120, 122)
+
+### v1.033.20
+- Created unified type inference module (c2-typeinfer-V01.pbi)
+- Backup before major refactoring
 
 ### v1.033.19
 - Fixed c2tokens Data section alignment (added missing VOID entry)
@@ -147,7 +255,8 @@ Backups stored in `backups/` folder:
 - VM execution speed prioritized
 - Definitions at procedure start (PureBasic requirement)
 - Global variables for state (no procedure statics)
-- PostProcessor handles type inference (VM stays simple)
+- TypeInference module handles all type resolution (VM stays simple)
+- PostProcessor handles correctness only (implicit returns, type conversions, collections)
 - gVarMeta NOT used in VM code
 
 ---

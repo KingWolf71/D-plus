@@ -491,6 +491,8 @@ Procedure Optimizer()
    Protected nextOpCode.i
    Protected shiftAmount.i
    Protected savedIdx.i
+   Protected jmpOffset.i       ; V1.033.31: JMP offset for backward jump check
+   Protected nextRealIdx.i     ; V1.033.31: Index of next real instruction
 
    ForEach llObjects()
       Select llObjects()\code
@@ -512,24 +514,31 @@ Procedure Optimizer()
 
          ;- Jump to next instruction → NOOP
          ;  Pattern: JMP/JZ to immediately following instruction is useless
+         ;  V1.033.31: CRITICAL FIX - Don't optimize backward JMPs (while loops)!
+         ;  Only forward jumps (offset > 0) that land on the next instruction can be removed
          Case #ljJMP
             savedIdx = ListIndex(llObjects())
-            jmpTargetIdx = llObjects()\n  ; Jump target
-            ; Check if target is next instruction (skip NOOPs)
-            If NextElement(llObjects())
-               While llObjects()\code = #ljNOOP
-                  If Not NextElement(llObjects())
-                     Break
+            jmpOffset = llObjects()\i  ; Jump offset (negative for backward jumps)
+            ; V1.033.31: Never optimize backward jumps - these are loop constructs
+            If jmpOffset >= 0
+               ; Check if target is next instruction (skip NOOPs)
+               If NextElement(llObjects())
+                  While llObjects()\code = #ljNOOP Or llObjects()\code = #ljNOOPIF
+                     If Not NextElement(llObjects())
+                        Break
+                     EndIf
+                  Wend
+                  ; Check if we ended up at the jump target (offset of 1 after skipping NOOPs)
+                  nextRealIdx = ListIndex(llObjects())
+                  SelectElement(llObjects(), savedIdx)
+                  ; Only remove if the forward jump lands exactly on the next real instruction
+                  If nextRealIdx - savedIdx = jmpOffset
+                     llObjects()\code = #ljNOOP
+                     peepholeCount + 1
                   EndIf
-               Wend
-               ; Compare with jump target by checking anchor
-               If ListIndex(llObjects()) = jmpTargetIdx Or (llObjects()\anchor > 0 And llObjects()\anchor = llObjects()\anchor)
-                  SelectElement(llObjects(), savedIdx)
-                  llObjects()\code = #ljNOOP
-                  peepholeCount + 1
-               Else
-                  SelectElement(llObjects(), savedIdx)
                EndIf
+            Else
+               ; Backward jump - do not optimize (this is a loop)
             EndIf
 
          ;- Conditional jump on constant → unconditional or NOOP
@@ -740,6 +749,32 @@ Procedure Optimizer()
                   dstOffset = llObjects()\i
                   If srcOffset <> dstOffset
                      llObjects()\code = #ljLLMOVF
+                     llObjects()\i = dstOffset
+                     llObjects()\j = srcOffset
+                     ChangeCurrentElement(llObjects(), *lfetchInstr)
+                     llObjects()\code = #ljNOOP
+                     llmovCount + 1
+                  EndIf
+               EndIf
+               SelectElement(llObjects(), savedIdx)
+            EndIf
+
+         ;- V1.033.41: PLFETCH (pointer) followed by PLSTORE → LLPMOV
+         Case #ljPLFETCH
+            srcOffset = llObjects()\i
+            *lfetchInstr = @llObjects()
+            savedIdx = ListIndex(llObjects())
+            If NextElement(llObjects())
+               ; Skip NOOPs
+               While llObjects()\code = #ljNOOP
+                  If Not NextElement(llObjects())
+                     Break
+                  EndIf
+               Wend
+               If llObjects()\code = #ljPLSTORE
+                  dstOffset = llObjects()\i
+                  If srcOffset <> dstOffset
+                     llObjects()\code = #ljLLPMOV
                      llObjects()\i = dstOffset
                      llObjects()\j = srcOffset
                      ChangeCurrentElement(llObjects(), *lfetchInstr)
