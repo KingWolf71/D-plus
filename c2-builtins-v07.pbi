@@ -385,6 +385,7 @@ EndProcedure
 ;   %f     - float (default decimals)
 ;   %.Nf   - float with N decimal places
 ;   %s     - string
+;   %p, %a - pointer/address (displays integer as hex address)
 ;   %%     - literal percent
 ; Escape sequences are processed at compile time in scanner
 Procedure C2BUILTIN_PRINTF()
@@ -442,6 +443,12 @@ Procedure C2BUILTIN_PRINTF()
             Case "s"  ; String
                If argIndex < paramCount
                   output + gEvalStack(sp - paramCount + argIndex)\ss
+                  argIndex + 1
+               EndIf
+
+            Case "p", "a"  ; V1.036.2: Pointer/address (display as hex)
+               If argIndex < paramCount
+                  output + "0x" + Hex(gEvalStack(sp - paramCount + argIndex)\i)
                   argIndex + 1
                EndIf
 

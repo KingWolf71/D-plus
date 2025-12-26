@@ -3,7 +3,6 @@
 #pragma console on
 #pragma consolesize "680x740"
 #pragma consoleposition "30,50"
-#pragma optimizecode on
 #pragma ListASM on
 #pragma FastPrint on
 #pragma RunThreaded off
@@ -21,8 +20,7 @@
 #pragma ThreadKillWait 1800
 #pragma DumpASM off
 
-count = 1;
+count = 0;
 while (count < 10) {
-    printf("count is: %d\n", count);
-    count++;
+    printf("count is: %d\n", ++count);
 }

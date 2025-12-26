@@ -1,8 +1,8 @@
 # LJ2 Compiler & Virtual Machine
 
-**Version:** 1.17.0
-**Language:** PureBasic (v6.20+)
-**Target:** Windows x64 / Linux
+**Version:** 1.037.4
+**Language:** PureBasic (v6.10+)
+**Target:** Windows x64 / Linux x64
 
 ## Overview
 
@@ -13,9 +13,13 @@ The language features:
 - Dynamic typing with type inference
 - Functions with parameters and local variables
 - Arrays (global and local, integer/float/string types)
+- Structures with field access
+- Pointers with arithmetic operations
+- Lists and Maps collections
 - Macros with nested expansion
 - Pragmas for compile-time configuration
 - Built-in assertion functions for testing
+- printf() for C-style formatted output
 
 ## Architecture
 
@@ -57,12 +61,15 @@ Bytecode Array (arCode)
 
 | File | Version | Purpose |
 |------|---------|---------|
-| `c2-modules-V13.pb` | V13 | Main compiler module - orchestrates compilation pipeline |
-| `c2-inc-v09.pbi` | v09 | Global definitions, structures, constants, macros |
-| `c2-postprocessor-V02.pbi` | V02 | Type inference, optimizations, instruction fusion |
-| `c2-vm-V08.pb` | V08 | Virtual machine core, execution loop |
-| `c2-vm-commands-v06.pb` | v06 | VM instruction implementations (~150 opcodes) |
-| `pbtester.pb` | - | Test harness for running .lj programs |
+| `c2-modules-V23.pb` | V23 | Main compiler module - orchestrates compilation pipeline |
+| `c2-inc-v19.pbi` | v19 | Global definitions, 505 opcodes, structures, constants |
+| `c2-ast-v08.pbi` | v08 | Recursive descent parser, AST construction |
+| `c2-codegen-v08.pbi` | v08 | AST to bytecode translation |
+| `c2-typeinfer-V03.pbi` | V03 | Unified type resolution |
+| `c2-postprocessor-V12.pbi` | V12 | Correctness passes (implicit returns, collections) |
+| `c2-optimizer-V03.pbi` | V03 | 5-pass peephole optimization |
+| `c2-vm-V17.pb` | V17 | Virtual machine core, execution loop |
+| `c2-vm-commands-v15.pb` | v15 | VM instruction implementations (505 opcodes) |
 
 ### Support Files
 
@@ -132,7 +139,7 @@ The PostProcessor performs multiple optimization passes:
 The VM uses a stack-based architecture with specialized instruction variants for performance:
 
 **Key Features:**
-- ~150 specialized opcodes (vs ~20 generic)
+- 505 specialized opcodes (vs ~20 generic)
 - Separate local variable arrays per stack frame (LocalInt, LocalFloat, LocalString)
 - Local array support with proper scoping
 - Zero-overhead type dispatch (resolved at compile time)
@@ -149,54 +156,44 @@ gStack[depth]
   └── sp               - Saved stack pointer
 ```
 
-## Recent Improvements (v1.17.0)
+## Recent Improvements
 
-### Local Arrays in Functions
-Full support for local arrays with proper scoping and lifetime management:
+### v1.037.x - ASM Naming & Bug Fixes
+- **Normalized ASM Names**: All long opcode display names shortened (AF_I_G_O instead of ARRAYFETCH_INT_GLOBAL_OPT)
+- **Struct Declaration Fix**: `p1.Point;` syntax now properly allocates struct memory
+- **Cross-Platform**: All 75 tests pass on Windows and Linux
 
-```c
-function processData() {
-    array local_ints.i[100];
-    array local_floats.f[50];
+### v1.036.x - Struct Arrays & printf()
+- **Array of Structs**: `array points.Point[10];` with `points[i]\x` field access
+- **printf() Built-in**: C-style formatted output with %d, %f, %s, %.Nf specifiers
+- **String Length Caching**: O(1) length access via cached field
 
-    // Arrays are automatically allocated on function entry
-    // and deallocated on return
-}
-```
+### v1.035.x - Optimizer Enhancements
+- **Rule-Based Optimizer**: Lookup tables for peephole patterns
+- **MOV Fusion**: FETCH+STORE → single MOV instruction (all locality combinations)
+- **DUP Optimization**: FETCH x + FETCH x → FETCH x + DUP for squared patterns
+- **Constant Folding**: PUSH+NEGATE → negative constant at compile time
 
-**Implementation:**
-- Function ID stored in CALL instruction's `flags` field
-- `gFuncLocalArraySlots[funcID, arrayIndex]` maps to variable metadata
-- VM allocates local arrays on stack frame creation
-- Array metadata populated during CodeGenerator phase
-
-### Instruction Structure Enhancement
-Added `flags` field to both compile-time (`stType`) and runtime (`stCodeIns`) structures:
-
-```purebasic
-Structure stCodeIns
-   code.l      ; Opcode
-   i.l         ; Operand 1 / PC address for CALL
-   j.l         ; Operand 2 / Param count for CALL
-   n.l         ; Operand 3 / Local count for CALL
-   ndx.l       ; Index field / Array count for CALL
-   flags.b     ; Function ID for CALL (NEW in v1.17)
-EndStructure
-```
-
-### Bug Fixes
-- **LMOV Corruption**: Fixed Select statement in EmitInt that was overwriting local variable indices
-- **Array Bounds**: Corrected `gFuncLocalArraySlots` indexing (by function ID, not PC address)
-- **Data Loss**: Prevented accidental array clearing during FixJMP phase
+### v1.034.x - Large Function Support
+- **8192 Max Functions**: Removed 512 function limit
+- **O(1) Variable Lookups**: MapCodeElements for fast variable resolution
+- **Unified Code Element Map**: Full metadata tracking with expression chains
 
 ## Usage
 
 ### Compiling and Running Programs
 
-1. **Open in PureBasic IDE**: Load `c2-modules-V13.pb`
+1. **Open in PureBasic IDE**: Load `c2-modules-V23.pb`
 2. **Select Target**: Choose your .lj file at the bottom of the module
 3. **Compile**: Press F5 to compile and run
 4. **Output**: Results appear in the VM console window
+
+**Command Line:**
+```bash
+lj2.exe program.lj              # Run with GUI
+lj2.exe --test program.lj       # Run headless (console output)
+lj2.exe -x 5 program.lj         # Auto-close after 5 seconds
+```
 
 ### Example Program
 
@@ -299,18 +296,25 @@ Use `pbtester.pb` to batch-run test files and verify output.
 
 ## Version History
 
-### v1.17.0 (Current)
-- ✅ Full local array support in functions
-- ✅ Function ID tracking in CALL instructions
-- ✅ LMOV instruction fix
-- ✅ Module version advancement (V12→V13, v05→v06, etc.)
-- ✅ Improved array bounds checking
+### v1.037.x (Current)
+- ✅ Normalized ASM opcode names for readable output
+- ✅ Struct declaration bug fix
+- ✅ Cross-platform testing (Windows + Linux)
 
-### v1.16.x Series
-- Array implementation and optimization
-- Instruction fusion system
-- Type inference improvements
-- Local variable optimizations
+### v1.036.x
+- ✅ Array of structs implementation
+- ✅ printf() C-style formatted output
+- ✅ String length caching
+
+### v1.035.x
+- ✅ Rule-based peephole optimizer
+- ✅ MOV fusion optimization
+- ✅ DUP and negate constant folding
+
+### v1.034.x
+- ✅ 8192 max functions support
+- ✅ O(1) variable lookups
+- ✅ Unified code element map
 
 ## Documentation
 
@@ -329,5 +333,5 @@ Based on Rosetta Code compiler examples.
 ---
 
 **Author:** Kingwolf71
-**Date:** May 2025
-**Platform:** PureBasic 6.21 (Windows x64)
+**Date:** December 2025
+**Platform:** PureBasic 6.10+ (Windows x64 / Linux x64)

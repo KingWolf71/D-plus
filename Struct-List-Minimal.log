@@ -1,0 +1,42 @@
+=== STRUCT LIST MINIMAL TEST ===
+
+Added 3 items to list
+List size: 3
+
+TEST 1: Global scope retrieval
+  Got: Apple = 10
+
+TEST 2: Local scope single retrieval
+  Got: Apple = 10
+  Expected: Apple = 10
+
+TEST 3: Local scope with explicit alloc
+  Got: Apple = 10
+  Expected: Apple = 10
+
+TEST 4: Local iteration through list
+  Got: Apple = 10
+  Got: Banana = 20
+  Got: Cherry = 30
+  Expected: Apple=10, Banana=20, Cherry=30
+
+TEST 5: Pass local struct strings to function
+  printItem got: Apple = 10
+  printItem got: Banana = 20
+  printItem got: Cherry = 30
+  Expected: Apple=10, Banana=20, Cherry=30
+
+TEST 6: Nested function calls with foreach
+  Got: Apple = 10
+    (printFirst got: Apple)
+  Got: Banana = 20
+    (printFirst got: Apple)
+  Got: Cherry = 30
+    (printFirst got: Apple)
+  Expected: Apple=10, Banana=20, Cherry=30 (with printFirst after each)
+
+=== ALL TESTS COMPLETE ===
+Runtime: 0.01 seconds.
+
+
+

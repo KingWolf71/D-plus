@@ -13,7 +13,6 @@
 #pragma console on
 #pragma consolesize "680x740"
 #pragma consoleposition "30,50"
-#pragma optimizecode on
 #pragma ListASM off
 #pragma FastPrint on
 #pragma version on

@@ -770,6 +770,122 @@ Procedure               C2DROP()
    pc + 1
 EndProcedure
 
+;- V1.035.16: Fused comparison-jump opcodes for loop optimization
+; Pattern: FETCH + PUSH_IMM + CMP + JZ fused into single instruction
+; Encoding: \ndx=slot, \j=immediate, \i=jump offset (FixJMP updates \i)
+; Note: These use INVERTED condition (jump when OPPOSITE is true)
+; e.g., JGE_VAR_IMM jumps when var >= imm (inverts LESS+JZ which exits when var < imm is false)
+
+; Global variable versions - compare *gVar(slot)\var(0)\i with immediate
+Procedure               C2JGE_VAR_IMM()
+   vm_DebugFunctionName()
+   If _GLOBAL(_AR()\ndx)\i >= _AR()\j
+      pc + _AR()\i
+   Else
+      pc + 1
+   EndIf
+EndProcedure
+
+Procedure               C2JGT_VAR_IMM()
+   vm_DebugFunctionName()
+   If _GLOBAL(_AR()\ndx)\i > _AR()\j
+      pc + _AR()\i
+   Else
+      pc + 1
+   EndIf
+EndProcedure
+
+Procedure               C2JLE_VAR_IMM()
+   vm_DebugFunctionName()
+   If _GLOBAL(_AR()\ndx)\i <= _AR()\j
+      pc + _AR()\i
+   Else
+      pc + 1
+   EndIf
+EndProcedure
+
+Procedure               C2JLT_VAR_IMM()
+   vm_DebugFunctionName()
+   If _GLOBAL(_AR()\ndx)\i < _AR()\j
+      pc + _AR()\i
+   Else
+      pc + 1
+   EndIf
+EndProcedure
+
+Procedure               C2JEQ_VAR_IMM()
+   vm_DebugFunctionName()
+   If _GLOBAL(_AR()\ndx)\i = _AR()\j
+      pc + _AR()\i
+   Else
+      pc + 1
+   EndIf
+EndProcedure
+
+Procedure               C2JNE_VAR_IMM()
+   vm_DebugFunctionName()
+   If _GLOBAL(_AR()\ndx)\i <> _AR()\j
+      pc + _AR()\i
+   Else
+      pc + 1
+   EndIf
+EndProcedure
+
+; Local variable versions - compare *gVar(gCurrentFuncSlot)\var(offset)\i with immediate
+Procedure               C2JGE_LVAR_IMM()
+   vm_DebugFunctionName()
+   If _LOCALI(_AR()\ndx) >= _AR()\j
+      pc + _AR()\i
+   Else
+      pc + 1
+   EndIf
+EndProcedure
+
+Procedure               C2JGT_LVAR_IMM()
+   vm_DebugFunctionName()
+   If _LOCALI(_AR()\ndx) > _AR()\j
+      pc + _AR()\i
+   Else
+      pc + 1
+   EndIf
+EndProcedure
+
+Procedure               C2JLE_LVAR_IMM()
+   vm_DebugFunctionName()
+   If _LOCALI(_AR()\ndx) <= _AR()\j
+      pc + _AR()\i
+   Else
+      pc + 1
+   EndIf
+EndProcedure
+
+Procedure               C2JLT_LVAR_IMM()
+   vm_DebugFunctionName()
+   If _LOCALI(_AR()\ndx) < _AR()\j
+      pc + _AR()\i
+   Else
+      pc + 1
+   EndIf
+EndProcedure
+
+Procedure               C2JEQ_LVAR_IMM()
+   vm_DebugFunctionName()
+   If _LOCALI(_AR()\ndx) = _AR()\j
+      pc + _AR()\i
+   Else
+      pc + 1
+   EndIf
+EndProcedure
+
+Procedure               C2JNE_LVAR_IMM()
+   vm_DebugFunctionName()
+   If _LOCALI(_AR()\ndx) <> _AR()\j
+      pc + _AR()\i
+   Else
+      pc + 1
+   EndIf
+EndProcedure
+
 Procedure               C2ADD()
    vm_DebugFunctionName()
    vm_BitOperation( + )

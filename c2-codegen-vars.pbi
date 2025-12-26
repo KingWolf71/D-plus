@@ -489,6 +489,10 @@
          If forceLocal = #False
             ; No type annotation - check if global exists and use it
             For i = 0 To gnLastVariable - 1
+               ; V1.035.18: Skip constants - string "X" should not match variable "x"
+               If gVarMeta(i)\flags & #C2FLAG_CONST
+                  Continue
+               EndIf
                If LCase(gVarMeta(i)\name) = LCase(text) And gVarMeta(i)\paramOffset = -1
                   ; Found as global - use it (intended behavior for var = expr)
                   CompilerIf #DEBUG

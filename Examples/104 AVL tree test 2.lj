@@ -7,7 +7,6 @@
 #pragma console on
 #pragma consolesize "680x740"
 #pragma consoleposition "30,50"
-#pragma optimizecode on
 #pragma FastPrint on
 #pragma RunThreaded on
 #pragma ftoi "truncate"

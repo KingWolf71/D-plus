@@ -384,7 +384,7 @@
     <div class="container">
         <header>
             <h1>LJ2 Compiler</h1>
-            <div class="version">Version 1.035.5</div>
+            <div class="version">Version 1.037.4</div>
             <div class="date">Technical Report - December 2025</div>
         </header>
 
@@ -401,7 +401,7 @@
 
             <div class="stats-grid">
                 <div class="stat-item">
-                    <div class="stat-value">70</div>
+                    <div class="stat-value">75</div>
                     <div class="stat-label">Test Cases</div>
                 </div>
                 <div class="stat-item">
@@ -413,7 +413,7 @@
                     <div class="stat-label">Source Code</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-value">200+</div>
+                    <div class="stat-value">505</div>
                     <div class="stat-label">Opcodes</div>
                 </div>
                 <div class="stat-item">
@@ -460,7 +460,7 @@
                         <div class="rating-bar-fill excellent" style="width: 90%"></div>
                     </div>
                     <p style="margin-top: 10px; font-size: 0.85rem; color: var(--gray-600);">
-                        200+ specialized opcodes, type-specific operations, O(1) dispatching
+                        505 specialized opcodes, type-specific operations, O(1) dispatching
                     </p>
                 </div>
 
@@ -471,7 +471,7 @@
                         <div class="rating-bar-fill excellent" style="width: 95%"></div>
                     </div>
                     <p style="margin-top: 10px; font-size: 0.85rem; color: var(--gray-600);">
-                        70 comprehensive tests, automated runner, stress tests
+                        75 comprehensive tests, automated runner, cross-platform (Win/Linux)
                     </p>
                 </div>
 
@@ -555,7 +555,7 @@
                 <tr>
                     <td>Definitions</td>
                     <td>c2-inc-v19.pbi</td>
-                    <td>200+ opcode constants, structures, flags</td>
+                    <td>505 opcode constants, structures, flags, normalized ASM names</td>
                 </tr>
                 <tr>
                     <td>AST Parser</td>
@@ -882,7 +882,23 @@
 
         <!-- Recent Improvements -->
         <div class="section">
-            <h2>Recent Improvements (v1.035.x)</h2>
+            <h2>Recent Improvements</h2>
+
+            <h3>v1.037.x - ASM Naming & Bug Fixes</h3>
+            <ul style="list-style-position: inside; padding-left: 20px; color: var(--gray-600);">
+                <li><strong>Normalized ASM Names (v1.037.4):</strong> All long opcode display names shortened for readable ASM output</li>
+                <li><strong>Abbreviation System:</strong> AF/AS=ArrayFetch/Store, SF/SS=StructFetch/Store, BI=Builtin, FE=Foreach, etc.</li>
+                <li><strong>Struct Declaration Fix (v1.037.2):</strong> Fixed <code>p1.Point;</code> syntax not allocating struct memory</li>
+                <li><strong>Cross-Platform Tests:</strong> All 75 tests pass on Windows and Linux</li>
+            </ul>
+
+            <h3>v1.036.x - Struct Arrays & Collections</h3>
+            <ul style="list-style-position: inside; padding-left: 20px; color: var(--gray-600);">
+                <li><strong>Array of Structs:</strong> <code>array points.Point[10];</code> syntax with field access via <code>points[i]\x</code></li>
+                <li><strong>Struct Array Indexing:</strong> Runtime index computation for struct arrays with variable indices</li>
+                <li><strong>printf() Built-in:</strong> C-style formatted output with %d, %f, %s, %.Nf format specifiers</li>
+                <li><strong>String Length Caching:</strong> O(1) string length access via cached \i field</li>
+            </ul>
 
             <h3>v1.035.5 - Optimization Enhancements</h3>
             <ul style="list-style-position: inside; padding-left: 20px; color: var(--gray-600);">
@@ -989,7 +1005,7 @@
         </div>
 
         <footer>
-            <p>LJ2 Compiler Technical Report | Version 1.035.5 | Generated December 2025</p>
+            <p>LJ2 Compiler Technical Report | Version 1.037.4 | Generated December 2025</p>
             <p>Built with PureBasic 6.10+ | Cross-platform: Windows &amp; Linux</p>
         </footer>
     </div>

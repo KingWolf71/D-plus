@@ -770,6 +770,190 @@
 
             EndIf
 
+         ; V1.036.0: Multi-dimensional array access (arr[i][j][k])
+         ; *x\left = array variable (ljIDENT) with additional indices stored in its children
+         ; *x\right = first index expression (*mdIndices[0])
+         ; *x\value = "varSlot|nDims"
+         ; *x\paramCount = number of dimensions
+         ; Additional indices stored in: left\right = idx[1], left\left = idx[2], right\left = idx[3]
+         Case #nd_MultiDimIndex
+            Protected mdSlot.i = Val(StringField(*x\value, 1, "|"))
+            Protected mdNDims.i = Val(StringField(*x\value, 2, "|"))
+            Protected mdIsLocal.i = 0
+            Protected mdArrayIndex.i = mdSlot
+
+            ; Check if array is local
+            If gVarMeta(mdSlot)\paramOffset >= 0
+               mdIsLocal = 1
+               mdArrayIndex = gVarMeta(mdSlot)\paramOffset
+            EndIf
+
+            ; Retrieve index expressions from node structure
+            Protected *mdIdx0.stTree = *x\right           ; First index
+            Protected *mdIdx1.stTree = 0
+            Protected *mdIdx2.stTree = 0
+            Protected *mdIdx3.stTree = 0
+
+            If mdNDims >= 2 And *x\left
+               *mdIdx1 = *x\left\right
+            EndIf
+            If mdNDims >= 3 And *x\left
+               *mdIdx2 = *x\left\left
+            EndIf
+            If mdNDims >= 4 And *x\right
+               *mdIdx3 = *x\right\left
+            EndIf
+
+            ; Check if all indices are compile-time constants
+            Protected mdAllConstant.b = #True
+            Protected mdConstIdx0.i, mdConstIdx1.i, mdConstIdx2.i, mdConstIdx3.i
+            Protected mdLinearIndex.i = 0
+
+            ; Check and collect constant index values
+            If *mdIdx0 And *mdIdx0\NodeType = #ljINT
+               mdConstIdx0 = Val(*mdIdx0\value)
+            Else
+               mdAllConstant = #False
+            EndIf
+
+            If mdNDims >= 2
+               If *mdIdx1 And *mdIdx1\NodeType = #ljINT
+                  mdConstIdx1 = Val(*mdIdx1\value)
+               Else
+                  mdAllConstant = #False
+               EndIf
+            EndIf
+
+            If mdNDims >= 3
+               If *mdIdx2 And *mdIdx2\NodeType = #ljINT
+                  mdConstIdx2 = Val(*mdIdx2\value)
+               Else
+                  mdAllConstant = #False
+               EndIf
+            EndIf
+
+            If mdNDims >= 4
+               If *mdIdx3 And *mdIdx3\NodeType = #ljINT
+                  mdConstIdx3 = Val(*mdIdx3\value)
+               Else
+                  mdAllConstant = #False
+               EndIf
+            EndIf
+
+            If mdAllConstant
+               ; All indices are constants - compute linear index at compile time
+               mdLinearIndex = mdConstIdx0 * gVarMeta(mdSlot)\dimStrides[0]
+               If mdNDims >= 2
+                  mdLinearIndex + mdConstIdx1 * gVarMeta(mdSlot)\dimStrides[1]
+               EndIf
+               If mdNDims >= 3
+                  mdLinearIndex + mdConstIdx2 * gVarMeta(mdSlot)\dimStrides[2]
+               EndIf
+               If mdNDims >= 4
+                  mdLinearIndex + mdConstIdx3 * gVarMeta(mdSlot)\dimStrides[3]
+               EndIf
+
+               ; Create temp slot for constant linear index
+               ; V1.037.2: FIX - Use #ljINT synthetic type to create proper constant slot
+               ; FetchVarOffset with #ljINT sets CONST flag and valueInt, enabling runtime transfer
+               Protected mdConstSlot.i = FetchVarOffset(Str(mdLinearIndex), 0, #ljINT)
+
+               ; Determine array type and emit fetch
+               Protected mdFetchOpcode.i
+               If gVarMeta(mdSlot)\flags & #C2FLAG_STR
+                  mdFetchOpcode = #ljARRAYFETCH_STR
+               ElseIf gVarMeta(mdSlot)\flags & #C2FLAG_FLOAT
+                  mdFetchOpcode = #ljARRAYFETCH_FLOAT
+               Else
+                  mdFetchOpcode = #ljARRAYFETCH_INT
+               EndIf
+
+               EmitInt(mdFetchOpcode, mdArrayIndex)
+               llObjects()\j = mdIsLocal
+               llObjects()\ndx = mdConstSlot
+
+               CompilerIf #DEBUG
+                  Debug "MultiDim FETCH const: slot=" + Str(mdSlot) + " linearIdx=" + Str(mdLinearIndex)
+               CompilerEndIf
+
+            Else
+               ; Variable indices - generate runtime computation
+               ; Compute: idx0 * stride0 + idx1 * stride1 + ...
+
+               ; Generate code for first index * stride
+               Protected mdHasValue.b = #False
+               If gVarMeta(mdSlot)\dimStrides[0] = 1
+                  ; Stride is 1, just use index directly
+                  CodeGenerator(*mdIdx0)
+                  mdHasValue = #True
+               ElseIf gVarMeta(mdSlot)\dimStrides[0] > 1
+                  CodeGenerator(*mdIdx0)
+                  EmitInt(#ljPUSH_IMM, gVarMeta(mdSlot)\dimStrides[0])
+                  EmitInt(#ljMULTIPLY)
+                  mdHasValue = #True
+               EndIf
+
+               ; Add remaining dimensions
+               If mdNDims >= 2 And *mdIdx1
+                  If gVarMeta(mdSlot)\dimStrides[1] = 1
+                     CodeGenerator(*mdIdx1)
+                  Else
+                     CodeGenerator(*mdIdx1)
+                     EmitInt(#ljPUSH_IMM, gVarMeta(mdSlot)\dimStrides[1])
+                     EmitInt(#ljMULTIPLY)
+                  EndIf
+                  If mdHasValue
+                     EmitInt(#ljADD)
+                  EndIf
+                  mdHasValue = #True
+               EndIf
+
+               If mdNDims >= 3 And *mdIdx2
+                  If gVarMeta(mdSlot)\dimStrides[2] = 1
+                     CodeGenerator(*mdIdx2)
+                  Else
+                     CodeGenerator(*mdIdx2)
+                     EmitInt(#ljPUSH_IMM, gVarMeta(mdSlot)\dimStrides[2])
+                     EmitInt(#ljMULTIPLY)
+                  EndIf
+                  If mdHasValue
+                     EmitInt(#ljADD)
+                  EndIf
+                  mdHasValue = #True
+               EndIf
+
+               If mdNDims >= 4 And *mdIdx3
+                  If gVarMeta(mdSlot)\dimStrides[3] = 1
+                     CodeGenerator(*mdIdx3)
+                  Else
+                     CodeGenerator(*mdIdx3)
+                     EmitInt(#ljPUSH_IMM, gVarMeta(mdSlot)\dimStrides[3])
+                     EmitInt(#ljMULTIPLY)
+                  EndIf
+                  If mdHasValue
+                     EmitInt(#ljADD)
+                  EndIf
+               EndIf
+
+               ; Stack now has the linear index - emit ARRAYFETCH_STACK variant
+               Protected mdFetchOpcodeStack.i
+               If gVarMeta(mdSlot)\flags & #C2FLAG_STR
+                  mdFetchOpcodeStack = #ljARRAYFETCH_STR
+               ElseIf gVarMeta(mdSlot)\flags & #C2FLAG_FLOAT
+                  mdFetchOpcodeStack = #ljARRAYFETCH_FLOAT
+               Else
+                  mdFetchOpcodeStack = #ljARRAYFETCH_INT
+               EndIf
+
+               EmitInt(mdFetchOpcodeStack, mdArrayIndex)
+               llObjects()\j = mdIsLocal
+               llObjects()\ndx = -1  ; -1 indicates stack-based index
+
+               CompilerIf #DEBUG
+                  Debug "MultiDim FETCH stack: slot=" + Str(mdSlot) + " dims=" + Str(mdNDims)
+               CompilerEndIf
+            EndIf
+
          Case #ljINT, #ljFLOAT, #ljSTRING
             n = FetchVarOffset( *x\value, 0, *x\NodeType )
             ; V1.029.46: Use type-specific PUSH opcode to preserve float/string types
@@ -1533,6 +1717,192 @@
                llObjects()\ndx = arrayStoreIndexSlot
                ; n = value slot (direct slot ref, no stack)
                llObjects()\n = arrayStoreValueSlot
+
+            ; V1.036.0: Check if left side is multi-dimensional array indexing
+            ElseIf *x\left And *x\left\NodeType = #nd_MultiDimIndex
+               ; Multi-dimensional array assignment: arr[i][j] = value
+               ; *x\left = multi-dim index node
+               ; *x\right = value expression
+
+               Protected mdStoreSlot.i = Val(StringField(*x\left\value, 1, "|"))
+               Protected mdStoreNDims.i = Val(StringField(*x\left\value, 2, "|"))
+               Protected mdStoreIsLocal.i = 0
+               Protected mdStoreArrayIndex.i = mdStoreSlot
+
+               ; Check if array is local
+               If gVarMeta(mdStoreSlot)\paramOffset >= 0
+                  mdStoreIsLocal = 1
+                  mdStoreArrayIndex = gVarMeta(mdStoreSlot)\paramOffset
+               EndIf
+
+               ; Get value expression slot
+               Protected mdStoreValueSlot.i = GetExprSlotOrTemp(*x\right)
+
+               ; Retrieve index expressions from node structure
+               Protected *mdStoreIdx0.stTree = *x\left\right
+               Protected *mdStoreIdx1.stTree = 0
+               Protected *mdStoreIdx2.stTree = 0
+               Protected *mdStoreIdx3.stTree = 0
+
+               If mdStoreNDims >= 2 And *x\left\left
+                  *mdStoreIdx1 = *x\left\left\right
+               EndIf
+               If mdStoreNDims >= 3 And *x\left\left
+                  *mdStoreIdx2 = *x\left\left\left
+               EndIf
+               If mdStoreNDims >= 4 And *x\left\right
+                  *mdStoreIdx3 = *x\left\right\left
+               EndIf
+
+               ; Check if all indices are compile-time constants
+               Protected mdStoreAllConst.b = #True
+               Protected mdStoreConstIdx0.i, mdStoreConstIdx1.i, mdStoreConstIdx2.i, mdStoreConstIdx3.i
+               Protected mdStoreLinearIdx.i = 0
+
+               If *mdStoreIdx0 And *mdStoreIdx0\NodeType = #ljINT
+                  mdStoreConstIdx0 = Val(*mdStoreIdx0\value)
+               Else
+                  mdStoreAllConst = #False
+               EndIf
+
+               If mdStoreNDims >= 2
+                  If *mdStoreIdx1 And *mdStoreIdx1\NodeType = #ljINT
+                     mdStoreConstIdx1 = Val(*mdStoreIdx1\value)
+                  Else
+                     mdStoreAllConst = #False
+                  EndIf
+               EndIf
+
+               If mdStoreNDims >= 3
+                  If *mdStoreIdx2 And *mdStoreIdx2\NodeType = #ljINT
+                     mdStoreConstIdx2 = Val(*mdStoreIdx2\value)
+                  Else
+                     mdStoreAllConst = #False
+                  EndIf
+               EndIf
+
+               If mdStoreNDims >= 4
+                  If *mdStoreIdx3 And *mdStoreIdx3\NodeType = #ljINT
+                     mdStoreConstIdx3 = Val(*mdStoreIdx3\value)
+                  Else
+                     mdStoreAllConst = #False
+                  EndIf
+               EndIf
+
+               If mdStoreAllConst
+                  ; All indices are constants - compute linear index at compile time
+                  mdStoreLinearIdx = mdStoreConstIdx0 * gVarMeta(mdStoreSlot)\dimStrides[0]
+                  If mdStoreNDims >= 2
+                     mdStoreLinearIdx + mdStoreConstIdx1 * gVarMeta(mdStoreSlot)\dimStrides[1]
+                  EndIf
+                  If mdStoreNDims >= 3
+                     mdStoreLinearIdx + mdStoreConstIdx2 * gVarMeta(mdStoreSlot)\dimStrides[2]
+                  EndIf
+                  If mdStoreNDims >= 4
+                     mdStoreLinearIdx + mdStoreConstIdx3 * gVarMeta(mdStoreSlot)\dimStrides[3]
+                  EndIf
+
+                  ; Create temp slot for constant linear index
+                  ; V1.037.2: FIX - Use #ljINT synthetic type to create proper constant slot
+                  ; FetchVarOffset with #ljINT sets CONST flag and valueInt, enabling runtime transfer
+                  Protected mdStoreConstSlot.i = FetchVarOffset(Str(mdStoreLinearIdx), 0, #ljINT)
+
+                  ; Determine array type and emit store
+                  Protected mdStoreOpcode.i
+                  If gVarMeta(mdStoreSlot)\flags & #C2FLAG_STR
+                     mdStoreOpcode = #ljARRAYSTORE_STR
+                  ElseIf gVarMeta(mdStoreSlot)\flags & #C2FLAG_FLOAT
+                     mdStoreOpcode = #ljARRAYSTORE_FLOAT
+                  Else
+                     mdStoreOpcode = #ljARRAYSTORE_INT
+                  EndIf
+
+                  EmitInt(mdStoreOpcode, mdStoreArrayIndex)
+                  llObjects()\j = mdStoreIsLocal
+                  llObjects()\ndx = mdStoreConstSlot
+                  llObjects()\n = mdStoreValueSlot
+
+                  CompilerIf #DEBUG
+                     Debug "MultiDim STORE const: slot=" + Str(mdStoreSlot) + " linearIdx=" + Str(mdStoreLinearIdx)
+                  CompilerEndIf
+
+               Else
+                  ; Variable indices - generate runtime computation
+                  ; Push value first, then compute and push linear index
+
+                  ; Generate code for first index * stride
+                  Protected mdStoreHasVal.b = #False
+                  If gVarMeta(mdStoreSlot)\dimStrides[0] = 1
+                     CodeGenerator(*mdStoreIdx0)
+                     mdStoreHasVal = #True
+                  ElseIf gVarMeta(mdStoreSlot)\dimStrides[0] > 1
+                     CodeGenerator(*mdStoreIdx0)
+                     EmitInt(#ljPUSH_IMM, gVarMeta(mdStoreSlot)\dimStrides[0])
+                     EmitInt(#ljMULTIPLY)
+                     mdStoreHasVal = #True
+                  EndIf
+
+                  ; Add remaining dimensions
+                  If mdStoreNDims >= 2 And *mdStoreIdx1
+                     If gVarMeta(mdStoreSlot)\dimStrides[1] = 1
+                        CodeGenerator(*mdStoreIdx1)
+                     Else
+                        CodeGenerator(*mdStoreIdx1)
+                        EmitInt(#ljPUSH_IMM, gVarMeta(mdStoreSlot)\dimStrides[1])
+                        EmitInt(#ljMULTIPLY)
+                     EndIf
+                     If mdStoreHasVal
+                        EmitInt(#ljADD)
+                     EndIf
+                     mdStoreHasVal = #True
+                  EndIf
+
+                  If mdStoreNDims >= 3 And *mdStoreIdx2
+                     If gVarMeta(mdStoreSlot)\dimStrides[2] = 1
+                        CodeGenerator(*mdStoreIdx2)
+                     Else
+                        CodeGenerator(*mdStoreIdx2)
+                        EmitInt(#ljPUSH_IMM, gVarMeta(mdStoreSlot)\dimStrides[2])
+                        EmitInt(#ljMULTIPLY)
+                     EndIf
+                     If mdStoreHasVal
+                        EmitInt(#ljADD)
+                     EndIf
+                     mdStoreHasVal = #True
+                  EndIf
+
+                  If mdStoreNDims >= 4 And *mdStoreIdx3
+                     If gVarMeta(mdStoreSlot)\dimStrides[3] = 1
+                        CodeGenerator(*mdStoreIdx3)
+                     Else
+                        CodeGenerator(*mdStoreIdx3)
+                        EmitInt(#ljPUSH_IMM, gVarMeta(mdStoreSlot)\dimStrides[3])
+                        EmitInt(#ljMULTIPLY)
+                     EndIf
+                     If mdStoreHasVal
+                        EmitInt(#ljADD)
+                     EndIf
+                  EndIf
+
+                  ; Stack now has linear index - emit ARRAYSTORE with stack index
+                  Protected mdStoreOpcodeStack.i
+                  If gVarMeta(mdStoreSlot)\flags & #C2FLAG_STR
+                     mdStoreOpcodeStack = #ljARRAYSTORE_STR
+                  ElseIf gVarMeta(mdStoreSlot)\flags & #C2FLAG_FLOAT
+                     mdStoreOpcodeStack = #ljARRAYSTORE_FLOAT
+                  Else
+                     mdStoreOpcodeStack = #ljARRAYSTORE_INT
+                  EndIf
+
+                  EmitInt(mdStoreOpcodeStack, mdStoreArrayIndex)
+                  llObjects()\j = mdStoreIsLocal
+                  llObjects()\ndx = -1  ; -1 indicates stack-based index
+                  llObjects()\n = mdStoreValueSlot
+
+                  CompilerIf #DEBUG
+                     Debug "MultiDim STORE stack: slot=" + Str(mdStoreSlot) + " dims=" + Str(mdStoreNDims)
+                  CompilerEndIf
+               EndIf
 
             ; V1.022.0: Check if left side is struct array field access
             ; V1.022.2: Support local and global structs
@@ -3504,7 +3874,8 @@
             EmitInt( *x\NodeType )
 
          ; Cast operators (V1.18.63) - smart type conversion based on source and target
-         Case #ljCAST_INT, #ljCAST_FLOAT, #ljCAST_STRING, #ljCAST_VOID
+         ; V1.036.2: Added #ljCAST_PTR for pointer casting
+         Case #ljCAST_INT, #ljCAST_FLOAT, #ljCAST_STRING, #ljCAST_VOID, #ljCAST_PTR
             ; Generate code for the expression to be cast
             CodeGenerator( *x\left )
 
@@ -3543,6 +3914,15 @@
                Case #ljCAST_VOID  ; V1.033.11: Discard value
                   ; Expression was already evaluated, just drop the result
                   EmitInt( #ljDROP )
+
+               Case #ljCAST_PTR  ; V1.036.2: Cast to pointer
+                  ; Pointers are integers internally, so conversion depends on source type
+                  If sourceType & #C2FLAG_FLOAT
+                     EmitInt( #ljFTOI )  ; float -> int (pointer)
+                  ElseIf sourceType & #C2FLAG_STR
+                     EmitInt( #ljSTOI )  ; string -> int (pointer)
+                  EndIf
+                  ; If already int/pointer, no conversion needed
             EndSelect
 
          ; V1.022.64: Array resize operation

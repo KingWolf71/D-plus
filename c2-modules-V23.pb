@@ -110,6 +110,9 @@ Module C2Lang
       List paramTypes.w()  ; Parameter type flags (INT/FLOAT/STR) in order
       isRecursive.b   ; V1.034.8: Flag: Function calls itself (directly or indirectly)
       recurseDepth.i  ; V1.034.8: Max recursion depth from #pragma FunctionStack (default 1)
+      ; V1.037.1: Default parameter value support
+      List paramDefaults.s()    ; Default value strings (empty = no default, in order)
+      nRequiredParams.i         ; Number of required parameters (those before first default)
    EndStructure
 
    Structure stMacro
@@ -539,6 +542,9 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
    EndProcedure
    CompilerEndIf
 
+   ; V1.037.0: C compatibility layer (must be before Init to use CCompat_Init)
+   XIncludeFile         "c2-ccompat-v01.pbi"
+
    ;-
    Procedure            Init()
       Protected         temp.s
@@ -738,6 +744,9 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       ; Register built-in functions (random, abs, min, max, etc.)
       RegisterBuiltins()
 
+      ; V1.037.0: Initialize C compatibility layer
+      CCompat_Init()
+
       mapPragmas("console") = "on"
       mapPragmas("appname") = "Untitled"
       mapPragmas("consolesize") = "600x420"
@@ -902,10 +911,28 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
             paramStr = Trim(paramStr)
 
             ; Parse each parameter
+            ; V1.037.1: Track required params and defaults
+            Protected nReqParams.i = 0
+            Protected foundDefault.b = #False
+
             If paramStr <> ""
                For paramIdx = 1 To CountString(paramStr, ",") + 1
                   Protected param.s = Trim(StringField(paramStr, paramIdx, ","))
                   paramType = #C2FLAG_INT  ; Default
+
+                  ; V1.037.1: Check for default value (param = value or param.type = value)
+                  Protected defaultVal.s = ""
+                  Protected eqPos.i = FindString(param, "=")
+                  If eqPos > 0
+                     defaultVal = Trim(Mid(param, eqPos + 1))
+                     param = Trim(Left(param, eqPos - 1))
+                     foundDefault = #True
+                  ElseIf foundDefault
+                     ; V1.037.1: Error - non-default param after default param
+                     ; For now we allow this but treat as error at call time
+                  Else
+                     nReqParams + 1
+                  EndIf
 
                   ; Check for type suffix (case-insensitive)
                   Protected paramLower.s = LCase(param)
@@ -919,8 +946,15 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
 
                   AddElement(mapModules()\paramTypes())
                   mapModules()\paramTypes() = paramType
+
+                  ; V1.037.1: Store default value (empty string if no default)
+                  AddElement(mapModules()\paramDefaults())
+                  mapModules()\paramDefaults() = defaultVal
                Next
             EndIf
+
+            ; V1.037.1: Store required parameter count
+            mapModules()\nRequiredParams = nReqParams
          EndIf
       EndIf
    EndProcedure
@@ -1472,6 +1506,21 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          gszFileText + line
       ForEver
 
+      ; V1.037.0: Apply C compatibility transformations if enabled
+      If FindMapElement(mapPragmas(), "ccompat")
+         If LCase(mapPragmas()) = "on" Or LCase(mapPragmas()) = "true" Or mapPragmas() = "1"
+            CCompat_Enable(#True)
+            gszFileText = CCompat_Transform(gszFileText)
+
+            ; Output any warnings
+            Protected warnings.s = CCompat_GetWarnings()
+            If warnings <> ""
+               Debug "=== C Compatibility Warnings ==="
+               Debug warnings
+            EndIf
+         EndIf
+      EndIf
+
       szNewBody = gszFileText
       gszFileText = "" : i = 0
 
@@ -1955,7 +2004,7 @@ CompilerIf #PB_Compiler_IsMainFile
 
 CompilerEndIf
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 34
+; CursorPosition = 36
 ; FirstLine = 16
 ; Folding = 0---------
 ; Markers = 569,718
@@ -1966,7 +2015,7 @@ CompilerEndIf
 ; LinkerOptions = linker.txt
 ; CompileSourceDirectory
 ; Warnings = Display
-; EnableCompileCount = 2533
+; EnableCompileCount = 2540
 ; EnableBuildCount = 0
 ; EnableExeConstant
 ; IncludeVersionInfo

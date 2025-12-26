@@ -1,5 +1,5 @@
 # LJ2 Implementation Status
-Version: 1.035.15
+Version: 1.037.4
 Date: December 2025
 
 **See also:** [LJ2_Compiler_Report.html](LJ2_Compiler_Report.html) - Comprehensive technical report with ratings
@@ -26,7 +26,7 @@ Date: December 2025
 | Pointers | `c2-pointers-v06.pbi` | Pointer operations |
 | Collections | `c2-collections-v04.pbi` | Lists and Maps |
 | Built-ins | `c2-builtins-v07.pbi` | Built-in functions |
-| Test runner | `tests/run-tests-win.ps1` | Windows PowerShell test runner (71 examples: 69 run + 2 error tests) |
+| Test runner | `test/run_all_tests.ps1` | Windows PowerShell test runner (75 examples) |
 | Quick test | `quick-test.ps1` | Fast test runner (excludes long tests) |
 
 ## Implemented Features
@@ -137,7 +137,25 @@ Located in `Examples/`:
 - Mandelbrot set renderer (19)
 - Julia set renderer (21)
 
-## Recent Changes (v1.031.x - v1.035.x)
+## Recent Changes (v1.031.x - v1.037.x)
+
+### v1.037.2-4
+- **Struct Declaration Bug Fix**: Fixed `p1.Point;` syntax not allocating struct memory properly
+  - V1.029.86 code detected pattern but didn't set up gVarMeta with struct information
+  - Fixed by extracting variable name and setting up metadata before AST creation
+  - Struct fields now properly accessible after declaration without initialization
+- **ASM Opcode Name Normalization**: Shortened all long opcode display names for readable ASM output
+  - ARRAYFETCH_INT_GLOBAL_OPT → AF_I_G_O
+  - BUILTIN_ASSERT_EQUAL → BI_ASEQ
+  - FOREACH_LIST_GET_INT → FE_L_GET_I
+  - Added abbreviation legend comments in c2-inc-v19.pbi
+- **Cross-Platform Testing**: All 75 tests pass on both Windows and Linux
+  - Fixed Linux test detection to filter out ASM listing output
+
+### v1.036.x
+- **Array of Structs**: `array points.Point[10];` with field access via `points[i]\x`
+- **printf() Built-in**: C-style formatted output with %d, %f, %s, %.Nf specifiers
+- **String Length Caching**: O(1) length access via cached \i field
 
 ### v1.035.14-15
 - **Post-increment in Function Arguments**: Fixed crash when using `x++` inside function calls

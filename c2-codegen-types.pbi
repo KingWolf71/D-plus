@@ -258,6 +258,10 @@
             ; If mangled name not found and we tried mangling, try global name
             If searchName <> *x\value
                For n = 0 To gnLastVariable - 1
+                  ; V1.035.18: Skip constants - string "X" should not match variable "x"
+                  If gVarMeta(n)\flags & #C2FLAG_CONST
+                     Continue
+                  EndIf
                   If LCase(gVarMeta(n)\name) = LCase(*x\value)
                      ; Found the global variable - return its type flags
                      ; V1.034.65: Include POINTER flag for pointer arithmetic detection
@@ -392,6 +396,8 @@
             ProcedureReturn #C2FLAG_STR
          Case #ljCAST_VOID  ; V1.033.11: Void cast returns void type
             ProcedureReturn #C2FLAG_VOID
+         Case #ljCAST_PTR  ; V1.036.2: Pointer cast returns pointer type
+            ProcedureReturn #C2FLAG_INT | #C2FLAG_POINTER
 
          ; Pointer operations (V1.19.3) - return type based on pointer's declared type
          Case #ljPTRFETCH
@@ -504,6 +510,20 @@
 
          Case #ljLeftBracket
             ; Array element access - return the array's element type
+            If *x\left And *x\left\NodeType = #ljIDENT
+               ; Use FetchVarOffset to find the array variable (handles name mangling)
+               n = FetchVarOffset(*x\left\value, 0, 0)
+               If n >= 0
+                  ; Found the array - return its element type
+                  ProcedureReturn gVarMeta(n)\flags & #C2FLAG_TYPE
+               EndIf
+            EndIf
+            ; Array not found - default to INT
+            ProcedureReturn #C2FLAG_INT
+
+         ; V1.037.2: Multi-dimensional array element access - return the array's element type
+         Case #nd_MultiDimIndex
+            ; *x\left is the array variable node (#ljIDENT)
             If *x\left And *x\left\NodeType = #ljIDENT
                ; Use FetchVarOffset to find the array variable (handles name mangling)
                n = FetchVarOffset(*x\left\value, 0, 0)

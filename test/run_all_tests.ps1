@@ -1,4 +1,4 @@
-param([string]$Compiler = "..\lj2.exe")
+param([string]$Compiler = ".\lj2.exe")
 
 $ErrorActionPreference = "SilentlyContinue"
 Set-Location (Split-Path $PSScriptRoot -Parent)

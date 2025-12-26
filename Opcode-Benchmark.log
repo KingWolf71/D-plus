@@ -1,0 +1,42 @@
+================================================
+        OPCODE BENCHMARK TEST
+================================================
+
+Section 1: Local Variable Stress Test
+  Local vars result: 10003
+Section 2: Arithmetic Stress Test
+  Arithmetic result: 100020000
+Section 3: Comparison Stress Test
+  Comparisons result: 30009
+Section 4: Function Call Stress Test
+  Function calls result: 40000
+Section 5: Conditional Jump Stress Test
+  Jumps result: 150000
+Section 6: Array Stress Test
+  Arrays result: 9990000
+Section 7: Float Stress Test
+  Floats result: 45010500.000
+Section 8: Nested Loop Stress Test
+  Nested loops result: 10000
+Section 9: Switch Statement Stress Test
+  Switch result: 110000
+Section 10: Increment/Decrement Stress Test
+  Inc/Dec result: 10000
+Section 11: Logical Operations Stress Test
+  Logical result: 17999
+Section 12: Mixed Heavy Computation
+  Mixed result: 6765000
+
+================================================
+        BENCHMARK COMPLETE
+================================================
+
+Check profiler output for opcode statistics.
+Focus optimization on opcodes with:
+  1. Highest call counts
+  2. Highest total time
+  3. Highest per-call time
+Runtime: 0.91 seconds.
+
+
+

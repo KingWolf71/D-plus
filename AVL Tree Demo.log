@@ -1,0 +1,98 @@
+========================================
+        AVL Tree Demonstration
+========================================
+
+Inserting: 10, 20, 30, 40, 50, 25
+
+Tree structure (rotated, right is up):
+        50(h=1,b=0)
+    40(h=2,b=-1)
+30(h=3,b=0)
+        25(h=1,b=0)
+    20(h=2,b=0)
+        10(h=1,b=0)
+
+In-order traversal (sorted): 
+10 
+20 
+25 
+30 
+40 
+50 
+
+
+Pre-order traversal: 
+30 
+20 
+10 
+25 
+40 
+50 
+
+
+Verifying AVL property...
+AVL property: VALID
+Node count: 6
+
+Search tests:
+  find(30) = 1 (expected 1)
+  find(25) = 1 (expected 1)
+  find(99) = 0 (expected 0)
+
+Deleting 20...
+Tree structure (rotated, right is up):
+        50(h=1,b=0)
+    40(h=2,b=-1)
+30(h=3,b=0)
+    25(h=2,b=1)
+        10(h=1,b=0)
+
+In-order after delete: 
+10 
+25 
+30 
+40 
+50 
+
+
+Verifying AVL after delete...
+AVL property: VALID
+
+Inserting: 5, 15, 35, 45
+Tree structure (rotated, right is up):
+        50(h=2,b=1)
+            45(h=1,b=0)
+    40(h=3,b=-1)
+        35(h=1,b=0)
+30(h=4,b=0)
+        25(h=2,b=1)
+            15(h=1,b=0)
+    10(h=3,b=-1)
+        5(h=1,b=0)
+
+Final in-order: 
+5 
+10 
+15 
+25 
+30 
+35 
+40 
+45 
+50 
+
+
+Final verification...
+AVL property: VALID
+Total nodes: 9
+
+========================================
+        AVL Tree Demo Complete
+========================================
+Runtime: 0.02 seconds.
+LJ2 Compiler Version: 1.037.3
+Module: .\Examples\103 AVL tree.lj
+
+e.2020\lj2\Examples\103 AVL tree.lj
+
+

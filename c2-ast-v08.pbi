@@ -224,7 +224,7 @@
                   *node\paramCount = gLastExpandParamsCount
                   *p = MakeNode(#ljSEQ, *e, *node)
                ElseIf TOKEN()\TokenType = #ljLeftBracket
-                  ; Array indexing: identifier[index]
+                  ; Array indexing: identifier[index] or multi-dim: identifier[i][j][k]
                   NextToken()  ; Skip '['
                   Protected *indexExpr.stTree = expr(0)  ; Parse index expression
 
@@ -238,7 +238,71 @@
                   ; We'll use a special node type for array indexing
                   Protected *arrayVar.stTree = Makeleaf( #ljIDENT, identName )
                   *arrayVar\TypeHint = identTypeHint
-                  *p = MakeNode( #ljLeftBracket, *arrayVar, *indexExpr )  ; Use LeftBracket as array index operator
+
+                  ; V1.036.0: Check for multi-dimensional array access
+                  ; Parse additional [index] brackets if present
+                  Protected mdVarSlot.i = FindVariableSlotByName(identName, gCurrentFunctionName)
+                  Protected mdNDims.i = 0
+                  Protected mdExpectedDims.i = 1
+                  Protected *mdIdx0.stTree, *mdIdx1.stTree, *mdIdx2.stTree, *mdIdx3.stTree
+                  Protected mdIdxCount.i = 1
+                  *mdIdx0 = *indexExpr  ; First index already parsed
+
+                  If mdVarSlot >= 0 And gVarMeta(mdVarSlot)\nDimensions > 1
+                     mdExpectedDims = gVarMeta(mdVarSlot)\nDimensions
+
+                     ; Parse additional dimension indices
+                     While TOKEN()\TokenType = #ljLeftBracket And mdIdxCount < mdExpectedDims
+                        NextToken()  ; Skip '['
+                        Select mdIdxCount
+                           Case 1
+                              *mdIdx1 = expr(0)
+                           Case 2
+                              *mdIdx2 = expr(0)
+                           Case 3
+                              *mdIdx3 = expr(0)
+                        EndSelect
+
+                        If TOKEN()\TokenType <> #ljRightBracket
+                           SetError("Expected ']' after array index for dimension " + Str(mdIdxCount + 1), #C2ERR_EXPECTED_PRIMARY)
+                           ProcedureReturn 0
+                        EndIf
+                        NextToken()  ; Skip ']'
+                        mdIdxCount + 1
+                     Wend
+
+                     ; Verify correct number of indices
+                     If mdIdxCount <> mdExpectedDims
+                        SetError("Array '" + identName + "' requires " + Str(mdExpectedDims) + " indices but got " + Str(mdIdxCount), #C2ERR_EXPECTED_PRIMARY)
+                        ProcedureReturn 0
+                     EndIf
+
+                     ; Create multi-dim index node
+                     ; Store array name in left, first index in right
+                     ; Encode additional info in value field: "slot|nDims" (codegen will look up strides)
+                     *p = MakeNode(#nd_MultiDimIndex, *arrayVar, *mdIdx0)
+                     *p\value = Str(mdVarSlot) + "|" + Str(mdIdxCount)
+                     *p\paramCount = mdIdxCount
+
+                     ; V1.036.0: Store extra indices using available child pointers
+                     ; left\right = idx1, left\left = idx2, right\left = idx3
+                     If mdIdxCount >= 2
+                        *p\left\right = *mdIdx1
+                     EndIf
+                     If mdIdxCount >= 3
+                        *p\left\left = *mdIdx2
+                     EndIf
+                     If mdIdxCount >= 4
+                        *p\right\left = *mdIdx3
+                     EndIf
+
+                     CompilerIf #DEBUG
+                        Debug "Multi-dim index: " + identName + " slot=" + Str(mdVarSlot) + " dims=" + Str(mdIdxCount)
+                     CompilerEndIf
+                  Else
+                     ; Single dimension array - use standard node
+                     *p = MakeNode( #ljLeftBracket, *arrayVar, *indexExpr )  ; Use LeftBracket as array index operator
+                  EndIf
 
                   ; V1.020.101: Check for function call on array element: arr[i](args)
                   If TOKEN()\TokenExtra = #ljLeftParent
@@ -851,12 +915,31 @@
 
       Expect( "paren_expr", #ljLeftParent )
 
-      ; V1.18.63: Check for cast syntax: (int), (float), (string), (void)
+      ; V1.18.63: Check for cast syntax: (int), (float), (string), (void), (ptr), (void *)
       If TOKEN()\TokenExtra = #ljIDENT
          castType = LCase(TOKEN()\value)
-         If castType = "int" Or castType = "float" Or castType = "string" Or castType = "void"
-            ; This is a cast expression
-            NextToken()  ; Consume the type name
+         If castType = "int" Or castType = "float" Or castType = "string" Or castType = "void" Or castType = "ptr"
+            ; Save position in case this isn't actually a cast
+            Protected savedCastPos.i = ListIndex(llTokenList())
+
+            ; Consume the type name
+            NextToken()
+
+            ; V1.036.2: Check for (void *) syntax - pointer cast
+            Protected isVoidPtr.b = #False
+            If castType = "void" And TOKEN()\TokenType = #ljOP And TOKEN()\TokenExtra = #ljMULTIPLY
+               isVoidPtr = #True
+               NextToken()  ; Consume the *
+            EndIf
+
+            ; V1.036.2: Verify this is actually a cast by checking for )
+            ; If not followed by ), restore position and parse as expression
+            If TOKEN()\TokenExtra <> #ljRightParent
+               ; Not a cast - restore position and fall through to expression parsing
+               SelectElement(llTokenList(), savedCastPos)
+               Goto notACast
+            EndIf
+
             Expect( "paren_expr", #ljRightParent )
 
             ; Parse the expression to be cast at high precedence (unary operator level)
@@ -870,14 +953,24 @@
                   *p = MakeNode( #ljCAST_FLOAT, *castExpr, 0 )
                Case "string"
                   *p = MakeNode( #ljCAST_STRING, *castExpr, 0 )
-               Case "void"  ; V1.033.11: Discard return value
-                  *p = MakeNode( #ljCAST_VOID, *castExpr, 0 )
+               Case "void"
+                  If isVoidPtr
+                     ; V1.036.2: (void *) cast to pointer
+                     *p = MakeNode( #ljCAST_PTR, *castExpr, 0 )
+                  Else
+                     ; V1.033.11: Discard return value
+                     *p = MakeNode( #ljCAST_VOID, *castExpr, 0 )
+                  EndIf
+               Case "ptr"
+                  ; V1.036.2: (ptr) cast to pointer
+                  *p = MakeNode( #ljCAST_PTR, *castExpr, 0 )
             EndSelect
 
             ProcedureReturn *p
          EndIf
       EndIf
 
+      notACast:
       ; Not a cast, parse as regular parenthesized expression
       *p = expr( 0 )
       Expect( "paren_expr", #ljRightParent )
@@ -895,10 +988,14 @@
       Protected.b       hasParamTypes
       Protected.s       targetFuncName
       NewList           llParams.i()  ; List of integers holding pointer values
+      ; V1.037.1: Default parameter variables
+      Protected.i       totalParams, nReqParams, defIdx
+      Protected.s       defaultVal
+      Protected.stTree  *defaultNode
 
       ; IMPORTANT: Initialize all pointers to null (they contain garbage otherwise!)
-      *p = 0 : *e = 0 : *v = 0 : *first = 0 : *last = 0 : *param = 0 : *convertedParam = 0
-      paramIndex = 0 : hasParamTypes = #False : targetFuncName = ""
+      *p = 0 : *e = 0 : *v = 0 : *first = 0 : *last = 0 : *param = 0 : *convertedParam = 0 : *defaultNode = 0
+      paramIndex = 0 : hasParamTypes = #False : targetFuncName = "" : totalParams = 0 : nReqParams = 0
 
       Expect( "expand_params", #ljLeftParent )
 
@@ -974,6 +1071,16 @@
                SetError( "expand_params: expr() returned suspicious pointer value: " + Str(*e), #C2ERR_EXPECTED_PRIMARY )
             EndIf
 
+            ; V1.037.1: For function definitions, skip default value assignments
+            ; The defaults are already parsed in ParseFunctions, so we just consume them here
+            ; Note: Assignment token has TokenType=#ljOP and TokenExtra=#ljASSIGN
+            If op = #ljPOP And TOKEN()\TokenExtra = #ljASSIGN
+               NextToken()  ; Skip '='
+               ; Skip the default value expression (could be literal, identifier, or complex expr)
+               Protected *skipExpr.stTree = expr(0)
+               ; We don't use the parsed expression - defaults come from ParseFunctions
+            EndIf
+
             If TOKEN()\TokenExtra = #ljComma
                NextToken()
             Else
@@ -1022,6 +1129,9 @@
                   targetFuncName = MapKey(mapModules())
                   FirstElement(mapModules()\paramTypes())
                   hasParamTypes = #True
+                  ; V1.037.1: Get total and required parameter counts
+                  totalParams = ListSize(mapModules()\paramTypes())
+                  nReqParams = mapModules()\nRequiredParams
                   Break
                EndIf
             Next
@@ -1063,6 +1173,60 @@
 
             paramIndex + 1
          Next
+
+         ; V1.037.1: Add default values for missing parameters
+         If hasParamTypes And nParams < totalParams And nParams >= nReqParams
+            ; Find the target function in mapModules again (it may have changed)
+            ForEach mapModules()
+               If mapModules()\function = nModule
+                  ; Add defaults for missing parameters (from nParams to totalParams-1)
+                  For defIdx = nParams To totalParams - 1
+                     If SelectElement(mapModules()\paramDefaults(), defIdx)
+                        defaultVal = mapModules()\paramDefaults()
+                        If defaultVal <> ""
+                           ; Create AST node for default value
+                           ; Determine type from paramTypes
+                           If SelectElement(mapModules()\paramTypes(), defIdx)
+                              expectedType = mapModules()\paramTypes()
+                              ; Parse the default value string
+                              ; V1.037.1: Check for string literal FIRST (before float detection)
+                              If Left(defaultVal, 1) = Chr(34) Or Left(defaultVal, 1) = "'"
+                                 ; String literal - strip quotes
+                                 *defaultNode = Makeleaf(#ljSTRING, Mid(defaultVal, 2, Len(defaultVal) - 2))
+                              ElseIf FindString(defaultVal, ".") Or (FindString(defaultVal, "e") And Val(defaultVal)) Or (FindString(defaultVal, "E") And Val(defaultVal))
+                                 ; Likely a float (has decimal point, or has e/E with numeric value)
+                                 *defaultNode = Makeleaf(#ljFLOAT, defaultVal)
+                              Else
+                                 ; Integer or identifier
+                                 If Val(defaultVal) <> 0 Or defaultVal = "0"
+                                    *defaultNode = Makeleaf(#ljINT, defaultVal)
+                                 Else
+                                    ; Could be a variable name or constant - treat as identifier
+                                    *defaultNode = Makeleaf(#ljIDENT, defaultVal)
+                                 EndIf
+                              EndIf
+
+                              ; Apply type conversion if needed
+                              If *defaultNode
+                                 If (expectedType & #C2FLAG_FLOAT) And *defaultNode\NodeType = #ljINT
+                                    *defaultNode = MakeNode(#ljITOF, *defaultNode, 0)
+                                 EndIf
+
+                                 If *p
+                                    *p = MakeNode(#ljSEQ, *p, *defaultNode)
+                                 Else
+                                    *p = *defaultNode
+                                 EndIf
+                                 nParams + 1  ; Increment actual param count
+                              EndIf
+                           EndIf
+                        EndIf
+                     EndIf
+                  Next
+                  Break
+               EndIf
+            Next
+         EndIf
       EndIf
 
       ; Store parameter count in module info
@@ -1153,9 +1317,20 @@
                   NextToken()
                   If TOKEN()\TokenType = #ljSemi
                      ; This is var.Struct; pattern - transform to var.Struct = {}
-                     ; Restore position and create assignment AST node
                      SelectElement(llTokenList(), autoInitSavedIndex)
-                     Protected *autoInitLHS.stTree = Makeleaf(#ljIDENT, autoInitIdentName)
+
+                     ; V1.037.2: Set up struct variable metadata BEFORE creating AST node
+                     ; Extract just the variable name (before the dot)
+                     Protected autoInitVarName.s = Left(autoInitIdentName, autoInitDotPos - 1)
+
+                     ; Allocate variable slot with struct metadata
+                     Protected autoInitVarSlot.i = FetchVarOffset(autoInitVarName, 0, 0, #True)
+                     gVarMeta(autoInitVarSlot)\flags = #C2FLAG_STRUCT | #C2FLAG_IDENT
+                     gVarMeta(autoInitVarSlot)\structType = autoInitStructType
+                     gVarMeta(autoInitVarSlot)\elementSize = mapStructDefs()\totalSize
+
+                     ; Create AST node using just the variable name (without .StructType suffix)
+                     Protected *autoInitLHS.stTree = Makeleaf(#ljIDENT, autoInitVarName)
                      Protected *autoInitRHS.stTree = Makeleaf(#ljStructInit, "")
                      *p = MakeNode(#ljAssign, *autoInitLHS, *autoInitRHS)
                      NextToken()  ; Skip identifier
@@ -1181,6 +1356,12 @@
             Protected arrayTypeHint.w
             Protected arraySize.i
             Protected varSlot.i
+            ; V1.036.0: Multi-dimensional array support
+            Protected nDims.i
+            Protected dimSize0.i, dimSize1.i, dimSize2.i, dimSize3.i
+            Protected dimStride0.i, dimStride1.i, dimStride2.i, dimStride3.i
+            Protected dimIdx.i
+            Protected totalArraySize.i
 
             ; IMPORTANT: Initialize isPointerArray on every execution
             isPointerArray = #False
@@ -1258,6 +1439,121 @@
                ProcedureReturn 0
             EndIf
             NextToken()
+
+            ; V1.036.0: Multi-dimensional array support - parse additional dimensions
+            ; First dimension already parsed into arraySize
+            nDims = 1
+            dimSize0 = arraySize
+
+            ; Parse additional dimensions: [size2][size3]...
+            Protected dimMacroKey.s, dimMacroBody.s
+            While TOKEN()\TokenType = #ljLeftBracket And nDims < 4
+               NextToken()  ; Skip '['
+
+               ; Parse dimension size (integer constant or macro constant)
+               Protected dimVal.i = 0
+               If TOKEN()\TokenType = #ljINT
+                  dimVal = Val(TOKEN()\value)
+               ElseIf TOKEN()\TokenType = #ljIDENT
+                  ; Try to resolve as macro constant
+                  dimMacroKey = TOKEN()\value
+                  If FindMapElement(mapMacros(), dimMacroKey)
+                     dimMacroBody = Trim(mapMacros()\body)
+                     If dimMacroBody <> "" And Val(dimMacroBody) > 0
+                        dimVal = Val(dimMacroBody)
+                     Else
+                        SetError("Array dimension " + Str(nDims + 1) + " macro '" + TOKEN()\value + "' must be a positive integer constant", #C2ERR_EXPECTED_STATEMENT)
+                        gStack - 1
+                        ProcedureReturn 0
+                     EndIf
+                  Else
+                     SetError("Array dimension " + Str(nDims + 1) + " must be integer constant (identifier '" + TOKEN()\value + "' is not defined)", #C2ERR_EXPECTED_STATEMENT)
+                     gStack - 1
+                     ProcedureReturn 0
+                  EndIf
+               Else
+                  SetError("Array dimension " + Str(nDims + 1) + " must be integer constant or macro constant", #C2ERR_EXPECTED_STATEMENT)
+                  gStack - 1
+                  ProcedureReturn 0
+               EndIf
+
+               ; Store in appropriate dimension variable
+               Select nDims
+                  Case 1
+                     dimSize1 = dimVal
+                  Case 2
+                     dimSize2 = dimVal
+                  Case 3
+                     dimSize3 = dimVal
+               EndSelect
+
+               NextToken()  ; Past the size value
+
+               ; Expect ]
+               If TOKEN()\TokenType <> #ljRightBracket
+                  SetError("Expected ']' after array dimension " + Str(nDims + 1) + " size", #C2ERR_EXPECTED_STATEMENT)
+                  gStack - 1
+                  ProcedureReturn 0
+               EndIf
+               NextToken()  ; Past ']'
+
+               nDims + 1
+            Wend
+
+            ; Check for too many dimensions
+            If TOKEN()\TokenType = #ljLeftBracket And nDims >= 4
+               SetError("Array cannot have more than 4 dimensions", #C2ERR_EXPECTED_STATEMENT)
+               gStack - 1
+               ProcedureReturn 0
+            EndIf
+
+            ; Calculate total array size (product of all dimensions)
+            totalArraySize = dimSize0
+            If nDims >= 2
+               totalArraySize * dimSize1
+            EndIf
+            If nDims >= 3
+               totalArraySize * dimSize2
+            EndIf
+            If nDims >= 4
+               totalArraySize * dimSize3
+            EndIf
+            arraySize = totalArraySize
+
+            ; Precompute strides (right to left): stride[i] = product of dimSizes[i+1..n-1]
+            ; Last dimension has stride 1, others are cumulative products
+            Select nDims
+               Case 1
+                  dimStride0 = 1
+               Case 2
+                  dimStride1 = 1
+                  dimStride0 = dimSize1
+               Case 3
+                  dimStride2 = 1
+                  dimStride1 = dimSize2
+                  dimStride0 = dimSize1 * dimSize2
+               Case 4
+                  dimStride3 = 1
+                  dimStride2 = dimSize3
+                  dimStride1 = dimSize2 * dimSize3
+                  dimStride0 = dimSize1 * dimSize2 * dimSize3
+            EndSelect
+
+            CompilerIf #DEBUG
+               If nDims > 1
+                  Debug "Multi-dim array: " + arrayName + " nDims=" + Str(nDims) + " totalSize=" + Str(totalArraySize)
+                  Debug "  dim[0] size=" + Str(dimSize0) + " stride=" + Str(dimStride0)
+                  If nDims >= 2
+                     Debug "  dim[1] size=" + Str(dimSize1) + " stride=" + Str(dimStride1)
+                  EndIf
+                  If nDims >= 3
+                     Debug "  dim[2] size=" + Str(dimSize2) + " stride=" + Str(dimStride2)
+                  EndIf
+                  If nDims >= 4
+                     Debug "  dim[3] size=" + Str(dimSize3) + " stride=" + Str(dimStride3)
+                  EndIf
+               EndIf
+            CompilerEndIf
 
             ; V1.022.44: Check for struct array type (e.g., array points.Point[10])
             ; If arrayName contains a dot followed by a struct type name, this is a struct array
@@ -1447,6 +1743,17 @@
             Else
                ; New array declaration - set up metadata
                gVarMeta(varSlot)\arraySize = arraySize
+
+               ; V1.036.0: Store multi-dimensional metadata
+               gVarMeta(varSlot)\nDimensions = nDims
+               gVarMeta(varSlot)\dimSizes[0] = dimSize0
+               gVarMeta(varSlot)\dimSizes[1] = dimSize1
+               gVarMeta(varSlot)\dimSizes[2] = dimSize2
+               gVarMeta(varSlot)\dimSizes[3] = dimSize3
+               gVarMeta(varSlot)\dimStrides[0] = dimStride0
+               gVarMeta(varSlot)\dimStrides[1] = dimStride1
+               gVarMeta(varSlot)\dimStrides[2] = dimStride2
+               gVarMeta(varSlot)\dimStrides[3] = dimStride3
 
                ; Clear any existing type bits and set array flag + element type
                ; FetchVarOffset may have set INT as default, so clear type bits first
@@ -1946,6 +2253,8 @@
                   CopyStructure(mapStructDefs(), @structDef, stStructDef)
                   NextToken()
 
+                  Debug "V1.037.2: STRUCT DETECTED '" + structVarName + "." + structTypeName + "' next token type=" + Str(TOKEN()\TokenType) + " extra=" + Str(TOKEN()\TokenExtra) + " value='" + TOKEN()\value + "' (#ljSemi=" + Str(#ljSemi) + ")"
+
                   ; V1.022.48: Check for field access (auto-declaration on first use)
                   ; Syntax: varName.StructType\field = value
                   If TOKEN()\TokenType = #ljBackslash
@@ -2091,6 +2400,11 @@
 
                      ; Set flag to skip rest of identifier handling
                      autoDeclarredStruct = #True
+
+                  ; V1.037.2: Struct declaration without init (p1.Point;) is now handled
+                  ; by V1.029.86 early in stmt() - see lines 1305-1346
+                  ; The ElseIf below catches semicolon only as fallback (shouldn't be reached)
+
                   ElseIf TOKEN()\TokenExtra = #ljASSIGN
                      ; Traditional: varName.StructType = {...} or struct copy: varName.StructType = srcStruct
                      NextToken()
@@ -2398,7 +2712,7 @@
 
                ; Check if this is array indexing
                If TOKEN()\TokenType = #ljLeftBracket
-                  ; Array assignment: arr[index] = value
+                  ; Array assignment: arr[index] = value OR multi-dim: arr[i][j] = value
                   NextToken()  ; Skip '['
                   Protected *indexExpr.stTree = expr(0)  ; Parse index expression
 
@@ -2409,8 +2723,67 @@
                   EndIf
                   NextToken()  ; Skip ']'
 
-                  ; Create array index node: left=array var, right=index
-                  *v = MakeNode( #ljLeftBracket, *v, *indexExpr )
+                  ; V1.036.0: Check for multi-dimensional array assignment
+                  Protected stmtMdVarSlot.i = FindVariableSlotByName(*v\value, gCurrentFunctionName)
+                  Protected stmtMdExpectedDims.i = 1
+                  Protected *stmtMdIdx0.stTree, *stmtMdIdx1.stTree, *stmtMdIdx2.stTree, *stmtMdIdx3.stTree
+                  Protected stmtMdIdxCount.i = 1
+                  *stmtMdIdx0 = *indexExpr
+
+                  If stmtMdVarSlot >= 0 And gVarMeta(stmtMdVarSlot)\nDimensions > 1
+                     stmtMdExpectedDims = gVarMeta(stmtMdVarSlot)\nDimensions
+
+                     ; Parse additional dimension indices
+                     While TOKEN()\TokenType = #ljLeftBracket And stmtMdIdxCount < stmtMdExpectedDims
+                        NextToken()  ; Skip '['
+                        Select stmtMdIdxCount
+                           Case 1
+                              *stmtMdIdx1 = expr(0)
+                           Case 2
+                              *stmtMdIdx2 = expr(0)
+                           Case 3
+                              *stmtMdIdx3 = expr(0)
+                        EndSelect
+
+                        If TOKEN()\TokenType <> #ljRightBracket
+                           SetError("Expected ']' after array index for dimension " + Str(stmtMdIdxCount + 1), #C2ERR_EXPECTED_STATEMENT)
+                           gStack - 1
+                           ProcedureReturn 0
+                        EndIf
+                        NextToken()  ; Skip ']'
+                        stmtMdIdxCount + 1
+                     Wend
+
+                     ; Verify correct number of indices
+                     If stmtMdIdxCount <> stmtMdExpectedDims
+                        SetError("Array '" + *v\value + "' requires " + Str(stmtMdExpectedDims) + " indices but got " + Str(stmtMdIdxCount), #C2ERR_EXPECTED_STATEMENT)
+                        gStack - 1
+                        ProcedureReturn 0
+                     EndIf
+
+                     ; Create multi-dim index node for assignment
+                     *v = MakeNode(#nd_MultiDimIndex, *v, *stmtMdIdx0)
+                     *v\value = Str(stmtMdVarSlot) + "|" + Str(stmtMdIdxCount)
+                     *v\paramCount = stmtMdIdxCount
+
+                     ; Store additional indices using available child pointers
+                     If stmtMdIdxCount >= 2
+                        *v\left\right = *stmtMdIdx1
+                     EndIf
+                     If stmtMdIdxCount >= 3
+                        *v\left\left = *stmtMdIdx2
+                     EndIf
+                     If stmtMdIdxCount >= 4
+                        *v\right\left = *stmtMdIdx3
+                     EndIf
+
+                     CompilerIf #DEBUG
+                        Debug "Multi-dim stmt index: " + *v\left\value + " slot=" + Str(stmtMdVarSlot) + " dims=" + Str(stmtMdIdxCount)
+                     CompilerEndIf
+                  Else
+                     ; Single dimension - use standard node
+                     *v = MakeNode( #ljLeftBracket, *v, *indexExpr )
+                  EndIf
                EndIf
 
                ; V1.20.25: Check for pointer field access on lvalue (ptr\i, arr[i]\f, etc.)

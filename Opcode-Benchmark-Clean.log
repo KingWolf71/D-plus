@@ -1,0 +1,27 @@
+================================================
+     OPCODE BENCHMARK - CLEAN (v2.0)
+================================================
+Iterations: 50000
+
+Results:
+  1. Local vars:    50003
+  2. Arithmetic:    2500100000
+  3. Comparisons:   150009
+  4. Function calls:200000
+  5. Jumps:         750000
+  6. Arrays:        49950000
+  7. Floats:        1125052500.000
+  8. Nested loops:  50000
+  9. Switch:        550000
+ 10. Inc/Dec:       50000
+ 11. Logical:       89999
+ 12. Mixed/Fib:     33825000
+
+================================================
+Check profiler for opcode timing data.
+PRT* opcodes should be minimal now.
+================================================
+Runtime: 4.50 seconds.
+
+
+

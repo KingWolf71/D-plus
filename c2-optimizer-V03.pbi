@@ -30,6 +30,12 @@
 ;            - FETCH x + FETCH x → FETCH x + DUP (for x*x squared patterns)
 ;            - PUSH_IMM + NEGATE → negative constant folding at compile time
 ;            - Saves memory reads and instruction count in tight loops
+; V1.035.16: Comparison-Jump fusion (Pass 6)
+;            - FETCH + PUSH_IMM + LESS/GREATER/etc + JZ → JGE_VAR_IMM etc
+;            - Fuses 4 instructions into 1 for loop conditions
+;            - Supports both global (VAR) and local (LVAR) variables
+;            - Removed #pragma optimizecode check (always optimize)
+;            - Pass 6 runs AFTER PUSH_IMM conversion (Pass 5)
 
 ; Helper to adjust jump offsets when NOOP is created
 Procedure AdjustJumpsForNOOP(noopPos.i)
@@ -59,7 +65,7 @@ Procedure Optimizer()
    Protected indexVarSlot.i
    Protected localOffset.i
    Protected arrayStoreIdx, valueInstrIdx
-   Protected optimizationsEnabled.i
+   ; V1.035.16: Removed optimizationsEnabled - always optimize
    Protected searchKey.s
    Protected currentFunctionName.s
    Protected funcId.i
@@ -77,21 +83,7 @@ Procedure Optimizer()
    Protected *fetchInstr, *lfetchInstr
    Protected jmpOffset.i, nextRealIdx.i, constVal.i
 
-   ; Check if optimizations are enabled
-   optimizationsEnabled = #True
-   If FindMapElement(mapPragmas(), "optimizecode")
-      If LCase(mapPragmas()) = "off" Or mapPragmas() = "0"
-         optimizationsEnabled = #False
-      EndIf
-   EndIf
-
-   If Not optimizationsEnabled
-      CompilerIf #DEBUG
-         Debug "=== Optimizer V02 DISABLED (pragma optimizecode=off) ==="
-      CompilerEndIf
-      ProcedureReturn
-   EndIf
-
+   ; V1.035.16: Optimizer always enabled (removed pragma optimizecode check)
    ; V1.035.3: Initialize rule-based optimization tables
    InitAllOptimizationRules()
 
@@ -1005,7 +997,117 @@ Procedure Optimizer()
 
    CompilerIf #DEBUG
       Debug "      Converted " + Str(pushImmCount) + " PUSH to PUSH_IMM"
-      Debug "=== Optimizer V02 Complete ==="
+      Debug "    Pass 6: Comparison-Jump Fusion"
+   CompilerEndIf
+
+   ;- ========================================
+   ;- PASS 6: COMPARISON-JUMP FUSION (V1.035.16)
+   ;- ========================================
+   ; Pattern: FETCH/LFETCH + PUSH_IMM + LESS/GREATER/etc + JZ → fused conditional jump
+   ; This eliminates 4 instructions (including stack operations) into 1
+   ; Uses \ndx=slot, \j=immediate, \i=offset (offset in \i for FixJMP compatibility)
+   ; MUST run after Pass 5 (PUSH_IMM conversion) to see PUSH_IMM opcodes
+   Protected cmpJmpCount.i = 0
+   Protected *fetchInstr2.stType, *pushInstr2.stType, *cmpInstr.stType, *jzInstr.stType
+   Protected fusedOpcode.i, isLocal.i, cmpOpcode.i
+
+   ResetList(llObjects())
+   While NextElement(llObjects())
+      ; Look for FETCH (global) or LFETCH (local) - integer only for now
+      ; V1.035.17: Local variables can be #ljLFETCH OR #ljFetch with \j=1
+      If llObjects()\code = #ljFetch Or llObjects()\code = #ljLFETCH
+         isLocal = Bool(llObjects()\code = #ljLFETCH Or (llObjects()\code = #ljFetch And llObjects()\j = 1))
+         fetchSlot = llObjects()\i
+         *fetchInstr2 = @llObjects()
+         savedIdx = ListIndex(llObjects())
+
+         If NextElement(llObjects())
+            ; Skip NOOPs
+            While llObjects()\code = #ljNOOP
+               If Not NextElement(llObjects()) : Break : EndIf
+            Wend
+
+            ; Check for PUSH_IMM (immediate value)
+            If llObjects()\code = #ljPUSH_IMM
+               constVal = llObjects()\i
+               *pushInstr2 = @llObjects()
+
+               If NextElement(llObjects())
+                  ; Skip NOOPs
+                  While llObjects()\code = #ljNOOP
+                     If Not NextElement(llObjects()) : Break : EndIf
+                  Wend
+
+                  ; Check for comparison opcode
+                  cmpOpcode = llObjects()\code
+                  If cmpOpcode = #ljLESS Or cmpOpcode = #ljLESSEQUAL Or cmpOpcode = #ljGREATER Or cmpOpcode = #ljGreaterEqual Or cmpOpcode = #ljEQUAL Or cmpOpcode = #ljNotEqual
+                     *cmpInstr = @llObjects()
+
+                     If NextElement(llObjects())
+                        ; Skip NOOPs
+                        While llObjects()\code = #ljNOOP
+                           If Not NextElement(llObjects()) : Break : EndIf
+                        Wend
+
+                        ; Check for JZ
+                        If llObjects()\code = #ljJZ
+                           jmpOffset = llObjects()\i
+                           *jzInstr = @llObjects()
+
+                           ; Determine fused opcode based on comparison and locality
+                           ; JZ after comparison inverts: LESS+JZ becomes JGE (jump if NOT less)
+                           Select cmpOpcode
+                              Case #ljLESS
+                                 fusedOpcode = #ljJGE_VAR_IMM
+                              Case #ljLESSEQUAL
+                                 fusedOpcode = #ljJGT_VAR_IMM
+                              Case #ljGREATER
+                                 fusedOpcode = #ljJLE_VAR_IMM
+                              Case #ljGreaterEqual
+                                 fusedOpcode = #ljJLT_VAR_IMM
+                              Case #ljEQUAL
+                                 fusedOpcode = #ljJNE_VAR_IMM
+                              Case #ljNotEqual
+                                 fusedOpcode = #ljJEQ_VAR_IMM
+                           EndSelect
+
+                           ; Adjust for local variable version
+                           If isLocal
+                              ; Local versions are 6 opcodes after global versions
+                              fusedOpcode + 6
+                           EndIf
+
+                           ; Apply fusion: Replace JZ with fused opcode, NOOP the rest
+                           ; JZ becomes fused conditional jump
+                           ChangeCurrentElement(llObjects(), *jzInstr)
+                           llObjects()\code = fusedOpcode
+                           llObjects()\ndx = fetchSlot  ; slot/offset
+                           llObjects()\j = constVal     ; immediate value
+                           llObjects()\i = jmpOffset    ; jump offset (in \i for FixJMP compatibility)
+
+                           ; NOOP the FETCH, PUSH_IMM, and comparison
+                           ChangeCurrentElement(llObjects(), *fetchInstr2)
+                           llObjects()\code = #ljNOOP
+                           ChangeCurrentElement(llObjects(), *pushInstr2)
+                           llObjects()\code = #ljNOOP
+                           ChangeCurrentElement(llObjects(), *cmpInstr)
+                           llObjects()\code = #ljNOOP
+
+                           cmpJmpCount + 1
+                        EndIf
+                     EndIf
+                  EndIf
+               EndIf
+            EndIf
+         EndIf
+
+         SelectElement(llObjects(), savedIdx)
+      EndIf
+   Wend
+
+   CompilerIf #DEBUG
+      Debug "      Comparison-Jump fusion: " + Str(cmpJmpCount)
+      Debug "=== Optimizer V03 Complete ==="
    CompilerEndIf
 
 EndProcedure

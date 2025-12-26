@@ -1,0 +1,268 @@
+{
+  "version": "1.0",
+  "description": "C to LJ2 compatibility mappings - V1.037",
+
+  "declarations": {
+    "int": {
+      "lj_suffix": ".i",
+      "notes": "Integer declaration"
+    },
+    "float": {
+      "lj_suffix": ".f",
+      "notes": "Float declaration"
+    },
+    "double": {
+      "lj_suffix": ".f",
+      "notes": "Double mapped to float"
+    },
+    "char": {
+      "lj_suffix": ".i",
+      "notes": "Char mapped to integer (ASCII)"
+    },
+    "long": {
+      "lj_suffix": ".i",
+      "notes": "Long mapped to integer"
+    },
+    "short": {
+      "lj_suffix": ".i",
+      "notes": "Short mapped to integer"
+    },
+    "unsigned": {
+      "action": "strip",
+      "notes": "LJ2 has no unsigned qualifier"
+    },
+    "signed": {
+      "action": "strip",
+      "notes": "LJ2 has no signed qualifier"
+    },
+    "const": {
+      "action": "strip",
+      "notes": "LJ2 has no const qualifier"
+    },
+    "static": {
+      "action": "strip",
+      "notes": "LJ2 has no static qualifier"
+    },
+    "volatile": {
+      "action": "strip",
+      "notes": "LJ2 has no volatile qualifier"
+    }
+  },
+
+  "functions": {
+    "supported": {
+      "printf": { "lj": "printf", "status": "native" },
+      "print": { "lj": "print", "status": "native" },
+      "strlen": { "lj": "len", "status": "alias" },
+      "abs": { "lj": "abs", "status": "native" },
+      "sqrt": { "lj": "sqrt", "status": "native" },
+      "pow": { "lj": "pow", "status": "native" },
+      "min": { "lj": "min", "status": "native" },
+      "max": { "lj": "max", "status": "native" },
+      "rand": { "lj": "random", "status": "alias" },
+      "random": { "lj": "random", "status": "native" },
+      "puts": { "lj": "print", "status": "alias" },
+      "strcmp": { "lj": "strcmp", "status": "native" }
+    },
+    "transforms": {
+      "strcpy": {
+        "pattern": "strcpy(dest, src)",
+        "replacement": "dest = src",
+        "notes": "String copy via assignment"
+      },
+      "strcat": {
+        "pattern": "strcat(dest, src)",
+        "replacement": "dest = dest + src",
+        "notes": "String concatenation"
+      },
+      "atoi": {
+        "pattern": "atoi(str)",
+        "replacement": "(int)str",
+        "notes": "String to int cast"
+      },
+      "atof": {
+        "pattern": "atof(str)",
+        "replacement": "(float)str",
+        "notes": "String to float cast"
+      },
+      "itoa": {
+        "pattern": "itoa(num)",
+        "replacement": "(string)num",
+        "notes": "Int to string cast"
+      }
+    },
+    "unsupported": {
+      "sizeof": {
+        "reason": "No runtime type introspection",
+        "workaround": "Use explicit size constants",
+        "severity": "warning"
+      },
+      "malloc": {
+        "reason": "Manual memory management not needed",
+        "workaround": "Variables auto-allocated",
+        "severity": "warning"
+      },
+      "free": {
+        "reason": "Manual memory management not needed",
+        "workaround": "Variables auto-freed",
+        "severity": "warning"
+      },
+      "realloc": {
+        "reason": "Manual memory management not needed",
+        "workaround": "Use array resize()",
+        "severity": "warning"
+      },
+      "calloc": {
+        "reason": "Manual memory management not needed",
+        "workaround": "Variables auto-allocated",
+        "severity": "warning"
+      },
+      "scanf": {
+        "reason": "No console input",
+        "workaround": "Use GUI input",
+        "severity": "warning"
+      },
+      "gets": {
+        "reason": "No console input",
+        "workaround": "Use GUI input",
+        "severity": "warning"
+      },
+      "fgets": {
+        "reason": "File I/O not implemented",
+        "workaround": "Planned for future",
+        "severity": "warning"
+      },
+      "fopen": {
+        "reason": "File I/O not implemented",
+        "workaround": "Planned for future",
+        "severity": "warning"
+      },
+      "fclose": {
+        "reason": "File I/O not implemented",
+        "workaround": "Planned for future",
+        "severity": "warning"
+      },
+      "fread": {
+        "reason": "File I/O not implemented",
+        "workaround": "Planned for future",
+        "severity": "warning"
+      },
+      "fwrite": {
+        "reason": "File I/O not implemented",
+        "workaround": "Planned for future",
+        "severity": "warning"
+      },
+      "fprintf": {
+        "reason": "File I/O not implemented",
+        "workaround": "Planned for future",
+        "severity": "warning"
+      },
+      "sprintf": {
+        "reason": "Not yet implemented",
+        "workaround": "Use string concatenation with str()",
+        "severity": "warning",
+        "planned": true
+      },
+      "sscanf": {
+        "reason": "Not implemented",
+        "workaround": "Parse manually",
+        "severity": "warning"
+      },
+      "memcpy": {
+        "reason": "Not implemented",
+        "workaround": "Use assignment or loops",
+        "severity": "warning"
+      },
+      "memset": {
+        "reason": "Not implemented",
+        "workaround": "Use loops",
+        "severity": "warning"
+      },
+      "memmove": {
+        "reason": "Not implemented",
+        "workaround": "Use loops",
+        "severity": "warning"
+      }
+    }
+  },
+
+  "syntax": {
+    "typedef": {
+      "status": "unsupported",
+      "reason": "Use struct instead"
+    },
+    "union": {
+      "status": "unsupported",
+      "reason": "SpiderBasic compatibility"
+    },
+    "enum": {
+      "status": "unsupported",
+      "reason": "Use #define constants"
+    },
+    "goto": {
+      "status": "unsupported",
+      "reason": "Use loops/functions"
+    },
+    "extern": {
+      "action": "strip",
+      "notes": "No external linkage"
+    },
+    "register": {
+      "action": "strip",
+      "notes": "No register hint"
+    }
+  },
+
+  "preprocessor": {
+    "#include": {
+      "action": "comment_out",
+      "notes": "C includes not needed"
+    },
+    "#define": {
+      "status": "native",
+      "notes": "Identical syntax"
+    },
+    "#pragma": {
+      "status": "native",
+      "notes": "LJ2 pragmas"
+    },
+    "#ifdef": {
+      "status": "unsupported",
+      "severity": "warning"
+    },
+    "#ifndef": {
+      "status": "unsupported",
+      "severity": "warning"
+    },
+    "#endif": {
+      "status": "unsupported",
+      "severity": "warning"
+    },
+    "#if": {
+      "status": "unsupported",
+      "severity": "warning"
+    },
+    "#else": {
+      "status": "unsupported",
+      "severity": "warning"
+    },
+    "#elif": {
+      "status": "unsupported",
+      "severity": "warning"
+    },
+    "#undef": {
+      "status": "unsupported",
+      "severity": "warning"
+    }
+  },
+
+  "casts": {
+    "(int)": { "lj": "(int)", "status": "native" },
+    "(float)": { "lj": "(float)", "status": "native" },
+    "(double)": { "lj": "(float)", "status": "alias" },
+    "(char)": { "lj": "(int)", "status": "alias" },
+    "(void *)": { "lj": "(ptr)", "status": "native" },
+    "(void*)": { "lj": "(ptr)", "status": "native" },
+    "(string)": { "lj": "(string)", "status": "native" }
+  }
+}
