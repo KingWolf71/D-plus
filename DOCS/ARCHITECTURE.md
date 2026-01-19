@@ -1,6 +1,6 @@
-# LJ2 Architecture - Technical Deep Dive
+# D+AI Architecture - Technical Deep Dive
 
-This document explains the internal architecture and implementation details of the LJ2 compiler and VM.
+This document explains the internal architecture and implementation details of the D+AI compiler and VM.
 
 ## Table of Contents
 1. [Data Structures](#data-structures)
@@ -804,7 +804,7 @@ EndMacro
 
 Typical performance (1000-iteration loop with arrays):
 - **Generic interpreter:** ~500ms
-- **LJ2 optimized:** ~50ms
+- **D+AI optimized:** ~50ms
 - **Speedup:** 10x
 
 ---

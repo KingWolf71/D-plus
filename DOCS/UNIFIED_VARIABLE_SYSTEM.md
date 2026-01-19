@@ -2,7 +2,7 @@
 
 ## Overview
 
-As of version 1.18.0, LJ2 uses a **unified variable system** where all variables (global and local) are stored in the same `gVar[]` array and accessed using the same opcodes. This simplifies the codebase significantly and makes it much easier to understand and maintain.
+As of version 1.18.0, D+AI uses a **unified variable system** where all variables (global and local) are stored in the same `gVar[]` array and accessed using the same opcodes. This simplifies the codebase significantly and makes it much easier to understand and maintain.
 
 ## Key Changes
 
@@ -317,7 +317,7 @@ But for now, the unified system provides the best balance of simplicity and perf
 
 ## Summary
 
-The unified variable system is a **major simplification** of the LJ2 compiler/VM. By using one method for all variables, the code is easier to understand, maintain, and extend. Performance remains excellent while complexity is dramatically reduced.
+The unified variable system is a **major simplification** of the D+AI compiler/VM. By using one method for all variables, the code is easier to understand, maintain, and extend. Performance remains excellent while complexity is dramatically reduced.
 
 **Version**: 1.18.0
 **Date**: January 2025

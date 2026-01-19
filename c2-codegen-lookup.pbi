@@ -143,6 +143,18 @@ Procedure            RegisterCodeElement(slot.i, functionContext.s = "")
       If Not FindMapElement(MapLocalByOffset(), offsetKey)
          MapLocalByOffset(offsetKey) = slot
       EndIf
+      ; V1.039.21: Register local variable name for ASM display (strip function prefix)
+      If Not FindMapElement(gAsmLocalNameMap(), offsetKey)
+         Protected localName.s = gVarMeta(slot)\name
+         Protected prefixLen.i = Len(functionContext) + 1  ; "funcname_"
+         ; Strip function prefix if present (handles both "func_var" and "_func_var" formats)
+         If LCase(Left(localName, prefixLen)) = LCase(functionContext) + "_"
+            localName = Mid(localName, prefixLen + 1)
+         ElseIf LCase(Left(localName, prefixLen + 1)) = "_" + LCase(functionContext) + "_"
+            localName = Mid(localName, prefixLen + 2)
+         EndIf
+         gAsmLocalNameMap(offsetKey) = localName
+      EndIf
    EndIf
 EndProcedure
 
@@ -305,6 +317,7 @@ Procedure PopulateCodeElementMaps()
 
    ClearMap(MapCodeElements())
    ClearMap(MapLocalByOffset())
+   ClearMap(gAsmLocalNameMap())  ; V1.039.21: Clear ASM local name map
 
    For i = 1 To gnLastVariable - 1
       If gVarMeta(i)\name <> ""
@@ -320,14 +333,26 @@ Procedure PopulateCodeElementMaps()
 
          ; Add to offset lookup map for locals
          If gVarMeta(i)\paramOffset >= 0
-            ; Extract function context from mangled name
-            Protected underscorePos.i = FindString(gVarMeta(i)\name, "_")
-            If underscorePos > 0
-               Protected funcContext.s = Left(gVarMeta(i)\name, underscorePos - 1)
+            ; V1.039.21: Extract function context from mangled name
+            ; Format: "_funcname_varname" - skip leading underscore, find next underscore
+            Protected varName.s = gVarMeta(i)\name
+            Protected startPos.i = 1
+            ; Skip leading underscore if present
+            If Left(varName, 1) = "_"
+               startPos = 2
+            EndIf
+            Protected underscorePos.i = FindString(varName, "_", startPos)
+            If underscorePos > startPos
+               Protected funcContext.s = Mid(varName, startPos, underscorePos - startPos)
                key = LCase(funcContext) + "_" + Str(gVarMeta(i)\paramOffset)
                If Not FindMapElement(MapLocalByOffset(), key)
                   AddMapElement(MapLocalByOffset(), key)
                   MapLocalByOffset() = i
+               EndIf
+               ; V1.039.21: Also add to ASM local name map (variable name without function prefix)
+               If Not FindMapElement(gAsmLocalNameMap(), key)
+                  Protected localName.s = Mid(varName, underscorePos + 1)
+                  gAsmLocalNameMap(key) = localName
                EndIf
             EndIf
          EndIf

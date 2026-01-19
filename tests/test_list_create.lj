@@ -1,6 +1,0 @@
-// Test list creation only
-#pragma console on
-#pragma appname "ListCreate"
-
-list items;
-print("Created list");

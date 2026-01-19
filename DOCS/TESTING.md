@@ -1,8 +1,8 @@
-# LJ2 Test Suite Documentation
+# D+AI Test Suite Documentation
 
 ## Overview
 
-The LJ2 test suite provides automated testing for the LJ2 compiler and VM. It supports categorized testing, crash detection, timeout handling, and detailed reporting.
+The D+AI test suite provides automated testing for the D+AI compiler and VM. It supports categorized testing, crash detection, timeout handling, and detailed reporting.
 
 ## Test Suite Scripts
 
@@ -53,7 +53,7 @@ The LJ2 test suite provides automated testing for the LJ2 compiler and VM. It su
 | `-ShowOutput` | false | Display test output for all tests |
 | `-StopOnError` | false | Stop on first failure |
 | `-ListOnly` | false | List tests without running |
-| `-AutoClose` | 3 | Seconds before LJ2 auto-closes (0 to disable) |
+| `-AutoClose` | 3 | Seconds before D+AI auto-closes (0 to disable) |
 | `-Timeout` | 30 | Max seconds per test before timeout |
 
 ### Examples
@@ -109,7 +109,7 @@ The test suite detects various failure modes:
 
 ```
 ========================================
-  LJ2 Test Suite Runner
+  D+AI Test Suite Runner
   Category: quick
   AutoClose: 3s | Timeout: 30s
 ========================================
@@ -142,22 +142,22 @@ Failed tests:
 
 ## Auto-Close Feature
 
-The LJ2 compiler supports an `--autoclose` command-line option that shows a countdown before exiting. This is useful for automated testing.
+The D+AI compiler supports an `--autoclose` command-line option that shows a countdown before exiting. This is useful for automated testing.
 
 ### Command Line Usage
 
 ```bash
 # Default 15 seconds countdown
-./lj2_linux "file.lj" --autoclose
-./lj2_linux "file.lj" -a
+./D+AI_linux "file.lj" --autoclose
+./D+AI_linux "file.lj" -a
 
 # Custom countdown (5 seconds)
-./lj2_linux "file.lj" --autoclose 5
-./lj2_linux "file.lj" --autoclose=5
-./lj2_linux "file.lj" -a=5
+./D+AI_linux "file.lj" --autoclose 5
+./D+AI_linux "file.lj" --autoclose=5
+./D+AI_linux "file.lj" -a=5
 
 # No auto-close (default behavior)
-./lj2_linux "file.lj"
+./D+AI_linux "file.lj"
 ```
 
 ### Console Output
@@ -210,5 +210,5 @@ Test files follow a numbering scheme:
 
 ### WSL issues
 - Ensure Ubuntu-24.04 WSL distribution is installed
-- Verify `lj2_linux` binary exists and is executable
+- Verify `D+AI_linux` binary exists and is executable
 - Check PUREBASIC_HOME path in test script

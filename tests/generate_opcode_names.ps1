@@ -2,7 +2,7 @@
 # This parses the opcode Enumeration (starting with #ljUNUSED) in c2-inc-v17.pbi
 # Uses Macro instead of Procedure to work inside DeclareModule
 
-$incFile = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-inc-v17.pbi'
+$incFile = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-inc-v17.pbi'
 $content = Get-Content $incFile
 
 $inEnum = $false

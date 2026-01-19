@@ -1,7 +1,0 @@
-// This should show ASM even on crash because ASM is printed during compilation
-#pragma console on
-#pragma appname "CompileOnly"
-#pragma ListASM on
-
-list items;
-result = listFirst(items);

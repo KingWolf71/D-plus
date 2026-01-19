@@ -1,4 +1,4 @@
-$f1 = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-codegen-v07.pbi'
+$f1 = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-codegen-v07.pbi'
 $c1 = Get-Content $f1 -Raw
 
 # Fix line 944: Remove PLSTORE and PLFETCH from the list since they're no longer used
@@ -9,7 +9,7 @@ Set-Content $f1 -Value $c1 -NoNewline
 Write-Output 'Done fixing codegen'
 
 # Now fix the inc files
-$f2 = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-inc-v17.pbi'
+$f2 = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-inc-v17.pbi'
 $c2 = Get-Content $f2 -Raw
 
 # Remove LLPMOV, PLFETCH, PLSTORE, PLMOV opcode definitions
@@ -29,7 +29,7 @@ Set-Content $f2 -Value $c2 -NoNewline
 Write-Output 'Done fixing c2-inc-v17'
 
 # Also update c2-inc-v18 if it exists
-$f3 = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-inc-v18.pbi'
+$f3 = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-inc-v18.pbi'
 if (Test-Path $f3) {
     $c3 = Get-Content $f3 -Raw
     $c3 = $c3.Replace('   #ljLLPMOV     ; LL PMOV: pointer variant (copies i, ptr, ptrtype)

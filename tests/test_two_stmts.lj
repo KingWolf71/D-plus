@@ -1,7 +1,0 @@
-// Two statements test
-#pragma console on
-#pragma appname "TwoStmt"
-#pragma ListASM on
-
-list items;
-listFirst(items);

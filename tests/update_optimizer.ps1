@@ -1,4 +1,4 @@
-$filePath = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-optimizer-V02.pbi'
+$filePath = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-optimizer-V02.pbi'
 $content = Get-Content $filePath -Raw
 
 # Fix lines 766-790: PLFETCH+PLSTORE -> PMOV with j-field encoding

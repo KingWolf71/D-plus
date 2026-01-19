@@ -1,6 +1,0 @@
-struct Point {
-    x.f;
-    y.f;
-}
-
-print("Struct declared");

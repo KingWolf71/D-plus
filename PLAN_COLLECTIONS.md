@@ -1,9 +1,9 @@
-# LJ2 Collections Implementation Plan
+# D+AI Collections Implementation Plan
 ## LinkedLists and Maps
 
 ### Overview
 
-Implement LinkedLists and Maps as first-class data structures in LJ2, using SpiderBasic-compatible PureBasic code for VM portability.
+Implement LinkedLists and Maps as first-class data structures in D+AI, using SpiderBasic-compatible PureBasic code for VM portability.
 
 ---
 
@@ -336,4 +336,4 @@ This will advance versions:
 - c2-vm-commands-v12 → v13
 - c2-vm-V13 → V14
 - NEW: c2-collections-v01.pbi
-- _lj2.ver: 1.025.0 → 1.026.0
+- _D+AI.ver: 1.025.0 → 1.026.0

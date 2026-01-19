@@ -1,4 +1,4 @@
-$content = Get-Content 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-arrays-v06.pbi' -Raw
+$content = Get-Content 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-arrays-v06.pbi' -Raw
 
 # Pattern: *gVar(...)\i or \s etc. where there's no \var(0) after the closing paren
 # Match *gVar(...)\field and insert \var(0) before \field
@@ -14,6 +14,6 @@ $content = $content -replace '(\*gVar\([^)]+\))(?!\\var\(0\))(\\ptrtype)', '$1\v
 # Same for \ptr
 $content = $content -replace '(\*gVar\([^)]+\))(?!\\var\(0\))(\\ptr\b)', '$1\var(0)$2'
 
-Set-Content 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-arrays-v06.pbi' -Value $content -NoNewline
+Set-Content 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-arrays-v06.pbi' -Value $content -NoNewline
 
 Write-Host "Done"

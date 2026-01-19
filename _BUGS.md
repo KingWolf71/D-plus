@@ -1,4 +1,4 @@
-LJ2 Bugs & TODO
+D+AI Bugs & TODO
 --------------------
 Updated: 7/Nov/2025
 

@@ -1,7 +1,7 @@
 ; ============================================================================
-; LJ2 Test Runner
+; D+AI Test Runner
 ; ============================================================================
-; Automatically runs all .lj test files in Examples directory
+; Automatically runs all source test files in Examples directory
 ; Captures output, timing, and creates JSON results
 ; Compares with previous runs to detect regressions
 ; ============================================================================
@@ -503,7 +503,7 @@ Procedure RunTest(filepath.s, filename.s)
 EndProcedure
 
 Procedure ScanAndRunTests()
-  ; Scan Examples directory and run all .lj files
+  ; Scan Examples directory and run all source files
   Protected dir.i
   Protected filename.s
   Protected filepath.s
@@ -511,7 +511,7 @@ Procedure ScanAndRunTests()
   PrintN("Scanning: " + examplesPath)
   PrintN("")
 
-  dir = ExamineDirectory(#PB_Any, examplesPath, "*.lj")
+  dir = ExamineDirectory(#PB_Any, examplesPath, C2Common::#C2_FILE_PATTERN$)
   If dir
     While NextDirectoryEntry(dir)
       filename = DirectoryEntryName(dir)

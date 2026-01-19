@@ -1,8 +1,0 @@
-// Test listFirst with assignment
-#pragma console on
-#pragma appname "ListFirst"
-
-list items;
-listAdd(items, 10);
-result = listFirst(items);
-print("First: ", result);

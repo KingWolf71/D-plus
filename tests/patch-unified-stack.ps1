@@ -1,15 +1,15 @@
-# Patch LJ2 for unified stack system
+# Patch D+AI for unified stack system
 # V1.034.12: gLocal eliminated - locals stored in gEvalStack
 # Run with: powershell -ExecutionPolicy Bypass -File patch-unified-stack.ps1
 
-Write-Host "=== LJ2 Unified Stack Patch v1.034.12 ===" -ForegroundColor Cyan
+Write-Host "=== D+AI Unified Stack Patch v1.034.12 ===" -ForegroundColor Cyan
 
 # ============================================================================
 # PATCH c2-vm-V16.pb
 # ============================================================================
 Write-Host "Patching c2-vm-V16.pb..." -ForegroundColor Yellow
 
-$file = "d:/OneDrive/WIP/Sources/Intense.2020/lj2/c2-vm-V16.pb"
+$file = "d:/OneDrive/WIP/Sources/Intense.2020/D+AI/c2-vm-V16.pb"
 $content = Get-Content $file -Raw
 
 # 1. Update stStack structure comments
@@ -51,7 +51,7 @@ Write-Host "  c2-vm-V16.pb patched" -ForegroundColor Green
 # ============================================================================
 Write-Host "Patching c2-vm-commands-v14.pb..." -ForegroundColor Yellow
 
-$file = "d:/OneDrive/WIP/Sources/Intense.2020/lj2/c2-vm-commands-v14.pb"
+$file = "d:/OneDrive/WIP/Sources/Intense.2020/D+AI/c2-vm-commands-v14.pb"
 $content = Get-Content $file -Raw
 
 # 1. Update _LOCAL macros to use gEvalStack
@@ -82,7 +82,7 @@ Write-Host "  c2-vm-commands-v14.pb patched" -ForegroundColor Green
 # ============================================================================
 Write-Host "Patching c2-arrays-v06.pbi..." -ForegroundColor Yellow
 
-$file = "d:/OneDrive/WIP/Sources/Intense.2020/lj2/c2-arrays-v06.pbi"
+$file = "d:/OneDrive/WIP/Sources/Intense.2020/D+AI/c2-arrays-v06.pbi"
 $content = Get-Content $file -Raw
 
 # 1. Update _LARR macros
@@ -109,9 +109,9 @@ Write-Host "  c2-arrays-v06.pbi patched" -ForegroundColor Green
 # Update version
 # ============================================================================
 Write-Host "Updating version..." -ForegroundColor Yellow
-Set-Content "d:/OneDrive/WIP/Sources/Intense.2020/lj2/_lj2.ver" "1.034.12`n" -NoNewline
+Set-Content "d:/OneDrive/WIP/Sources/Intense.2020/D+AI/_D+AI.ver" "1.034.12`n" -NoNewline
 Write-Host "  Version updated to 1.034.12" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "=== Patch Complete ===" -ForegroundColor Cyan
-Write-Host "Run: pbcompiler c2-modules-V22.pb -e lj2_test.exe" -ForegroundColor White
+Write-Host "Run: pbcompiler c2-modules-V22.pb -e D+AI_test.exe" -ForegroundColor White

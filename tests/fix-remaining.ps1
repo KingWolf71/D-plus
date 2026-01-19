@@ -1,6 +1,6 @@
 # Fix remaining gLocal references
 
-$file = "d:/OneDrive/WIP/Sources/Intense.2020/lj2/c2-vm-V16.pb"
+$file = "d:/OneDrive/WIP/Sources/Intense.2020/D+AI/c2-vm-V16.pb"
 $content = Get-Content $file -Raw
 
 # Comment out the localstack pragma line

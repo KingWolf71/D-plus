@@ -1,4 +1,4 @@
-$content = Get-Content 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-arrays-v06.pbi' -Raw
+$content = Get-Content 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-arrays-v06.pbi' -Raw
 
 # Pattern 1: gVar(slot)\i or gVar(slot)\ss etc. (direct variable access) -> *gVar(slot)\var(0)\i
 $content = $content -replace 'gVar\(([^)]+)\)\\([isfb])\b', '*gVar($1)\var(0)\$2'
@@ -18,6 +18,6 @@ $content = $content -replace 'gLocal\(([^)]+)\)\\', '_LVAR($1)\'
 # Pattern 6: gLocal(slot) alone (rare but possible)
 $content = $content -replace 'gLocal\(([^)]+)\)', '_LVAR($1)'
 
-Set-Content 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-arrays-v06.pbi' -Value $content -NoNewline
+Set-Content 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-arrays-v06.pbi' -Value $content -NoNewline
 
 Write-Host "Replacements completed"

@@ -1,4 +1,4 @@
-$file = Get-Content 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-inc-v17.pbi' -Raw
+$file = Get-Content 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-inc-v17.pbi' -Raw
 
 # Count enum entries between #ljUNUSED and #ljPTRADD (which is 279)
 $enumSection = $file -split 'Enumeration\r?\n\s+#ljUNUSED' | Select-Object -Last 1

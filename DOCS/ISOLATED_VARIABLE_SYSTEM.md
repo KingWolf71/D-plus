@@ -2,7 +2,7 @@
 
 ## Overview
 
-As of version 1.31.0, LJ2 uses an **isolated variable system** where globals, locals, and the evaluation stack are stored in completely separate arrays. This eliminates the possibility of stack/local overlap bugs that could occur in the previous unified system (V1.18.0).
+As of version 1.31.0, D+AI uses an **isolated variable system** where globals, locals, and the evaluation stack are stored in completely separate arrays. This eliminates the possibility of stack/local overlap bugs that could occur in the previous unified system (V1.18.0).
 
 ## Key Changes from Unified System
 

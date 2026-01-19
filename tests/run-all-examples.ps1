@@ -1,13 +1,13 @@
-# Test all LJ2 examples
+# Test all D+AI examples
 $ErrorActionPreference = "SilentlyContinue"
-$lj2 = ".\lj2.exe"
+$dpai = ".\dpai.exe"
 $passed = 0
 $failed = 0
 $failedTests = @()
 
-Get-ChildItem "Examples\*.lj" | Sort-Object Name | ForEach-Object {
+Get-ChildItem "Examples\*.d" | Sort-Object Name | ForEach-Object {
     $name = $_.Name
-    $output = & $lj2 -t $_.FullName 2>&1 | Out-String
+    $output = & $dpai -t $_.FullName 2>&1 | Out-String
 
     if ($output -match "LOAD ERROR|Compile Error|^Error:") {
         $failed++

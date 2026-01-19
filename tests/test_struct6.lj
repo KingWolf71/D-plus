@@ -1,9 +1,0 @@
-struct Point {
-    x.f;
-    y.f;
-}
-
-pt.Point = { };
-print("After init");
-pt.x = 10.0;
-print("After assign, done!");

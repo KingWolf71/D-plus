@@ -1,8 +1,0 @@
-struct Point {
-    x.f;
-    y.f;
-}
-
-print("Before struct init");
-pt.Point = { };
-print("After struct init");

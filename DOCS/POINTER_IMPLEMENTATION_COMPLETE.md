@@ -1,10 +1,10 @@
 # Pointer Implementation - Complete
 
 ## Summary
-Implemented full pointer support in LJ2 language compiler with slot-based addressing (not memory pointers).
+Implemented full pointer support in D+AI language compiler with slot-based addressing (not memory pointers).
 
 ## Architecture
-Pointers in LJ2 are **not** traditional C-style memory pointers. Instead:
+Pointers in D+AI are **not** traditional C-style memory pointers. Instead:
 - Pointers store **slot indices** (integers 0-8191) pointing to gVar array slots
 - Each pointer variable has **metadata** with an extraction function pointer
 - The `*` operator calls the extraction function to get typed value (\i, \f, or \ss)
@@ -45,35 +45,35 @@ Pointers in LJ2 are **not** traditional C-style memory pointers. Instead:
 ## Syntax
 
 ### Address-of Operator
-```lj2
+```D+AI
 ptr = &x        // Get slot index of variable x
 ```
 
 ### Pointer Dereference (read)
-```lj2
+```D+AI
 value = *ptr    // Read value at slot (compiler calls extraction function)
 ```
 
 ### Pointer Dereference (write)
-```lj2
+```D+AI
 *ptr = 100      // Write value to slot pointed to by ptr
 ```
 
 ### Pointer Arithmetic
-```lj2
+```D+AI
 ptr = &arr[0]
 ptr = ptr + 1   // Advance to next element
 ptr = ptr - 1   // Move backward
 ```
 
 ### Function Pointers
-```lj2
+```D+AI
 funcptr = &myFunction
 result = funcptr(arg1, arg2)
 ```
 
 ### Arrays of Pointers
-```lj2
+```D+AI
 array ptrs*[4]
 ptrs[0] = &var1
 ptrs[1] = &var2
@@ -125,4 +125,4 @@ value = *ptrs[0]
 
 ---
 Generated: 2025-01-15
-Version: LJ2 v1.17.22 with Pointer Support
+Version: D+AI v1.17.22 with Pointer Support

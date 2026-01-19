@@ -1,4 +1,4 @@
-$filePath = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-typeinfer-V02.pbi'
+$filePath = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-typeinfer-V02.pbi'
 $content = Get-Content $filePath -Raw
 
 # Fix line 237-240: MOV -> PMOV conversion with n-field encoding

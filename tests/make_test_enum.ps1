@@ -1,4 +1,4 @@
-Set-Location 'd:\OneDrive\WIP\Sources\Intense.2020\lj2'
+Set-Location 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI'
 $code = @'
 ; Test enum alignment
 XIncludeFile "c2-inc-v17.pbi"

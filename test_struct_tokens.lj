@@ -1,8 +1,0 @@
-#pragma console on
-
-struct Point {
-   x.i;
-   y.i;
-}
-
-p1.Point;

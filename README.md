@@ -1,4 +1,4 @@
-# LJ2 Compiler & Virtual Machine
+# D+AI Compiler & Virtual Machine
 
 **Version:** 1.037.4
 **Language:** PureBasic (v6.10+)
@@ -6,7 +6,7 @@
 
 ## Overview
 
-LJ2 is a high-performance compiler and virtual machine for a simplified C-like language. The project prioritizes **VM execution speed** above all else, implementing aggressive optimizations at both compile-time and runtime.
+D+AI is a high-performance compiler and virtual machine for a simplified C-like language. The project prioritizes **VM execution speed** above all else, implementing aggressive optimizations at both compile-time and runtime.
 
 The language features:
 - C-style syntax with semicolon-terminated statements
@@ -25,7 +25,7 @@ The language features:
 
 ### Compiler Pipeline
 
-The LJ2 compiler follows a multi-stage pipeline:
+The D+AI compiler follows a multi-stage pipeline:
 
 ```
 Source Code (.lj)
@@ -73,7 +73,7 @@ Bytecode Array (arCode)
 
 ### Support Files
 
-- `_lj2.ver` - Version tracking (MAJ.MIN.FIX format)
+- `_D+AI.ver` - Version tracking (MAJ.MIN.FIX format)
 - `CLAUDE.md` - Development guidelines for AI assistance
 - `DOCS/` - Detailed documentation on each compiler phase
 - `Examples/` - Test programs and language demonstrations
@@ -184,15 +184,15 @@ gStack[depth]
 ### Compiling and Running Programs
 
 1. **Open in PureBasic IDE**: Load `c2-modules-V23.pb`
-2. **Select Target**: Choose your .lj file at the bottom of the module
+2. **Select Target**: Choose your .d file at the bottom of the module
 3. **Compile**: Press F5 to compile and run
 4. **Output**: Results appear in the VM console window
 
 **Command Line:**
 ```bash
-lj2.exe program.lj              # Run with GUI
-lj2.exe --test program.lj       # Run headless (console output)
-lj2.exe -x 5 program.lj         # Auto-close after 5 seconds
+D+AI.exe program.d               # Run with GUI
+D+AI.exe --test program.d        # Run headless (console output)
+D+AI.exe -x 5 program.d          # Auto-close after 5 seconds
 ```
 
 ### Example Program

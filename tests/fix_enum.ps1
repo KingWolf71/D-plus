@@ -1,4 +1,4 @@
-$f = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-inc-v17.pbi'
+$f = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-inc-v17.pbi'
 $c = Get-Content $f -Raw
 
 # Restore LLPMOV placeholder to maintain enum order
@@ -23,7 +23,7 @@ Set-Content $f -Value $c -NoNewline
 Write-Output 'Done fixing c2-inc-v17 enum placeholders'
 
 # Same for c2-inc-v18
-$f2 = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-inc-v18.pbi'
+$f2 = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-inc-v18.pbi'
 if (Test-Path $f2) {
     $c2 = Get-Content $f2 -Raw
     $c2 = $c2.Replace('   ; V1.034.21: #ljLLPMOV removed - use #ljPMOV with n=3

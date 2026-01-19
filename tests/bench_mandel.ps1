@@ -1,11 +1,11 @@
 # Benchmark Mandelbrot-b 10 times
-Set-Location 'd:\OneDrive\WIP\Sources\Intense.2020\lj2'
+Set-Location 'D:\OneDrive\WIP\Sources\D+AI.2026'
 
 Write-Host "=== Mandelbrot-b Benchmark (10 runs) ===" -ForegroundColor Cyan
 
 $times = @()
 for ($i = 1; $i -le 10; $i++) {
-    $output = & ./lj2.exe -t 'Examples/112 Mandelbrot-b.lj' 2>&1
+    $output = & ./dpai.exe -t 'Examples/112 Mandelbrot-b.d' 2>&1
     $runtime = $output | Where-Object { $_.ToString() -match 'Runtime: (\d+\.\d+)' }
     if ($runtime) {
         $match = [regex]::Match($runtime.ToString(), 'Runtime: (\d+\.\d+)')

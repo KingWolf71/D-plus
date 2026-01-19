@@ -1,7 +1,0 @@
-// One line test
-#pragma console on
-#pragma appname "OneLine"
-#pragma ListASM on
-
-list items;
-result = listFirst(items);

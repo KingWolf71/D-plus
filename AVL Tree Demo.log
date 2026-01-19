@@ -89,10 +89,12 @@ Total nodes: 9
 ========================================
         AVL Tree Demo Complete
 ========================================
-Runtime: 0.02 seconds.
-LJ2 Compiler Version: 1.037.3
-Module: .\Examples\103 AVL tree.lj
+Runtime: 0.01 seconds.
+D+AI Version: 1.039.26
+Module: .\Examples\103 AVL tree.d
 
-e.2020\lj2\Examples\103 AVL tree.lj
+2026\Examples\103 AVL tree.d
+
+AVL tree.lj
 
 

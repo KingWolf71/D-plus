@@ -1,4 +1,4 @@
-$f = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-optimizer-V02.pbi'
+$f = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-optimizer-V02.pbi'
 $c = Get-Content $f -Raw
 
 # Replace the entire optimization block

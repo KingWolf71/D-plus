@@ -36,7 +36,7 @@ Focus optimization on opcodes with:
   1. Highest call counts
   2. Highest total time
   3. Highest per-call time
-Runtime: 0.91 seconds.
+Runtime: 0.02 seconds.
 
 
 

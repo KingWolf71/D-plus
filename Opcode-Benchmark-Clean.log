@@ -21,7 +21,7 @@ Results:
 Check profiler for opcode timing data.
 PRT* opcodes should be minimal now.
 ================================================
-Runtime: 4.50 seconds.
+Runtime: 0.09 seconds.
 
 
 

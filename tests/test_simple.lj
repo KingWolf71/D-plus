@@ -1,5 +1,0 @@
-// Simple test
-#pragma console on
-#pragma appname "SimpleTest"
-
-print("Hello World");

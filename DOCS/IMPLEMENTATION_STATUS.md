@@ -1,8 +1,8 @@
-# LJ2 Implementation Status
+# D+AI Implementation Status
 Version: 1.037.4
 Date: December 2025
 
-**See also:** [LJ2_Compiler_Report.html](LJ2_Compiler_Report.html) - Comprehensive technical report with ratings
+**See also:** [D+AI_Compiler_Report.html](D+AI_Compiler_Report.html) - Comprehensive technical report with ratings
 
 ## Current File Versions
 
@@ -358,7 +358,7 @@ Located in `Examples/`:
 
 ### v1.033.43
 - Added -x/--autoquit command line option to set auto-close timer
-- Usage: `lj2.exe -x 5 program.lj` or `lj2.exe --autoquit 5 program.lj`
+- Usage: `D+AI.exe -x 5 program.d` or `D+AI.exe --autoquit 5 program.d`
 - Equivalent to adding `#pragma autoclose 5` to the source file
 - Timer shows countdown message and closes window after specified seconds
 
@@ -422,8 +422,8 @@ Located in `Examples/`:
 Backups stored in `backups/` folder:
 - 7z archives with version numbers
 - Include source files (.pb, .pbi)
-- Include examples (Examples/*.lj)
-- Include version file (_lj2.ver)
+- Include examples (Examples/*.d)
+- Include version file (_D+AI.ver)
 
 ## Architecture Notes
 

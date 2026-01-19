@@ -1,7 +1,0 @@
-/* Minimal multiply test */
-#pragma console on
-#pragma ListASM on
-#pragma optimizecode off
-
-gf.f = 3.0 * 2.0;
-print(gf);

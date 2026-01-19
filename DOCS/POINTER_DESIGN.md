@@ -1,9 +1,9 @@
-# Pointer Implementation Design for LJ2 Language
+# Pointer Implementation Design for D+AI Language
 Version: 1.0
 Date: 2025
 
 ## Overview
-This document outlines the design for implementing pointers in the LJ2 language, including pointer types, operations, arrays of pointers, and function pointers.
+This document outlines the design for implementing pointers in the D+AI language, including pointer types, operations, arrays of pointers, and function pointers.
 
 ## 1. Pointer Types
 
@@ -14,7 +14,7 @@ Pointers are declared using the `*` suffix after the type:
 - `string* sptr` - pointer to string
 
 ### 1.2 Internal Representation
-Since LJ2 uses a slot-based VM (gVar array), pointers are represented as **slot indices** rather than memory addresses:
+Since D+AI uses a slot-based VM (gVar array), pointers are represented as **slot indices** rather than memory addresses:
 - A pointer stores the slot index of the variable it points to
 - Pointer values are stored in the `.i` (integer) field of stVT structure
 - Type information is tracked separately in gVarMeta for type safety

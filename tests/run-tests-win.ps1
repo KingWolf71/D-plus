@@ -1,8 +1,8 @@
-# Windows test runner for LJ2
+# Windows test runner for D+AI
 $ErrorActionPreference = "SilentlyContinue"
-Set-Location "D:\OneDrive\WIP\Sources\Intense.2020\lj2"
+Set-Location "D:\OneDrive\WIP\Sources\D+AI.2026"
 
-$testFiles = Get-ChildItem ".\Examples\*.lj" | Where-Object { $_.Name -notmatch "bug|error" } | Sort-Object Name
+$testFiles = Get-ChildItem ".\Examples\*.d" | Where-Object { $_.Name -notmatch "bug|error" } | Sort-Object Name
 $passed = 0
 $failed = 0
 $failedList = @()
@@ -12,7 +12,7 @@ Write-Host ""
 
 foreach ($f in $testFiles) {
     Write-Host -NoNewline "Testing: $($f.Name)... "
-    $output = & .\lj2.exe --test $f.FullName 2>&1 | Out-String
+    $output = & .\dpai.exe -c $f.FullName 2>&1 | Out-String
     if ($output -and $output.Trim().Length -gt 0) {
         Write-Host "PASS" -ForegroundColor Green
         $passed++

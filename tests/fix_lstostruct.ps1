@@ -1,4 +1,4 @@
-$filePath = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-inc-v17.pbi'
+$filePath = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-inc-v17.pbi'
 $content = Get-Content $filePath -Raw
 
 # Add missing LSTOSTRUCT entry after STOSTRUCT

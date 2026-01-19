@@ -1,7 +1,0 @@
-// Test list add only
-#pragma console on
-#pragma appname "ListAdd"
-
-list items;
-listAdd(items, 10);
-print("Added item");

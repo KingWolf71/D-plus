@@ -1,0 +1,33 @@
+#pragma appname "Simple While"
+#pragma decimals 3
+#pragma console on
+#pragma consolesize "680x740"
+#pragma consoleposition "30,50"
+#pragma ListASM on
+#pragma FastPrint on
+#pragma RunThreaded off
+#pragma ftoi "truncate"
+#pragma version on
+#pragma modulename on
+#pragma PasteToClipboard on
+#pragma floattolerance 0.0001
+#pragma GlobalStack 1024
+#pragma FunctionStack 32
+#pragma EvalStack 256
+#pragma LocalStack 64
+#pragma CreateLog off
+#pragma DefaultFPS 32
+#pragma ThreadKillWait 1800
+#pragma DumpASM off
+#pragma autoclose 60
+#pragma asmdecimal on
+
+count = 0;
+while (count < 10) {
+    printf("count is: %d\n", ++count);
+}
+
+count = 0;
+while (count++ < 10) {
+    printf("count is: %d\n", count);
+}

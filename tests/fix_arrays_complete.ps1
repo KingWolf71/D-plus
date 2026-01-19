@@ -1,7 +1,7 @@
 # Complete fix for c2-arrays-v06.pbi to use POINTER ARRAY ARCHITECTURE
 # V1.035.0: *gVar(slot)\var(0) for globals, _LVAR(offset) for locals
 
-$file = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-arrays-v06.pbi'
+$file = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-arrays-v06.pbi'
 $content = Get-Content $file -Raw
 
 # ============================================================================

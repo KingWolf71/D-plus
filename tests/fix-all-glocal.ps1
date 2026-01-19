@@ -1,5 +1,5 @@
 # Fix all gLocal references in remaining .pbi files
-$basePath = "d:/OneDrive/WIP/Sources/Intense.2020/lj2"
+$basePath = "d:/OneDrive/WIP/Sources/Intense.2020/D+AI"
 
 $filesToFix = @(
     "c2-collections-v03.pbi",

@@ -1,7 +1,7 @@
 # Refactor opcode names - replace DataSection with inline InitOpcodeNames procedure
 
-$incFile = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-inc-v18.pbi'
-$opcodeProc = Get-Content 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\opcode_names_proc_v18.txt' -Raw
+$incFile = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-inc-v18.pbi'
+$opcodeProc = Get-Content 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\opcode_names_proc_v18.txt' -Raw
 $content = Get-Content $incFile -Raw
 
 # Find the DataSection start

@@ -1,5 +1,5 @@
 # Read file
-$lines = Get-Content 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-arrays-v06.pbi'
+$lines = Get-Content 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-arrays-v06.pbi'
 $newLines = @()
 
 foreach ($line in $lines) {
@@ -43,6 +43,6 @@ foreach ($line in $lines) {
     }
 }
 
-$newLines -join "`r`n" | Set-Content 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-arrays-v06.pbi' -NoNewline
+$newLines -join "`r`n" | Set-Content 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-arrays-v06.pbi' -NoNewline
 
 Write-Host "Done"

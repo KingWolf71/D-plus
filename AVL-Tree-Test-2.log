@@ -163,10 +163,12 @@ String tree AVL:  PASS
 ================================================
          AVL Tree Test 2 Complete
 ================================================
-Runtime: 0.04 seconds.
-LJ2 Compiler Version: 1.037.3
-Module: .\Examples\104 AVL tree test 2.lj
+Runtime: 0.02 seconds.
+D+AI Version: 1.039.26
+Module: .\Examples\104 AVL tree test 2.d
 
-lj2\Examples\104 AVL tree test 2.lj
+amples\104 AVL tree test 2.d
+
+e test 2.lj
 
 

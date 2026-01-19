@@ -1,5 +1,5 @@
 # Remove #pragma optimizecode from all .lj files
-$files = Get-ChildItem "d:\OneDrive\WIP\Sources\Intense.2020\lj2\Examples\*.lj"
+$files = Get-ChildItem "d:\OneDrive\WIP\Sources\Intense.2020\D+AI\Examples\*.lj"
 foreach ($file in $files) {
     $content = Get-Content -Path $file.FullName -Raw
     if ($content -match '#pragma optimizecode') {

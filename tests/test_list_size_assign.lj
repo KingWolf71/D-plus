@@ -1,8 +1,0 @@
-// Test listSize with assignment
-#pragma console on
-#pragma appname "ListSizeAssign"
-
-list items;
-listAdd(items, 10);
-sz = listSize(items);
-print("Size: ", sz);

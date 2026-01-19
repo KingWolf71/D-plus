@@ -1,4 +1,4 @@
-$filePath = 'd:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-pointers-v05.pbi'
+$filePath = 'd:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-pointers-v05.pbi'
 $content = Get-Content $filePath -Raw
 
 # Remove C2PLFETCH procedure

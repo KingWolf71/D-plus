@@ -1,4 +1,4 @@
-$file = "d:\OneDrive\WIP\Sources\Intense.2020\lj2\c2-inc-v17.pbi"
+$file = "d:\OneDrive\WIP\Sources\Intense.2020\D+AI\c2-inc-v17.pbi"
 $content = Get-Content $file -Raw
 
 $old = @"

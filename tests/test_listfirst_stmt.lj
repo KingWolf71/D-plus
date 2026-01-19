@@ -1,8 +1,0 @@
-// Test listFirst as statement (no assignment)
-#pragma console on
-#pragma appname "ListFirstStmt"
-
-list items;
-listAdd(items, 10);
-listFirst(items);
-print("Done");
