@@ -1906,6 +1906,10 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          Debug " -- BuildVariableTemplates: Creating gGlobalTemplate and gFuncTemplates..."
          BuildVariableTemplates()
 
+         ; V1.039.29: Populate code element maps for ASM listing local variable names
+         Debug " -- PopulateCodeElementMaps: Building lookup tables for ASM display..."
+         PopulateCodeElementMaps()
+
          ; V1.020.077: FixJMP now just applies adjusted offsets and patches functions
          ; Jump tracker was already populated by InitJumpTracker() before optimization
          Debug " -- FixJMP: Applying adjusted offsets and patching functions..."
@@ -2409,7 +2413,7 @@ CompilerIf #PB_Compiler_IsMainFile
 
 CompilerEndIf
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 8
+; CursorPosition = 10
 ; Folding = 0----------
 ; Markers = 569,718
 ; Optimizer
@@ -2421,7 +2425,7 @@ CompilerEndIf
 ; DisableDebugger
 ; CompileSourceDirectory
 ; Warnings = Display
-; EnableCompileCount = 2576
+; EnableCompileCount = 2579
 ; EnableBuildCount = 17
 ; EnableExeConstant
 ; IncludeVersionInfo

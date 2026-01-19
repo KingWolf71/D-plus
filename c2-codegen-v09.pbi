@@ -181,8 +181,8 @@
          Case #ljPOP
             ; Check if this is a direct slot reference (for ?discard? slot 0)
             If *x\value = "0"
-               n = 0  ; Use reserved slot 0 directly
-               EmitInt( #ljPOP, 0 )  ; Always emit as global INT
+               ; V1.039.30: Use DROP instead of POP 0 - avoids unnecessary write to discard slot
+               EmitInt( #ljDROP )
             Else
                ; V1.029.11: Check if parameter has struct type suffix (e.g., "r.Rectangle")
                ; Structure parameters have format "paramName.StructType"
@@ -293,6 +293,14 @@
                   ; gCodeGenLocalIndex = nParams + nLocalArrays, but formula needs pure nParams
                   ; Old code: (gCodeGenLocalIndex - 1) - gCodeGenParamIndex = WRONG when nLocalArrays > 0
                   gVarMeta( n )\paramOffset = (mapModules()\nParams - 1) - gCodeGenParamIndex
+
+                  ; V1.039.29: Register parameter name for ASM listing display
+                  ; Key format: funcname_paramoffset (same as local variables)
+                  ; Strip leading underscore from gCurrentFunctionName for key
+                  Protected paramAsmKey.s = LCase(Mid(gCurrentFunctionName, 2)) + "_" + Str(gVarMeta(n)\paramOffset)
+                  If Not FindMapElement(gAsmLocalNameMap(), paramAsmKey)
+                     gAsmLocalNameMap(paramAsmKey) = gVarMeta(n)\name
+                  EndIf
 
                   ; V1.029.38: Struct parameter - just 1 slot with \ptr pointer (pass-by-reference)
                   ; The caller pushes gVar(baseSlot)\ptr, CALL stores it in local frame

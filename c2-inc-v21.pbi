@@ -1262,7 +1262,7 @@ EndMacro
 
 ; V1.039.21: _GetLocalName macro - look up local variable name with underscore prefix
 ; Uses gAsmLocalNameMap populated during codegen, falls back to _L<offset> if not found
-; Key format: "funcname_paramoffset" (same as MapLocalByOffset)
+; V1.039.29: Key format: "funcname_paramoffset" (matches MapLocalByOffset - no underscore prefix)
 Macro _GetLocalName(paramOffset)
    If gAsmCurrentFunc >= 0 And gAsmCurrentFunc < #C2MAXFUNCTIONS
       _asmLocalKey = LCase(gFuncNames(gAsmCurrentFunc)) + "_" + Str(paramOffset)
@@ -1307,11 +1307,10 @@ Macro          ASMLine(obj,show)
 
    ; V1.039.21: Track current function for local variable name display
    ; Only update on FUNCTION opcode - don't clear on RETURN (function may have multiple returns)
-   CompilerIf show = 0
-      If obj\code = #ljfunction
-         gAsmCurrentFunc = obj\i  ; Function ID is in i field
-      EndIf
-   CompilerEndIf
+   ; V1.039.25: Track for both compile-time and runtime ASM listing
+   If obj\code = #ljfunction
+      gAsmCurrentFunc = obj\i  ; Function ID is in i field
+   EndIf
 
    ; V1.024.12: Added JNZ to target display for switch case debugging
    ; V1.039.20: Streamlined format: offset -> target (hex or decimal)
@@ -1410,19 +1409,25 @@ Macro          ASMLine(obj,show)
          flag + 1
       EndIf
    ; V1.022.119: LPTR variants - V1.039.20: debug mode only
+   ; V1.039.25: Show local variable names for ptr and val
    ElseIf obj\code = #ljPTRSTRUCTFETCH_INT_LPTR Or obj\code = #ljPTRSTRUCTFETCH_FLOAT_LPTR Or obj\code = #ljPTRSTRUCTFETCH_STR_LPTR
       If gAsmDebugMode
-         line + "[ptr=LOCAL[" + Str(obj\i) + "] fldOfs=" + Str(obj\n) + "] --> [sp]"
+         _GetLocalName(obj\i)
+         line + "[ptr=" + gAsmLocalName + " fldOfs=" + Str(obj\n) + "] --> [sp]"
          flag + 1
       EndIf
    ElseIf obj\code = #ljPTRSTRUCTSTORE_INT_LPTR Or obj\code = #ljPTRSTRUCTSTORE_FLOAT_LPTR Or obj\code = #ljPTRSTRUCTSTORE_STR_LPTR
       If gAsmDebugMode
-         line + "[ptr=LOCAL[" + Str(obj\i) + "] fldOfs=" + Str(obj\n) + " val=slot" + Str(obj\ndx) + "]"
+         _GetLocalName(obj\i)
+         line + "[ptr=" + gAsmLocalName + " fldOfs=" + Str(obj\n) + " val=slot" + Str(obj\ndx) + "]"
          flag + 1
       EndIf
    ElseIf obj\code = #ljPTRSTRUCTSTORE_INT_LPTR_LOPT Or obj\code = #ljPTRSTRUCTSTORE_FLOAT_LPTR_LOPT Or obj\code = #ljPTRSTRUCTSTORE_STR_LPTR_LOPT
       If gAsmDebugMode
-         line + "[ptr=LOCAL[" + Str(obj\i) + "] fldOfs=" + Str(obj\n) + " val=LOCAL[" + Str(obj\ndx) + "]]"
+         _GetLocalName(obj\i)
+         _asmSrcLocal = gAsmLocalName
+         _GetLocalName(obj\ndx)
+         line + "[ptr=" + _asmSrcLocal + " fldOfs=" + Str(obj\n) + " val=" + gAsmLocalName + "]"
          flag + 1
       EndIf
    ElseIf obj\code = #ljMOV
@@ -1435,38 +1440,26 @@ Macro          ASMLine(obj,show)
          ; Destination is local
          If srcIsLocal
             ; LL: local to local
-            CompilerIf show
-               line + "[LOCAL[" + Str(obj\j) + "]] --> [LOCAL[" + Str(obj\i) + "]]"
-            CompilerElse
-               ; V1.039.22: Show local variable names
-               _GetLocalName(obj\j)
-               _asmSrcLocal = gAsmLocalName
-               _GetLocalName(obj\i)
-               line + _asmSrcLocal + " --> " + gAsmLocalName
-            CompilerEndIf
+            ; V1.039.25: Show local variable names for both runtime and compile-time
+            _GetLocalName(obj\j)
+            _asmSrcLocal = gAsmLocalName
+            _GetLocalName(obj\i)
+            line + _asmSrcLocal + " --> " + gAsmLocalName
             If gAsmDebugMode : line + " (n=" + Str(obj\n) + " LL)" : EndIf
          Else
             ; GL: global to local
-            CompilerIf show
-               line + "[" + gVarMeta( obj\j )\name + "] --> [LOCAL[" + Str(obj\i) + "]]"
-            CompilerElse
-               ; V1.039.22: Show local variable name for destination
-               _GetLocalName(obj\i)
-               line + "[" + gVarMeta( obj\j )\name + "] --> " + gAsmLocalName
-            CompilerEndIf
+            ; V1.039.25: Show local variable name for destination
+            _GetLocalName(obj\i)
+            line + "[" + gVarMeta( obj\j )\name + "] --> " + gAsmLocalName
             If gAsmDebugMode : line + " (n=" + Str(obj\n) + " GL)" : EndIf
          EndIf
       Else
          ; Destination is global
          If srcIsLocal
             ; LG: local to global
-            CompilerIf show
-               line + "[LOCAL[" + Str(obj\j) + "]] --> [" + gVarMeta( obj\i )\name + "]"
-            CompilerElse
-               ; V1.039.22: Show local variable name for source
-               _GetLocalName(obj\j)
-               line + gAsmLocalName + " --> [" + gVarMeta( obj\i )\name + "]"
-            CompilerEndIf
+            ; V1.039.25: Show local variable name for source
+            _GetLocalName(obj\j)
+            line + gAsmLocalName + " --> [" + gVarMeta( obj\i )\name + "]"
             If gAsmDebugMode : line + " (n=" + Str(obj\n) + " LG)" : EndIf
          Else
             ; GG: global to global
@@ -1480,14 +1473,10 @@ Macro          ASMLine(obj,show)
    ElseIf obj\code = #ljSTORE Or obj\code = #ljSTORES Or obj\code = #ljSTOREF
       ; V1.034.31: Check j flag to determine local vs global
       If obj\j = 1
-         ; Unified STORE to local variable - show as LOCAL
-         CompilerIf show
-            line + "[sp] --> [LOCAL[" + Str(obj\i) + "]]"
-         CompilerElse
-            ; V1.033.17: Show local variable name at compile-time
-            _GetLocalName(obj\i)
-            line + "[sp] --> " + gAsmLocalName
-         CompilerEndIf
+         ; Unified STORE to local variable
+         ; V1.039.25: Show local variable name for both runtime and compile-time
+         _GetLocalName(obj\i)
+         line + "[sp] --> " + gAsmLocalName
       Else
          ; V1.023.31: Don't use sp-1 for value display - sp is runtime, not compile-time
          ; Global STORE (j=0)
@@ -1498,45 +1487,30 @@ Macro          ASMLine(obj,show)
    ; Local variable STORE operations - show paramOffset with name
    ; V1.023.21: Added PLSTORE to display
    ElseIf obj\code = #ljLSTORE Or obj\code = #ljLSTORES Or obj\code = #ljLSTOREF Or (obj\code = #ljPSTORE And obj\j = 1)
-      CompilerIf show
-         line + "[sp] --> [LOCAL[" + Str(obj\i) + "]]"
-      CompilerElse
-         ; V1.033.17: Show local variable name at compile-time
-         _GetLocalName(obj\i)
-         line + "[sp] --> " + gAsmLocalName
-      CompilerEndIf
+      ; V1.039.25: Show local variable name for both runtime and compile-time
+      _GetLocalName(obj\i)
+      line + "[sp] --> " + gAsmLocalName
       flag + 1
    ; Local variable FETCH operations - show paramOffset with name
    ElseIf obj\code = #ljLFETCH Or obj\code = #ljLFETCHS Or obj\code = #ljLFETCHF
-      CompilerIf show
-         line + "[LOCAL[" + Str(obj\i) + "]] --> [sp]"
-      CompilerElse
-         ; V1.033.17: Show local variable name at compile-time
-         _GetLocalName(obj\i)
-         line + gAsmLocalName + " --> [sp]"
-      CompilerEndIf
+      ; V1.039.25: Show local variable name for both runtime and compile-time
+      _GetLocalName(obj\i)
+      line + gAsmLocalName + " --> [sp]"
       flag + 1
    ; Local variable MOV operations - show both indices with name
    ElseIf obj\code = #ljLMOV Or obj\code = #ljLMOVS Or obj\code = #ljLMOVF
-      CompilerIf show
-         line + "[slot" + Str(obj\j) + "] --> [LOCAL[" + Str(obj\i) + "]]"
-      CompilerElse
-         ; V1.033.17: Show local variable name at compile-time
-         _GetLocalName(obj\i)
-         line + "[" + gVarMeta(obj\j)\name + "] --> " + gAsmLocalName
-      CompilerEndIf
+      ; V1.039.25: Show local variable name for both runtime and compile-time
+      _GetLocalName(obj\i)
+      line + "[" + gVarMeta(obj\j)\name + "] --> " + gAsmLocalName
       flag + 1
    ; In-place increment/decrement operations
    ; V1.034.37: Unified format - j=0 global, j=1 local
    ElseIf obj\code = #ljINC_VAR Or obj\code = #ljDEC_VAR Or obj\code = #ljINC_VAR_PRE Or obj\code = #ljDEC_VAR_PRE Or obj\code = #ljINC_VAR_POST Or obj\code = #ljDEC_VAR_POST
       If obj\j = 1
          ; Local variable - i is paramOffset
-         CompilerIf show
-            line + "[LOCAL[" + Str(obj\i) + "]]"
-         CompilerElse
-            _GetLocalName(obj\i)
-            line + gAsmLocalName
-         CompilerEndIf
+         ; V1.039.25: Show local variable name for both runtime and compile-time
+         _GetLocalName(obj\i)
+         line + gAsmLocalName
       Else
          ; Global variable - i is slot
          line + "[" + gVarMeta(obj\i)\name + "]"
@@ -1545,12 +1519,9 @@ Macro          ASMLine(obj,show)
    ; V1.034.38: PFETCH display - pointer FETCH with j=1 for locals
    ElseIf obj\code = #ljPFETCH
       If obj\j = 1
-         CompilerIf show
-            line + "[LOCAL[" + Str(obj\i) + "]] --> [sp]"
-         CompilerElse
-            _GetLocalName(obj\i)
-            line + gAsmLocalName + " --> [sp]"
-         CompilerEndIf
+         ; V1.039.25: Show local variable name for both runtime and compile-time
+         _GetLocalName(obj\i)
+         line + gAsmLocalName + " --> [sp]"
       Else
          line + "[slot" + Str(obj\i) + "] --> [sp]"
       EndIf
@@ -1559,12 +1530,9 @@ Macro          ASMLine(obj,show)
    ; V1.034.38: PTRINC_POST_INT display - pointer post-increment with j=1 for locals
    ElseIf obj\code = #ljPTRINC_POST_INT Or obj\code = #ljPTRINC_POST_FLOAT Or obj\code = #ljPTRINC_POST_STRING Or obj\code = #ljPTRINC_POST_ARRAY Or obj\code = #ljPTRDEC_POST_INT Or obj\code = #ljPTRDEC_POST_FLOAT Or obj\code = #ljPTRDEC_POST_STRING Or obj\code = #ljPTRDEC_POST_ARRAY
       If obj\j = 1
-         CompilerIf show
-            line + "[LOCAL[" + Str(obj\i) + "]]"
-         CompilerElse
-            _GetLocalName(obj\i)
-            line + gAsmLocalName
-         CompilerEndIf
+         ; V1.039.25: Show local variable name for both runtime and compile-time
+         _GetLocalName(obj\i)
+         line + gAsmLocalName
       Else
          line + "[slot" + Str(obj\i) + "]"
       EndIf
@@ -1573,25 +1541,18 @@ Macro          ASMLine(obj,show)
    ; V1.034.38: PPOP display - pointer POP with j/i for target
    ElseIf obj\code = #ljPPOP
       If obj\j = 1
-         CompilerIf show
-            line + "[sp] --> [LOCAL[" + Str(obj\i) + "]]"
-         CompilerElse
-            _GetLocalName(obj\i)
-            line + "[sp] --> " + gAsmLocalName
-         CompilerEndIf
+         ; V1.039.25: Show local variable name for both runtime and compile-time
+         _GetLocalName(obj\i)
+         line + "[sp] --> " + gAsmLocalName
       Else
          line + "[sp] --> [slot" + Str(obj\i) + "]"
       EndIf
       If gAsmDebugMode : line + " (ppop)" : EndIf
       flag + 1
    ElseIf obj\code = #ljLINC_VAR Or obj\code = #ljLDEC_VAR Or obj\code = #ljLINC_VAR_PRE Or obj\code = #ljLDEC_VAR_PRE Or obj\code = #ljLINC_VAR_POST Or obj\code = #ljLDEC_VAR_POST
-      CompilerIf show
-         line + "[LOCAL[" + Str(obj\i) + "]]"
-      CompilerElse
-         ; V1.033.17: Show local variable name at compile-time
-         _GetLocalName(obj\i)
-         line + gAsmLocalName + "++"
-      CompilerEndIf
+      ; V1.039.25: Show local variable name for both runtime and compile-time
+      _GetLocalName(obj\i)
+      line + gAsmLocalName + "++"
       flag + 1
    ; In-place compound assignment operations
    ElseIf obj\code = #ljADD_ASSIGN_VAR Or obj\code = #ljSUB_ASSIGN_VAR Or obj\code = #ljMUL_ASSIGN_VAR Or obj\code = #ljDIV_ASSIGN_VAR Or obj\code = #ljMOD_ASSIGN_VAR Or obj\code = #ljFLOATADD_ASSIGN_VAR Or obj\code = #ljFLOATSUB_ASSIGN_VAR Or obj\code = #ljFLOATMUL_ASSIGN_VAR Or obj\code = #ljFLOATDIV_ASSIGN_VAR
@@ -1602,14 +1563,9 @@ Macro          ASMLine(obj,show)
       flag + 1
       ; V1.034.17: Handle unified opcodes - j=1 means local, obj\i is paramOffset
       If obj\j = 1
-         ; Local variable - show as LOCAL[paramOffset]
-         CompilerIf show
-            line + "[LOCAL[" + Str(obj\i) + "]] --> [sp]"
-         CompilerElse
-            ; Compile-time: look up local variable name
-            _GetLocalName(obj\i)
-            line + gAsmLocalName + " --> [sp]"
-         CompilerEndIf
+         ; Local variable - V1.039.25: Show local variable name for both runtime and compile-time
+         _GetLocalName(obj\i)
+         line + gAsmLocalName + " --> [sp]"
       Else
          ; Global variable - standard display
          _ASMLineHelper1( 0, obj\i )
@@ -1729,34 +1685,23 @@ Macro          ASMLine(obj,show)
       line + Str(obj\i) + " --> [sp]"
       If gAsmDebugMode : line + " (imm)" : EndIf
    ElseIf obj\code = #ljLLMOV Or obj\code = #ljLLMOVS Or obj\code = #ljLLMOVF
-      CompilerIf show
-         line + "[LOCAL[" + Str(obj\j) + "]] --> [LOCAL[" + Str(obj\i) + "]]"
-      CompilerElse
-         ; V1.033.17: Show local variable names for both src and dst
-         _GetLocalName(obj\j)
-         _asmSrcLocal = gAsmLocalName
-         _GetLocalName(obj\i)
-         line + _asmSrcLocal + " --> " + gAsmLocalName
-      CompilerEndIf
+      ; V1.039.25: Show local variable names for both runtime and compile-time
+      _GetLocalName(obj\j)
+      _asmSrcLocal = gAsmLocalName
+      _GetLocalName(obj\i)
+      line + _asmSrcLocal + " --> " + gAsmLocalName
    ElseIf obj\code = #ljLGMOV Or obj\code = #ljLGMOVS Or obj\code = #ljLGMOVF
-      CompilerIf show
-         line + "[LOCAL[" + Str(obj\j) + "]] --> [slot" + Str(obj\i) + "]"
-      CompilerElse
-         ; V1.033.17: Show local variable name for source
-         _GetLocalName(obj\j)
-         line + gAsmLocalName + " --> [" + gVarMeta(obj\i)\name + "]"
-      CompilerEndIf
+      ; V1.039.25: Show local variable name for source
+      _GetLocalName(obj\j)
+      line + gAsmLocalName + " --> [" + gVarMeta(obj\i)\name + "]"
    ElseIf obj\code = #ljfunction
       ; V1.039.24: Show function name
-      CompilerIf show
-         line + "id=" + Str(obj\i)
-      CompilerElse
-         If obj\i >= 0 And obj\i < #C2MAXFUNCTIONS And gFuncNames(obj\i) <> ""
-            line + gFuncNames(obj\i) + "()"
-         Else
-            line + "func" + Str(obj\i) + "()"
-         EndIf
-      CompilerEndIf
+      ; V1.039.25: Use gFuncNames for both runtime and compile-time display
+      If obj\i >= 0 And obj\i < #C2MAXFUNCTIONS And gFuncNames(obj\i) <> ""
+         line + gFuncNames(obj\i) + "()"
+      Else
+         line + "func" + Str(obj\i) + "()"
+      EndIf
    EndIf
    ; V1.039.20: Only show FLAGS in debug mode
    CompilerIf Not show

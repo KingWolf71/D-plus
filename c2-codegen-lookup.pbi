@@ -317,7 +317,8 @@ Procedure PopulateCodeElementMaps()
 
    ClearMap(MapCodeElements())
    ClearMap(MapLocalByOffset())
-   ClearMap(gAsmLocalNameMap())  ; V1.039.21: Clear ASM local name map
+   ; V1.039.29: Don't clear gAsmLocalNameMap - parameter names are added during codegen
+   ; and would be lost if cleared here. Local variable names are added below.
 
    For i = 1 To gnLastVariable - 1
       If gVarMeta(i)\name <> ""
