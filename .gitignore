@@ -4,6 +4,9 @@
 # Backups
 backups/
 
+# Modules (private)
+Modules/
+
 # Accidental Windows files
 nul
 
