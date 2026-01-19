@@ -7,6 +7,10 @@ backups/
 # Modules (private)
 Modules/
 
+# Private notes
+_BUGS.md
+_TODO.md
+
 # Accidental Windows files
 nul
 
