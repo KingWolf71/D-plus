@@ -19,6 +19,19 @@ nul
 lj2_console
 lj2_debug
 lj2_linux
+dpai_linux
+
+# D+AI compiled bytecode
+*.od
+
+# Execution logs
+*.log
+compile.log
+
+# Temporary output files
+help_out.txt
+test_output.txt
+extglob.FullName
 
 # Test binaries and temporary test files
 test_lj2_minimal
