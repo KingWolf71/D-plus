@@ -1,6 +1,6 @@
 # D+AI Compiler & Virtual Machine
 
-**Version:** 1.037.4
+**Version:** 1.039.26
 **Language:** PureBasic (v6.10+)
 **Target:** Windows x64 / Linux x64
 
@@ -28,7 +28,7 @@ The language features:
 The D+AI compiler follows a multi-stage pipeline:
 
 ```
-Source Code (.lj)
+Source Code (.d)
     ↓
 [1] Preprocessor  → Macro expansion, pragma processing
     ↓
@@ -61,19 +61,19 @@ Bytecode Array (arCode)
 
 | File | Version | Purpose |
 |------|---------|---------|
-| `c2-modules-V23.pb` | V23 | Main compiler module - orchestrates compilation pipeline |
-| `c2-inc-v19.pbi` | v19 | Global definitions, 505 opcodes, structures, constants |
-| `c2-ast-v08.pbi` | v08 | Recursive descent parser, AST construction |
-| `c2-codegen-v08.pbi` | v08 | AST to bytecode translation |
-| `c2-typeinfer-V03.pbi` | V03 | Unified type resolution |
-| `c2-postprocessor-V12.pbi` | V12 | Correctness passes (implicit returns, collections) |
-| `c2-optimizer-V03.pbi` | V03 | 5-pass peephole optimization |
-| `c2-vm-V17.pb` | V17 | Virtual machine core, execution loop |
-| `c2-vm-commands-v15.pb` | v15 | VM instruction implementations (505 opcodes) |
+| `c2-modules-V25.pb` | V25 | Main compiler module - orchestrates compilation pipeline |
+| `c2-inc-v21.pbi` | v21 | Global definitions, 505 opcodes, structures, constants |
+| `c2-ast-v09.pbi` | v09 | Recursive descent parser, AST construction |
+| `c2-codegen-v09.pbi` | v09 | AST to bytecode translation |
+| `c2-typeinfer-V04.pbi` | V04 | Unified type resolution |
+| `c2-postprocessor-V13.pbi` | V13 | Correctness passes (implicit returns, collections) |
+| `c2-optimizer-V04.pbi` | V04 | 5-pass peephole optimization |
+| `c2-vm-V19.pb` | V19 | Virtual machine core, execution loop |
+| `c2-vm-commands-v17.pb` | v17 | VM instruction implementations (505 opcodes) |
 
 ### Support Files
 
-- `_D+AI.ver` - Version tracking (MAJ.MIN.FIX format)
+- `_dpai.ver` - Version tracking (MAJ.MIN.FIX format)
 - `CLAUDE.md` - Development guidelines for AI assistance
 - `DOCS/` - Detailed documentation on each compiler phase
 - `Examples/` - Test programs and language demonstrations
@@ -183,16 +183,18 @@ gStack[depth]
 
 ### Compiling and Running Programs
 
-1. **Open in PureBasic IDE**: Load `c2-modules-V23.pb`
+1. **Open in PureBasic IDE**: Load `c2-modules-V25.pb`
 2. **Select Target**: Choose your .d file at the bottom of the module
 3. **Compile**: Press F5 to compile and run
 4. **Output**: Results appear in the VM console window
 
 **Command Line:**
 ```bash
-D+AI.exe program.d               # Run with GUI
-D+AI.exe --test program.d        # Run headless (console output)
-D+AI.exe -x 5 program.d          # Auto-close after 5 seconds
+dpai.exe program.d               # Run with GUI
+dpai.exe -c program.d            # Run in console mode (no GUI)
+dpai.exe -C program.d            # Compile only to .od file
+dpai.exe -a program.d            # Output ASM listing
+dpai.exe -x 5 program.d          # Auto-close after 5 seconds
 ```
 
 ### Example Program
@@ -286,17 +288,23 @@ See `CLAUDE.md` for detailed development instructions, including:
 
 ### Test Suite
 The `Examples/` folder contains comprehensive tests:
-- `00 comprehensive test.lj` - Full language feature test
-- `07 Floats and Macros.lj` - Float operations and macro expansion
-- `22 array comprehensive.lj` - Array operations (all types)
-- `bug fix2.lj` - Local array regression tests
+- `120 comprehensive test1.d` - Full language feature test
+- `005 Floats and Macros.d` - Float operations and macro expansion
+- `043 array comprehensive.d` - Array operations (all types)
+- `122 full test suite.d` - Complete feature coverage
 
 ### Running Tests
 Use `pbtester.pb` to batch-run test files and verify output.
 
 ## Version History
 
-### v1.037.x (Current)
+### v1.039.x (Current)
+- ✅ Project renamed from LJ2 to D+AI (D-PLUS)
+- ✅ Source extension changed from .lj to .d
+- ✅ Compiled bytecode extension .od
+- ✅ Serialization support for compiled programs
+
+### v1.037.x
 - ✅ Normalized ASM opcode names for readable output
 - ✅ Struct declaration bug fix
 - ✅ Cross-platform testing (Windows + Linux)
@@ -333,5 +341,6 @@ Based on Rosetta Code compiler examples.
 ---
 
 **Author:** Kingwolf71
-**Date:** December 2025
+**Date:** January 2026
 **Platform:** PureBasic 6.10+ (Windows x64 / Linux x64)
+**Repository:** https://github.com/KingWolf71/D-plus
