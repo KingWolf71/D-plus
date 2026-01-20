@@ -25,7 +25,8 @@ lj2_debug
 lj2_linux
 dpai_linux
 
-# D+AI compiled bytecode
+# CX compiled bytecode
+*.ocx
 *.od
 
 # Execution logs
