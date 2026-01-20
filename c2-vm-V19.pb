@@ -608,7 +608,7 @@ Module C2VM
       ResizeGadget( #edConsole, 5, 5, x - 10, y - 10 )
    EndProcedure
 
-   ; V1.039.33: Load source file into editor and switch to Source tab
+   ; V1.039.33: Load source file into editor (Output tab remains default)
    Procedure         LoadSourceIntoEditor(filename.s)
       Protected      content.s, file.i, fileSize.i
 
@@ -622,10 +622,7 @@ Module C2VM
          SetGadgetText(#edSource, content)
          gCurrentSourceFile = filename
          DisableGadget(#BtnSave, #False)
-         ; Switch to Source tab to show loaded code
-         If IsGadget(#panelMain)
-            SetGadgetState(#panelMain, 1)
-         EndIf
+         ; V1.039.39: Don't switch to Source tab - keep Output as default
          ; V1.039.36: Debug output
          If IsGadget(#edConsole)
             AddGadgetItem(#edConsole, -1, "Source loaded: " + filename + " (" + Str(fileSize) + " bytes)")
