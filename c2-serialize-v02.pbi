@@ -1,5 +1,5 @@
 ; ============================================================================
-; D+AI Serialization Module v01
+; D-Plus Serialization Module v02
 ; ============================================================================
 ; Handles saving/loading compiled .od (Object D) files
 ; Binary format with JSON header for metadata
@@ -16,126 +16,112 @@
 ;   [N bytes]  Binary function templates
 ;
 ; V1.039.0 - Initial implementation
+; V1.039.37 - Refactored to use PureBasic JSON library
 ; ============================================================================
 
 ; ============================================================================
 ; Write Procedures - Save compiled object to .od file
 ; ============================================================================
 
-Procedure.s SerializePragmasToJSON()
-   ; Convert mapPragmas to JSON object string
-   Protected result.s = "{"
-   Protected first.b = #True
+Procedure.i SerializePragmasToJSON(parentJson.i)
+   ; Add pragmas object to parent JSON
+   ; Returns the pragmas JSON value
+   Protected pragmasObj.i = SetJSONObject(AddJSONMember(JSONValue(parentJson), "pragmas"))
 
    ForEach mapPragmas()
-      If Not first : result + "," : EndIf
-      first = #False
-      result + ~"\"" + MapKey(mapPragmas()) + ~"\":\"" + mapPragmas() + ~"\""
+      SetJSONString(AddJSONMember(pragmasObj, MapKey(mapPragmas())), mapPragmas())
    Next
 
-   result + "}"
-   ProcedureReturn result
+   ProcedureReturn pragmasObj
 EndProcedure
 
-Procedure.s SerializeStructDefsToJSON()
-   ; Convert mapStructDefs to JSON object string
-   Protected result.s = "{"
-   Protected first.b = #True
-   Protected fieldFirst.b
+Procedure.i SerializeStructDefsToJSON(parentJson.i)
+   ; Add structDefs object to parent JSON
+   Protected structDefsObj.i = SetJSONObject(AddJSONMember(JSONValue(parentJson), "structDefs"))
+   Protected structObj.i, fieldsArray.i, fieldObj.i
 
    ForEach mapStructDefs()
-      If Not first : result + "," : EndIf
-      first = #False
+      structObj = SetJSONObject(AddJSONMember(structDefsObj, MapKey(mapStructDefs())))
+      SetJSONInteger(AddJSONMember(structObj, "totalSize"), mapStructDefs()\totalSize)
 
-      result + ~"\"" + MapKey(mapStructDefs()) + ~"\":{"
-      result + ~"\"totalSize\":" + Str(mapStructDefs()\totalSize)
-      result + ~",\"fields\":["
+      fieldsArray = SetJSONArray(AddJSONMember(structObj, "fields"))
 
-      fieldFirst = #True
       ForEach mapStructDefs()\fields()
-         If Not fieldFirst : result + "," : EndIf
-         fieldFirst = #False
-         result + "{"
-         result + ~"\"name\":\"" + mapStructDefs()\fields()\name + ~"\""
-         result + ~",\"fieldType\":" + Str(mapStructDefs()\fields()\fieldType)
-         result + ~",\"offset\":" + Str(mapStructDefs()\fields()\offset)
-         result + ~",\"isArray\":" + Str(mapStructDefs()\fields()\isArray)
-         result + ~",\"arraySize\":" + Str(mapStructDefs()\fields()\arraySize)
-         result + ~",\"structType\":\"" + mapStructDefs()\fields()\structType + ~"\""
-         result + "}"
+         fieldObj = SetJSONObject(AddJSONElement(fieldsArray))
+         SetJSONString(AddJSONMember(fieldObj, "name"), mapStructDefs()\fields()\name)
+         SetJSONInteger(AddJSONMember(fieldObj, "fieldType"), mapStructDefs()\fields()\fieldType)
+         SetJSONInteger(AddJSONMember(fieldObj, "offset"), mapStructDefs()\fields()\offset)
+         SetJSONInteger(AddJSONMember(fieldObj, "isArray"), mapStructDefs()\fields()\isArray)
+         SetJSONInteger(AddJSONMember(fieldObj, "arraySize"), mapStructDefs()\fields()\arraySize)
+         SetJSONString(AddJSONMember(fieldObj, "structType"), mapStructDefs()\fields()\structType)
       Next
-      result + "]}"
    Next
 
-   result + "}"
-   ProcedureReturn result
+   ProcedureReturn structDefsObj
 EndProcedure
 
-Procedure.s SerializeModulesToJSON()
-   ; Convert mapModules to JSON for function metadata
-   Protected result.s = "{"
-   Protected first.b = #True
+Procedure.i SerializeModulesToJSON(parentJson.i)
+   ; Add modules object to parent JSON
+   Protected modulesObj.i = SetJSONObject(AddJSONMember(JSONValue(parentJson), "modules"))
+   Protected modObj.i
 
    ForEach mapModules()
-      If Not first : result + "," : EndIf
-      first = #False
-
-      result + ~"\"" + MapKey(mapModules()) + ~"\":{"
-      result + ~"\"function\":" + Str(mapModules()\function)
-      result + ~",\"nParams\":" + Str(mapModules()\nParams)
-      result + ~",\"nLocals\":" + Str(mapModules()\nLocals)
-      result + ~",\"Index\":" + Str(mapModules()\Index)
-      result + ~",\"returnType\":" + Str(mapModules()\returnType)
-      result + ~",\"nRequiredParams\":" + Str(mapModules()\nRequiredParams)
-      result + "}"
+      modObj = SetJSONObject(AddJSONMember(modulesObj, MapKey(mapModules())))
+      SetJSONInteger(AddJSONMember(modObj, "function"), mapModules()\function)
+      SetJSONInteger(AddJSONMember(modObj, "nParams"), mapModules()\nParams)
+      SetJSONInteger(AddJSONMember(modObj, "nLocals"), mapModules()\nLocals)
+      SetJSONInteger(AddJSONMember(modObj, "Index"), mapModules()\Index)
+      SetJSONInteger(AddJSONMember(modObj, "returnType"), mapModules()\returnType)
+      SetJSONInteger(AddJSONMember(modObj, "nRequiredParams"), mapModules()\nRequiredParams)
    Next
 
-   result + "}"
-   ProcedureReturn result
-EndProcedure
-
-Procedure.s EscapeJSONString(text.s)
-   ; Escape special characters for JSON string
-   Protected result.s = text
-   result = ReplaceString(result, "\", "\\")
-   result = ReplaceString(result, ~"\"", ~"\\\"")
-   result = ReplaceString(result, Chr(10), "\n")
-   result = ReplaceString(result, Chr(13), "\r")
-   result = ReplaceString(result, Chr(9), "\t")
-   ProcedureReturn result
+   ProcedureReturn modulesObj
 EndProcedure
 
 Procedure.s BuildHeaderJSON(sourceFile.s, includeSource.b, includeASM.b = #False)
-   ; Build complete JSON header
-   Protected json.s
+   ; Build complete JSON header using PureBasic JSON library
+   Protected json.i, rootObj.i, statsObj.i
    Protected timestamp.s = FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date())
+   Protected result.s
 
-   json = "{"
-   json + ~"\"version\":\"" + #OD_VERSION$ + ~"\""
-   json + ~",\"source\":\"" + EscapeJSONString(sourceFile) + ~"\""
-   json + ~",\"compiled\":\"" + timestamp + ~"\""
-   json + ~",\"pragmas\":" + SerializePragmasToJSON()
-   json + ~",\"structDefs\":" + SerializeStructDefsToJSON()
-   json + ~",\"modules\":" + SerializeModulesToJSON()
-   json + ~",\"stats\":{"
-   json + ~"\"codeSize\":" + Str(ArraySize(arCode()))
-   json + ~",\"globalCount\":" + Str(ArraySize(gGlobalTemplate()))
-   json + ~",\"funcCount\":" + Str(gnFuncTemplateCount)
-   json + "}"
+   json = CreateJSON(#PB_Any)
+   If Not json
+      ProcedureReturn "{}"
+   EndIf
+
+   rootObj = SetJSONObject(JSONValue(json))
+
+   ; Basic info
+   SetJSONString(AddJSONMember(rootObj, "version"), #OD_VERSION$)
+   SetJSONString(AddJSONMember(rootObj, "source"), sourceFile)
+   SetJSONString(AddJSONMember(rootObj, "compiled"), timestamp)
+
+   ; Pragmas, struct defs, modules
+   SerializePragmasToJSON(json)
+   SerializeStructDefsToJSON(json)
+   SerializeModulesToJSON(json)
+
+   ; Stats object
+   statsObj = SetJSONObject(AddJSONMember(rootObj, "stats"))
+   SetJSONInteger(AddJSONMember(statsObj, "codeSize"), ArraySize(arCode()))
+   SetJSONInteger(AddJSONMember(statsObj, "globalCount"), ArraySize(gGlobalTemplate()))
+   SetJSONInteger(AddJSONMember(statsObj, "funcCount"), gnFuncTemplateCount)
 
    ; Optional: include full source code
    If includeSource And gszOriginalSource > ""
-      json + ~",\"sourceCode\":\"" + EscapeJSONString(gszOriginalSource) + ~"\""
+      SetJSONString(AddJSONMember(rootObj, "sourceCode"), gszOriginalSource)
    EndIf
 
    ; V1.039.12: Optional: include ASM listing (verbose mode)
    If includeASM
       Protected asmListing.s = ListCodeToString()
-      json + ~",\"asmListing\":\"" + EscapeJSONString(asmListing) + ~"\""
+      SetJSONString(AddJSONMember(rootObj, "asmListing"), asmListing)
    EndIf
 
-   json + "}"
-   ProcedureReturn json
+   result = ComposeJSON(json)
+   FreeJSON(json)
+
+   ProcedureReturn result
 EndProcedure
 
 Procedure WriteVarTemplateBinary(file.i, *tpl.stVarTemplate)
@@ -240,15 +226,21 @@ EndProcedure
 ; Read Procedures - Load compiled object from .od file
 ; ============================================================================
 
-Procedure.s UnescapeJSONString(text.s)
-   ; Unescape JSON string (basic implementation)
-   Protected result.s = text
-   result = ReplaceString(result, "\n", Chr(10))
-   result = ReplaceString(result, "\r", Chr(13))
-   result = ReplaceString(result, "\t", Chr(9))
-   result = ReplaceString(result, ~"\\\"", ~"\"")
-   result = ReplaceString(result, "\\", "\")
-   ProcedureReturn result
+Procedure ParsePragmasFromJSON(pragmasValue.i)
+   ; Parse pragmas JSON object and populate mapPragmas
+   ClearMap(mapPragmas())
+
+   If JSONType(pragmasValue) = #PB_JSON_Object
+      If ExamineJSONMembers(pragmasValue)
+         While NextJSONMember(pragmasValue)
+            Protected key.s = JSONMemberKey(pragmasValue)
+            Protected memberValue.i = JSONMemberValue(pragmasValue)
+            If JSONType(memberValue) = #PB_JSON_String
+               mapPragmas(key) = GetJSONString(memberValue)
+            EndIf
+         Wend
+      EndIf
+   EndIf
 EndProcedure
 
 Procedure ReadVarTemplateBinary(file.i, *tpl.stVarTemplate)
@@ -303,82 +295,6 @@ Procedure ReadFuncTemplateBinary(file.i, *ftpl.stFuncTemplate)
    Next
 EndProcedure
 
-Procedure.s ExtractJSONValue(json.s, key.s)
-   ; Simple JSON value extraction (for string values)
-   Protected keyPos.i = FindString(json, ~"\"" + key + ~"\":")
-   If keyPos = 0 : ProcedureReturn "" : EndIf
-
-   Protected valueStart.i = keyPos + Len(key) + 3
-   Protected char.s = Mid(json, valueStart, 1)
-
-   If char = ~"\""
-      ; String value - find closing quote (handle escapes)
-      Protected valueEnd.i = valueStart + 1
-      Protected escaped.b = #False
-      While valueEnd <= Len(json)
-         char = Mid(json, valueEnd, 1)
-         If escaped
-            escaped = #False
-         ElseIf char = "\"
-            escaped = #True
-         ElseIf char = ~"\""
-            Break
-         EndIf
-         valueEnd + 1
-      Wend
-      ProcedureReturn UnescapeJSONString(Mid(json, valueStart + 1, valueEnd - valueStart - 1))
-   Else
-      ; Numeric or other value - find next comma or brace
-      Protected valueEnd2.i = valueStart
-      While valueEnd2 <= Len(json)
-         char = Mid(json, valueEnd2, 1)
-         If char = "," Or char = "}" Or char = "]"
-            Break
-         EndIf
-         valueEnd2 + 1
-      Wend
-      ProcedureReturn Trim(Mid(json, valueStart, valueEnd2 - valueStart))
-   EndIf
-EndProcedure
-
-Procedure.i ExtractJSONInt(json.s, key.s)
-   Protected value.s = ExtractJSONValue(json, key)
-   ProcedureReturn Val(value)
-EndProcedure
-
-Procedure ParsePragmasFromJSON(json.s)
-   ; Parse pragmas section and populate mapPragmas
-   ; Simple parser for {"key":"value",...} format
-   Protected pos.i = 1
-   Protected key.s, value.s
-   Protected inKey.b, inValue.b
-   Protected char.s
-
-   ClearMap(mapPragmas())
-
-   While pos <= Len(json)
-      char = Mid(json, pos, 1)
-
-      If char = ~"\""
-         ; Start of key or value
-         Protected endQuote.i = FindString(json, ~"\"", pos + 1)
-         If endQuote > 0
-            Protected str.s = Mid(json, pos + 1, endQuote - pos - 1)
-            If key = ""
-               key = str
-            Else
-               value = UnescapeJSONString(str)
-               mapPragmas(key) = value
-               key = ""
-               value = ""
-            EndIf
-            pos = endQuote
-         EndIf
-      EndIf
-      pos + 1
-   Wend
-EndProcedure
-
 Procedure.i LoadCompiledObject(filename.s)
    ; Load compiled bytecode and templates from .od file
    ; Returns 0 on success, -1 on error
@@ -412,14 +328,18 @@ Procedure.i LoadCompiledObject(filename.s)
    headerJson = PeekS(*headerMem, -1, #PB_UTF8)
    FreeMemory(*headerMem)
 
-   ; Parse header for configuration
-   ; Extract pragmas section
-   Protected pragmasStart.i = FindString(headerJson, ~"\"pragmas\":{")
-   If pragmasStart > 0
-      Protected pragmasEnd.i = FindString(headerJson, "}", pragmasStart + 11)
-      If pragmasEnd > 0
-         ParsePragmasFromJSON(Mid(headerJson, pragmasStart + 10, pragmasEnd - pragmasStart - 9))
+   ; Parse header JSON using PureBasic JSON library
+   Protected json.i = ParseJSON(#PB_Any, headerJson)
+   If json
+      Protected rootValue.i = JSONValue(json)
+      If JSONType(rootValue) = #PB_JSON_Object
+         ; Extract pragmas
+         Protected pragmasValue.i = GetJSONMember(rootValue, "pragmas")
+         If pragmasValue
+            ParsePragmasFromJSON(pragmasValue)
+         EndIf
       EndIf
+      FreeJSON(json)
    EndIf
 
    ; Read bytecode array
