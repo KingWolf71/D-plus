@@ -1,0 +1,166 @@
+/* System Utilities Test
+   Tests system/utility built-in functions:
+   - delay(ms)      : pause execution
+   - elapsed()      : milliseconds since program start
+   - date()         : current date as YYYYMMDD
+   - time()         : seconds since midnight
+   - year/month/day/hour/minute/second() : date/time components
+   - randomseed(n)  : seed random number generator
+   - getenv(name)   : get environment variable
+*/
+
+#pragma appname "System-Utilities-Test"
+#pragma decimals 3
+#pragma console on
+#pragma consolesize "680x740"
+#pragma consoleposition "30,50"
+#pragma ListASM off
+#pragma FastPrint on
+#pragma RunThreaded on
+#pragma version on
+#pragma modulename on
+#pragma GlobalStack 1024
+#pragma FunctionStack 32
+#pragma EvalStack 256
+#pragma LocalStack 64
+#pragma CreateLog off
+#pragma DefaultFPS 32
+
+print("=== System Utilities Test ===");
+print("");
+
+// Test 1: elapsed() function
+print("Test 1: elapsed() - Time Measurement");
+startTime = elapsed();
+print("  Program started at: ", startTime, " ms");
+
+// Test 2: date() and time() functions
+print("");
+print("Test 2: date() and time() - Current Date/Time");
+currentDate = date();
+currentTime = time();
+print("  Current date (YYYYMMDD): ", currentDate, "");
+print("  Seconds since midnight: ", currentTime, "");
+
+// Test 3: Date component extraction from date()
+print("");
+print("Test 3: Date Components - year()/month()/day()");
+y = year();
+m = month();
+d = day();
+print("  Current year:  ", y, "");
+print("  Current month: ", m, "");
+print("  Current day:   ", d, "");
+
+// Test 3b: Date component extraction from date integer
+print("");
+print("Test 3b: Extract from date integer");
+testDate = 20250115;  // January 15, 2025
+print("  Test date: ", testDate, "");
+print("  year(", testDate, ") = ", year(testDate), "");
+print("  month(", testDate, ") = ", month(testDate), "");
+print("  day(", testDate, ") = ", day(testDate), "");
+assertEqual(year(testDate), 2025);
+assertEqual(month(testDate), 1);
+assertEqual(day(testDate), 15);
+
+// Test 4: Time component extraction
+print("");
+print("Test 4: Time Components - hour()/minute()/second()");
+h = hour();
+mi = minute();
+s = second();
+print("  Current hour:   ", h, "");
+print("  Current minute: ", mi, "");
+print("  Current second: ", s, "");
+
+// Test 4b: Time component extraction from time integer
+print("");
+print("Test 4b: Extract from time integer");
+testTime = 45296;  // 12:34:56 = 12*3600 + 34*60 + 56
+print("  Test time (seconds): ", testTime, "");
+print("  hour(", testTime, ") = ", hour(testTime), "");
+print("  minute(", testTime, ") = ", minute(testTime), "");
+print("  second(", testTime, ") = ", second(testTime), "");
+assertEqual(hour(testTime), 12);
+assertEqual(minute(testTime), 34);
+assertEqual(second(testTime), 56);
+
+// Test 5: delay() and elapsed() together
+print("");
+print("Test 5: delay() - Pause Execution");
+print("  Delaying for 100ms...");
+beforeDelay = elapsed();
+delay(100);
+afterDelay = elapsed();
+delayDuration = afterDelay - beforeDelay;
+print("  Before delay: ", beforeDelay, " ms");
+print("  After delay:  ", afterDelay, " ms");
+print("  Actual delay: ", delayDuration, " ms");
+// Allow some tolerance (80-200ms)
+if delayDuration >= 80 && delayDuration <= 200 {
+    print("  [PASS] Delay within acceptable range");
+} else {
+    print("  [WARN] Delay outside expected range (may be system dependent)");
+}
+
+// Test 6: randomseed()
+print("");
+print("Test 6: randomseed() - Random Number Generator Seeding");
+randomseed(12345);
+r1 = random(1000);
+r2 = random(1000);
+r3 = random(1000);
+print("  With seed 12345:");
+print("    random(1000) = ", r1, "");
+print("    random(1000) = ", r2, "");
+print("    random(1000) = ", r3, "");
+
+// Reseed with same value - should get same sequence
+randomseed(12345);
+r4 = random(1000);
+r5 = random(1000);
+r6 = random(1000);
+print("  After re-seeding with 12345:");
+print("    random(1000) = ", r4, "");
+print("    random(1000) = ", r5, "");
+print("    random(1000) = ", r6, "");
+
+assertEqual(r1, r4);
+assertEqual(r2, r5);
+assertEqual(r3, r6);
+print("  [PASS] Same seed produces same sequence");
+
+// Test 7: getenv() - Environment Variables
+print("");
+print("Test 7: getenv() - Environment Variables");
+pathVar = getenv("PATH");
+if len(pathVar) > 0 {
+    // Truncate for display
+    if len(pathVar) > 50 {
+        print("  PATH = ", left(pathVar, 50), "...");
+    } else {
+        print("  PATH = ", pathVar, "");
+    }
+    print("  [PASS] PATH variable retrieved successfully");
+} else {
+    print("  [WARN] PATH variable empty or not found");
+}
+
+// Test non-existent variable
+noVar = getenv("THIS_VAR_SHOULD_NOT_EXIST_12345");
+if len(noVar) == 0 {
+    print("  [PASS] Non-existent variable returns empty string");
+} else {
+    print("  [WARN] Non-existent variable returned: ", noVar, "");
+}
+
+// Test 8: Elapsed time at end
+print("");
+print("Test 8: Total Elapsed Time");
+endTime = elapsed();
+totalTime = endTime - startTime;
+print("  Total execution time: ", totalTime, " ms");
+
+print("");
+print("=== System Utilities Test Complete ===");

@@ -134,6 +134,12 @@ Macro                   vm_PushFloat(value)
    sp + 1
 EndMacro
 
+; V1.039.45: Macro for built-in functions: push string result
+Macro                   vm_PushString(value)
+   gEvalStack(sp)\ss = value
+   sp + 1
+EndMacro
+
 Macro                   vm_AssertPrint( tmsg )
    CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
       gBatchOutput = gBatchOutput + tmsg + #LF$
@@ -1941,6 +1947,9 @@ EndProcedure
 
 ;- Include Built-in Functions Module
 XIncludeFile "c2-builtins-v09.pbi"
+
+;- V1.039.45: Include System/Utility Built-in Functions Module
+XIncludeFile "c2-builtins-system-v01.pbi"
 
 ;- Include Array Operations Module
 XIncludeFile "c2-arrays-v08.pbi"

@@ -914,6 +914,20 @@ Module C2VM
       *ptrJumpTable( #ljBUILTIN_JSONADD )      = @C2BUILTIN_JSONADD()
       *ptrJumpTable( #ljBUILTIN_JSONEXPORT )   = @C2BUILTIN_JSONEXPORT()
 
+      ; V1.039.45: System/Utility builtins
+      *ptrJumpTable( #ljBUILTIN_DELAY )        = @C2BUILTIN_DELAY()
+      *ptrJumpTable( #ljBUILTIN_ELAPSED )      = @C2BUILTIN_ELAPSED()
+      *ptrJumpTable( #ljBUILTIN_DATE )         = @C2BUILTIN_DATE()
+      *ptrJumpTable( #ljBUILTIN_TIME )         = @C2BUILTIN_TIME()
+      *ptrJumpTable( #ljBUILTIN_YEAR )         = @C2BUILTIN_YEAR()
+      *ptrJumpTable( #ljBUILTIN_MONTH )        = @C2BUILTIN_MONTH()
+      *ptrJumpTable( #ljBUILTIN_DAY )          = @C2BUILTIN_DAY()
+      *ptrJumpTable( #ljBUILTIN_HOUR )         = @C2BUILTIN_HOUR()
+      *ptrJumpTable( #ljBUILTIN_MINUTE )       = @C2BUILTIN_MINUTE()
+      *ptrJumpTable( #ljBUILTIN_SECOND )       = @C2BUILTIN_SECOND()
+      *ptrJumpTable( #ljBUILTIN_RANDOMSEED )   = @C2BUILTIN_RANDOMSEED()
+      *ptrJumpTable( #ljBUILTIN_GETENV )       = @C2BUILTIN_GETENV()
+
       ; Array operations
       *ptrJumpTable( #ljARRAYINDEX )      = @C2ARRAYINDEX()
       *ptrJumpTable( #ljARRAYFETCH )      = @C2ARRAYFETCH()
@@ -1300,6 +1314,9 @@ Module C2VM
       ; V1.026.4: Initialize collection pools for lists and maps
       InitListPool()
       InitMapPool()
+
+      ; V1.039.45: Initialize system builtins (start time for elapsed())
+      InitSystemBuiltins()
 
       ; V1.035.0: Ensure *gVar pointer array is sized to accommodate all variables
       If gnLastVariable > ArraySize(*gVar()) + 1

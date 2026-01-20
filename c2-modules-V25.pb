@@ -623,6 +623,20 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       InstallBuiltin( "jsoncreate",        #ljBUILTIN_JSONCREATE,   0, 0, #C2FLAG_INT )
       InstallBuiltin( "jsonadd",           #ljBUILTIN_JSONADD,      3, 3, 0 )
       InstallBuiltin( "jsonexport",        #ljBUILTIN_JSONEXPORT,   1, 1, #C2FLAG_STR )
+
+      ; V1.039.45: System/Utility Functions
+      InstallBuiltin( "delay",             #ljBUILTIN_DELAY,        1, 1, 0 )
+      InstallBuiltin( "elapsed",           #ljBUILTIN_ELAPSED,      0, 0, #C2FLAG_INT )
+      InstallBuiltin( "date",              #ljBUILTIN_DATE,         0, 0, #C2FLAG_INT )
+      InstallBuiltin( "time",              #ljBUILTIN_TIME,         0, 0, #C2FLAG_INT )
+      InstallBuiltin( "year",              #ljBUILTIN_YEAR,         0, 1, #C2FLAG_INT )
+      InstallBuiltin( "month",             #ljBUILTIN_MONTH,        0, 1, #C2FLAG_INT )
+      InstallBuiltin( "day",               #ljBUILTIN_DAY,          0, 1, #C2FLAG_INT )
+      InstallBuiltin( "hour",              #ljBUILTIN_HOUR,         0, 1, #C2FLAG_INT )
+      InstallBuiltin( "minute",            #ljBUILTIN_MINUTE,       0, 1, #C2FLAG_INT )
+      InstallBuiltin( "second",            #ljBUILTIN_SECOND,       0, 1, #C2FLAG_INT )
+      InstallBuiltin( "randomseed",        #ljBUILTIN_RANDOMSEED,   0, 1, 0 )
+      InstallBuiltin( "getenv",            #ljBUILTIN_GETENV,       1, 1, #C2FLAG_STR )
    EndProcedure
    CompilerEndIf
 
@@ -2547,8 +2561,7 @@ CompilerIf #PB_Compiler_IsMainFile
 
 CompilerEndIf
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; ExecutableFormat = Console
-; CursorPosition = 9
+; CursorPosition = 24
 ; FirstLine = 9
 ; Folding = 0-----------
 ; Markers = 569,718
@@ -2561,7 +2574,7 @@ CompilerEndIf
 ; LinkerOptions = linker.txt
 ; CompileSourceDirectory
 ; Warnings = Display
-; EnableCompileCount = 2617
+; EnableCompileCount = 2619
 ; EnableBuildCount = 35
 ; EnableExeConstant
 ; IncludeVersionInfo

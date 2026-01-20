@@ -59,8 +59,8 @@
 #BUILD_GUI        = 0                 ; Full GUI + compiler + VM (default)
 #BUILD_COMPILER   = 1                 ; Command-line compiler + VM (auto-detects .cx vs .ocx)
 
-;#BUILD_TYPE       = #BUILD_GUI         ; <-- Change this to build different modes
-#BUILD_TYPE       = #BUILD_COMPILER   
+#BUILD_TYPE       = #BUILD_GUI         ; <-- Change this to build different modes
+;#BUILD_TYPE       = #BUILD_COMPILER   
 
 ; V1.039.0: .ocx (Object CX) file format constants
 #OD_MAGIC$        = "CXOBJ001"        ; Magic number for .ocx files (8 bytes)
@@ -438,6 +438,20 @@ Enumeration
    #ljBUILTIN_JSONCREATE   ; jsoncreate() - create new JSON object
    #ljBUILTIN_JSONADD      ; jsonadd(h, key, value) - add member to object
    #ljBUILTIN_JSONEXPORT   ; jsonexport(h) - export to JSON string
+
+   ;- System/Utility Functions (V1.039.45)
+   #ljBUILTIN_DELAY        ; delay(ms) - pause execution for milliseconds
+   #ljBUILTIN_ELAPSED      ; elapsed() - milliseconds since program start
+   #ljBUILTIN_DATE         ; date() - current date as YYYYMMDD integer
+   #ljBUILTIN_TIME         ; time() - seconds since midnight
+   #ljBUILTIN_YEAR         ; year() or year(date) - get year component
+   #ljBUILTIN_MONTH        ; month() or month(date) - get month component (1-12)
+   #ljBUILTIN_DAY          ; day() or day(date) - get day component (1-31)
+   #ljBUILTIN_HOUR         ; hour() or hour(time) - get hour component (0-23)
+   #ljBUILTIN_MINUTE       ; minute() or minute(time) - get minute component (0-59)
+   #ljBUILTIN_SECOND       ; second() or second(time) - get second component (0-59)
+   #ljBUILTIN_RANDOMSEED   ; randomseed(n) - seed the random number generator
+   #ljBUILTIN_GETENV       ; getenv(name) - get environment variable
 
    ;- Array Opcodes
    #ljARRAYINDEX          ; Compute array element index (base + index * elementSize)
@@ -2198,6 +2212,19 @@ Macro _INIT_OPCODE_NAMES
    gszATR(#ljBUILTIN_JSONCREATE)\s = "BI_JCREATE"
    gszATR(#ljBUILTIN_JSONADD)\s = "BI_JADD"
    gszATR(#ljBUILTIN_JSONEXPORT)\s = "BI_JEXPORT"
+   ; V1.039.45: System/Utility builtins
+   gszATR(#ljBUILTIN_DELAY)\s = "BI_DELAY"
+   gszATR(#ljBUILTIN_ELAPSED)\s = "BI_ELAPSED"
+   gszATR(#ljBUILTIN_DATE)\s = "BI_DATE"
+   gszATR(#ljBUILTIN_TIME)\s = "BI_TIME"
+   gszATR(#ljBUILTIN_YEAR)\s = "BI_YEAR"
+   gszATR(#ljBUILTIN_MONTH)\s = "BI_MONTH"
+   gszATR(#ljBUILTIN_DAY)\s = "BI_DAY"
+   gszATR(#ljBUILTIN_HOUR)\s = "BI_HOUR"
+   gszATR(#ljBUILTIN_MINUTE)\s = "BI_MINUTE"
+   gszATR(#ljBUILTIN_SECOND)\s = "BI_SECOND"
+   gszATR(#ljBUILTIN_RANDOMSEED)\s = "BI_RSEED"
+   gszATR(#ljBUILTIN_GETENV)\s = "BI_GETENV"
    gszATR(#ljARRAYINDEX)\s = "ARRAYINDEX"
    gszATR(#ljARRAYFETCH)\s = "ARRAYFETCH"
    gszATR(#ljARRAYFETCH_INT)\s = "ARRAYFETCH_INT"
@@ -2538,7 +2565,7 @@ EndMacro
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 61
-; FirstLine = 42
+; FirstLine = 51
 ; Folding = ---
 ; Optimizer
 ; EnableAsm

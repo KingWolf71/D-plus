@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CX Language Reference Manual</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --code-bg: #f1f5f9;
+            --success: #22c55e;
+            --warning: #f59e0b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 3rem 2rem;
+            text-align: center;
+        }
+        header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
+        header p { opacity: 0.9; font-size: 1.1rem; }
+        .version {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.875rem;
+            margin-top: 1rem;
+        }
+        nav {
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        nav ul { list-style: none; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; }
+        nav a {
+            color: var(--text);
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            transition: background 0.2s;
+        }
+        nav a:hover { background: var(--code-bg); }
+        section { margin: 2rem 0; }
+        h2 {
+            color: var(--primary);
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 0.5rem;
+            margin-bottom: 1.5rem;
+            font-size: 1.75rem;
+        }
+        h3 { color: var(--text); margin: 1.5rem 0 1rem; font-size: 1.25rem; }
+        h4 { color: var(--text-muted); margin: 1rem 0 0.5rem; font-size: 1rem; }
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+        code {
+            background: var(--code-bg);
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.875em;
+        }
+        pre code { background: none; padding: 0; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            font-size: 0.875rem;
+        }
+        th, td {
+            border: 1px solid var(--border);
+            padding: 0.75rem;
+            text-align: left;
+        }
+        th { background: var(--code-bg); font-weight: 600; }
+        tr:hover { background: var(--code-bg); }
+        .func-sig {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-weight: 600;
+            color: var(--primary);
+        }
+        .returns { color: var(--success); font-weight: 500; }
+        .param { color: var(--warning); }
+        .tag {
+            display: inline-block;
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .tag-int { background: #dbeafe; color: #1e40af; }
+        .tag-float { background: #fef3c7; color: #92400e; }
+        .tag-string { background: #d1fae5; color: #065f46; }
+        .tag-void { background: #f3e8ff; color: #6b21a8; }
+        .toc { column-count: 3; column-gap: 2rem; }
+        .toc li { break-inside: avoid; margin-bottom: 0.25rem; }
+        @media (max-width: 768px) {
+            .toc { column-count: 1; }
+            nav ul { flex-direction: column; align-items: center; }
+        }
+        .example { border-left: 4px solid var(--primary); }
+        .note {
+            background: #fef3c7;
+            border-left: 4px solid var(--warning);
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0 0.5rem 0.5rem 0;
+        }
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border);
+            margin-top: 3rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>CX Language Reference</h1>
+        <p>A fast, C-like scripting language with modern features</p>
+        <span class="version">Version 1.039.45</span>
+    </header>
+
+    <nav>
+        <ul>
+            <li><a href="#overview">Overview</a></li>
+            <li><a href="#syntax">Syntax</a></li>
+            <li><a href="#types">Types</a></li>
+            <li><a href="#operators">Operators</a></li>
+            <li><a href="#control">Control Flow</a></li>
+            <li><a href="#functions">Functions</a></li>
+            <li><a href="#arrays">Arrays</a></li>
+            <li><a href="#structs">Structures</a></li>
+            <li><a href="#pointers">Pointers</a></li>
+            <li><a href="#collections">Collections</a></li>
+            <li><a href="#builtins">Built-ins</a></li>
+            <li><a href="#pragmas">Pragmas</a></li>
+        </ul>
+    </nav>
+
+    <div class="container">
+        <!-- Overview Section -->
+        <section id="overview">
+            <h2>Overview</h2>
+            <div class="card">
+                <p>CX is a fast, C-like scripting language designed for simplicity and execution speed. It compiles to bytecode and runs on a custom virtual machine.</p>
+                <h4>Key Features</h4>
+                <ul>
+                    <li>C-like syntax with modern conveniences</li>
+                    <li>Dynamic typing with type inference</li>
+                    <li>First-class functions and function pointers</li>
+                    <li>Structures with nested support</li>
+                    <li>Built-in collections (lists, maps)</li>
+                    <li>Comprehensive standard library</li>
+                    <li>Cross-platform (Windows, Linux)</li>
+                </ul>
+            </div>
+
+            <h3>Hello World</h3>
+            <div class="card example">
+                <pre><code>// Hello World in CX
+print("Hello, World!");</code></pre>
+            </div>
+
+            <h3>Command Line Usage</h3>
+            <div class="card">
+                <pre><code>cx.exe [options] &lt;file.cx|file.ocx&gt;
+
+Options:
+  -h, --help          Show help message
+  -c, -t, --console   Run in console/test mode (no GUI)
+  -C, --compile       Compile to .ocx file without running
+  -o, --output &lt;file&gt; Specify output filename for .ocx
+  --no-source         Don't embed source in .ocx file
+  -a, --asm           Output clean ASM listing to .asm file
+  -x, --autoquit &lt;s&gt;  Auto-close after &lt;s&gt; seconds</code></pre>
+            </div>
+        </section>
+
+        <!-- Syntax Section -->
+        <section id="syntax">
+            <h2>Basic Syntax</h2>
+
+            <h3>Comments</h3>
+            <div class="card">
+                <pre><code>// Single line comment
+
+/* Multi-line
+   comment */</code></pre>
+            </div>
+
+            <h3>Variables</h3>
+            <div class="card">
+                <pre><code>// Type inference (recommended)
+x = 10;              // integer
+y = 3.14;            // float
+name = "Alice";      // string
+
+// Explicit type annotations
+count:int = 0;
+pi:float = 3.14159;
+message:string = "Hello";</code></pre>
+            </div>
+
+            <h3>Constants</h3>
+            <div class="card">
+                <pre><code>// Using #define preprocessor
+#define MAX_SIZE 100
+#define PI 3.14159
+#define GREETING "Hello"</code></pre>
+            </div>
+
+            <h3>Output</h3>
+            <div class="card">
+                <pre><code>// print() - concatenates all arguments
+print("Value: ", x, " Name: ", name, "");
+
+// printf() - C-style formatted output
+printf("Value: %d, Name: %s\n", x, name);</code></pre>
+            </div>
+        </section>
+
+        <!-- Types Section -->
+        <section id="types">
+            <h2>Data Types</h2>
+
+            <div class="card">
+                <table>
+                    <tr><th>Type</th><th>Description</th><th>Example</th></tr>
+                    <tr><td><code>int</code></td><td>64-bit integer</td><td><code>x = 42</code></td></tr>
+                    <tr><td><code>float</code></td><td>64-bit floating point</td><td><code>y = 3.14</code></td></tr>
+                    <tr><td><code>string</code></td><td>Text string</td><td><code>s = "hello"</code></td></tr>
+                    <tr><td><code>int*</code></td><td>Pointer to integer</td><td><code>p = &x</code></td></tr>
+                    <tr><td><code>float*</code></td><td>Pointer to float</td><td><code>fp = &y</code></td></tr>
+                    <tr><td><code>string*</code></td><td>Pointer to string</td><td><code>sp = &s</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Type Conversion</h3>
+            <div class="card">
+                <pre><code>// Implicit conversion
+x = 10;
+y = x + 0.5;        // x converted to float
+
+// Explicit casting
+i = (int)3.7;       // i = 3 (truncated)
+f = (float)10;      // f = 10.0
+
+// String conversion
+s = str(42);        // "42"
+s = strf(3.14);     // "3.14"
+n = strint("123");  // 123
+f = strfloat("3.14"); // 3.14</code></pre>
+            </div>
+        </section>
+
+        <!-- Operators Section -->
+        <section id="operators">
+            <h2>Operators</h2>
+
+            <h3>Arithmetic Operators</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Operator</th><th>Description</th><th>Example</th></tr>
+                    <tr><td><code>+</code></td><td>Addition</td><td><code>a + b</code></td></tr>
+                    <tr><td><code>-</code></td><td>Subtraction</td><td><code>a - b</code></td></tr>
+                    <tr><td><code>*</code></td><td>Multiplication</td><td><code>a * b</code></td></tr>
+                    <tr><td><code>/</code></td><td>Division</td><td><code>a / b</code></td></tr>
+                    <tr><td><code>%</code></td><td>Modulo</td><td><code>a % b</code></td></tr>
+                    <tr><td><code>**</code></td><td>Power</td><td><code>a ** b</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Comparison Operators</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Operator</th><th>Description</th><th>Example</th></tr>
+                    <tr><td><code>==</code></td><td>Equal</td><td><code>a == b</code></td></tr>
+                    <tr><td><code>!=</code></td><td>Not equal</td><td><code>a != b</code></td></tr>
+                    <tr><td><code>&lt;</code></td><td>Less than</td><td><code>a &lt; b</code></td></tr>
+                    <tr><td><code>&gt;</code></td><td>Greater than</td><td><code>a &gt; b</code></td></tr>
+                    <tr><td><code>&lt;=</code></td><td>Less or equal</td><td><code>a &lt;= b</code></td></tr>
+                    <tr><td><code>&gt;=</code></td><td>Greater or equal</td><td><code>a &gt;= b</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Logical Operators</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Operator</th><th>Description</th><th>Example</th></tr>
+                    <tr><td><code>&&</code></td><td>Logical AND</td><td><code>a && b</code></td></tr>
+                    <tr><td><code>||</code></td><td>Logical OR</td><td><code>a || b</code></td></tr>
+                    <tr><td><code>!</code></td><td>Logical NOT</td><td><code>!a</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Bitwise Operators</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Operator</th><th>Description</th><th>Example</th></tr>
+                    <tr><td><code>&</code></td><td>Bitwise AND</td><td><code>a & b</code></td></tr>
+                    <tr><td><code>|</code></td><td>Bitwise OR</td><td><code>a | b</code></td></tr>
+                    <tr><td><code>^</code></td><td>Bitwise XOR</td><td><code>a ^ b</code></td></tr>
+                    <tr><td><code>~</code></td><td>Bitwise NOT</td><td><code>~a</code></td></tr>
+                    <tr><td><code>&lt;&lt;</code></td><td>Left shift</td><td><code>a &lt;&lt; 2</code></td></tr>
+                    <tr><td><code>&gt;&gt;</code></td><td>Right shift</td><td><code>a &gt;&gt; 2</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Assignment Operators</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Operator</th><th>Description</th><th>Example</th></tr>
+                    <tr><td><code>=</code></td><td>Assign</td><td><code>a = b</code></td></tr>
+                    <tr><td><code>+=</code></td><td>Add and assign</td><td><code>a += b</code></td></tr>
+                    <tr><td><code>-=</code></td><td>Subtract and assign</td><td><code>a -= b</code></td></tr>
+                    <tr><td><code>*=</code></td><td>Multiply and assign</td><td><code>a *= b</code></td></tr>
+                    <tr><td><code>/=</code></td><td>Divide and assign</td><td><code>a /= b</code></td></tr>
+                    <tr><td><code>++</code></td><td>Increment</td><td><code>a++</code> or <code>++a</code></td></tr>
+                    <tr><td><code>--</code></td><td>Decrement</td><td><code>a--</code> or <code>--a</code></td></tr>
+                </table>
+            </div>
+        </section>
+
+        <!-- Control Flow Section -->
+        <section id="control">
+            <h2>Control Flow</h2>
+
+            <h3>If Statement</h3>
+            <div class="card">
+                <pre><code>if condition {
+    // code
+} else if other_condition {
+    // code
+} else {
+    // code
+}</code></pre>
+            </div>
+
+            <h3>While Loop</h3>
+            <div class="card">
+                <pre><code>while condition {
+    // code
+    if should_stop { break; }
+    if should_skip { continue; }
+}</code></pre>
+            </div>
+
+            <h3>For Loop</h3>
+            <div class="card">
+                <pre><code>for i = 0; i < 10; i++ {
+    print("i = ", i, "");
+}</code></pre>
+            </div>
+
+            <h3>Foreach Loop</h3>
+            <div class="card">
+                <pre><code>// Array iteration
+array items[5] = {10, 20, 30, 40, 50};
+foreach item in items {
+    print("Item: ", item, "");
+}
+
+// List iteration
+list myList;
+foreach value in myList {
+    print("Value: ", value, "");
+}
+
+// Map iteration
+map myMap;
+foreach key, value in myMap {
+    print("Key: ", key, " Value: ", value, "");
+}</code></pre>
+            </div>
+
+            <h3>Switch Statement</h3>
+            <div class="card">
+                <pre><code>switch value {
+    case 1:
+        print("One");
+        break;
+    case 2:
+    case 3:
+        print("Two or Three");
+        break;
+    default:
+        print("Other");
+}</code></pre>
+            </div>
+
+            <h3>Ternary Operator</h3>
+            <div class="card">
+                <pre><code>result = condition ? value_if_true : value_if_false;</code></pre>
+            </div>
+        </section>
+
+        <!-- Functions Section -->
+        <section id="functions">
+            <h2>Functions</h2>
+
+            <h3>Function Definition</h3>
+            <div class="card">
+                <pre><code>// Basic function
+func greet(name) {
+    print("Hello, ", name, "!");
+}
+
+// Function with return value
+func add(a, b) {
+    return a + b;
+}
+
+// Function with type annotations
+func multiply(x:int, y:int):int {
+    return x * y;
+}</code></pre>
+            </div>
+
+            <h3>Function Pointers</h3>
+            <div class="card">
+                <pre><code>func add(a, b) { return a + b; }
+func subtract(a, b) { return a - b; }
+
+// Get function pointer
+funcptr = &add;
+
+// Call via pointer
+result = funcptr(10, 5);  // result = 15
+
+// Array of function pointers
+array *operations[2];
+operations[0] = &add;
+operations[1] = &subtract;
+
+result = operations[0](10, 5);  // result = 15</code></pre>
+            </div>
+
+            <h3>Higher-Order Functions</h3>
+            <div class="card">
+                <pre><code>func applyOperation(x, y, op) {
+    return op(x, y);
+}
+
+result = applyOperation(10, 5, &add);  // result = 15</code></pre>
+            </div>
+        </section>
+
+        <!-- Arrays Section -->
+        <section id="arrays">
+            <h2>Arrays</h2>
+
+            <h3>Array Declaration</h3>
+            <div class="card">
+                <pre><code>// Integer array
+array numbers[10];
+
+// Float array
+array values.f[5];
+
+// String array
+array names.s[3];
+
+// Initialized array
+array data[5] = {1, 2, 3, 4, 5};</code></pre>
+            </div>
+
+            <h3>Array Access</h3>
+            <div class="card">
+                <pre><code>numbers[0] = 100;
+x = numbers[0];
+
+// Array length
+size = len(numbers);</code></pre>
+            </div>
+
+            <h3>Multi-dimensional Arrays</h3>
+            <div class="card">
+                <pre><code>// 2D array (3 rows x 4 columns)
+array matrix[3][4];
+
+matrix[0][0] = 1;
+matrix[1][2] = 5;
+
+// 3D array
+array cube[2][3][4];</code></pre>
+            </div>
+
+            <h3>Array Operations</h3>
+            <div class="card">
+                <pre><code>// Sort array (ascending)
+sortarray(numbers);
+
+// Sort array (descending)
+sortarray(numbers, 1);
+
+// Resize array
+resize numbers[20];</code></pre>
+            </div>
+        </section>
+
+        <!-- Structures Section -->
+        <section id="structs">
+            <h2>Structures</h2>
+
+            <h3>Structure Definition</h3>
+            <div class="card">
+                <pre><code>struct Point {
+    x:int;
+    y:int;
+}
+
+struct Person {
+    name:string;
+    age:int;
+    salary:float;
+}</code></pre>
+            </div>
+
+            <h3>Using Structures</h3>
+            <div class="card">
+                <pre><code>// Declare struct variable
+Point p1;
+p1\x = 10;
+p1\y = 20;
+
+// Access fields
+print("X: ", p1\x, " Y: ", p1\y, "");</code></pre>
+            </div>
+
+            <h3>Nested Structures</h3>
+            <div class="card">
+                <pre><code>struct Rectangle {
+    topLeft:Point;
+    bottomRight:Point;
+}
+
+Rectangle rect;
+rect\topLeft\x = 0;
+rect\topLeft\y = 0;
+rect\bottomRight\x = 100;
+rect\bottomRight\y = 50;</code></pre>
+            </div>
+
+            <h3>Array of Structures</h3>
+            <div class="card">
+                <pre><code>array Point points[10];
+points[0]\x = 5;
+points[0]\y = 10;</code></pre>
+            </div>
+        </section>
+
+        <!-- Pointers Section -->
+        <section id="pointers">
+            <h2>Pointers</h2>
+
+            <h3>Pointer Basics</h3>
+            <div class="card">
+                <pre><code>x = 42;
+ptr = &x;        // Get address of x
+value = *ptr;    // Dereference pointer (value = 42)
+*ptr = 100;      // Modify via pointer (x = 100)</code></pre>
+            </div>
+
+            <h3>Pointer Arithmetic</h3>
+            <div class="card">
+                <pre><code>array numbers[5] = {10, 20, 30, 40, 50};
+ptr = &numbers[0];
+
+// Move to next element
+ptr++;
+print(*ptr);  // 20
+
+// Access by offset
+value = *(ptr + 2);  // 40</code></pre>
+            </div>
+
+            <h3>Struct Pointers</h3>
+            <div class="card">
+                <pre><code>Point p;
+p\x = 10;
+p\y = 20;
+
+ptr = &p;
+print("X: ", ptr\x, "");  // Access via pointer</code></pre>
+            </div>
+        </section>
+
+        <!-- Collections Section -->
+        <section id="collections">
+            <h2>Collections</h2>
+
+            <h3>Lists</h3>
+            <div class="card">
+                <pre><code>// Declare list
+list myList;
+list floatList.f;
+list stringList.s;
+
+// Add elements
+listAdd(myList, 10);
+listAdd(myList, 20);
+listInsert(myList, 15);  // Insert at current position
+
+// Navigate
+listFirst(myList);
+value = listGet(myList);
+listNext(myList);
+
+// Size and index
+size = listSize(myList);
+idx = listIndex(myList);
+
+// Sort
+listSort(myList);        // Ascending
+listSort(myList, 1);     // Descending
+
+// Iterate
+foreach item in myList {
+    print("Item: ", item, "");
+}</code></pre>
+            </div>
+
+            <h3>Maps (Dictionaries)</h3>
+            <div class="card">
+                <pre><code>// Declare map
+map myMap;
+map floatMap.f;
+
+// Add/update entries
+mapPut(myMap, "key1", 100);
+mapPut(myMap, "key2", 200);
+
+// Get value
+value = mapGet(myMap, "key1");
+
+// Check existence
+if mapContains(myMap, "key1") {
+    print("Found!");
+}
+
+// Iterate
+mapReset(myMap);
+while mapNext(myMap) {
+    key = mapKey(myMap);
+    value = mapValue(myMap);
+    print(key, ": ", value, "");
+}
+
+// Or use foreach
+foreach key, value in myMap {
+    print(key, ": ", value, "");
+}
+
+// Size
+size = mapSize(myMap);
+
+// Delete
+mapDelete(myMap, "key1");
+mapClear(myMap);</code></pre>
+            </div>
+        </section>
+
+        <!-- Built-in Functions Section -->
+        <section id="builtins">
+            <h2>Built-in Functions</h2>
+
+            <h3>Math Functions</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">abs(n)</td><td>Absolute value</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">fabs(n)</td><td>Absolute value (float)</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">min(a, b)</td><td>Minimum of two integers</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">max(a, b)</td><td>Maximum of two integers</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">fmin(a, b)</td><td>Minimum of two floats</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">fmax(a, b)</td><td>Maximum of two floats</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">sqrt(n)</td><td>Square root</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">pow(base, exp)</td><td>Power</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">exp(n)</td><td>e^n</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">log(n)</td><td>Natural logarithm</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">log10(n)</td><td>Base-10 logarithm</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">floor(n)</td><td>Round down</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">ceil(n)</td><td>Round up</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">round(n)</td><td>Round to nearest</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">sign(n)</td><td>Sign (-1, 0, 1)</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">mod(a, b)</td><td>Floating-point modulo</td><td><span class="tag tag-float">float</span></td></tr>
+                </table>
+            </div>
+
+            <h3>Trigonometric Functions</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">sin(x)</td><td>Sine (radians)</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">cos(x)</td><td>Cosine (radians)</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">tan(x)</td><td>Tangent (radians)</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">asin(x)</td><td>Arc sine</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">acos(x)</td><td>Arc cosine</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">atan(x)</td><td>Arc tangent</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">atan2(y, x)</td><td>Arc tangent of y/x</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">sinh(x)</td><td>Hyperbolic sine</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">cosh(x)</td><td>Hyperbolic cosine</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">tanh(x)</td><td>Hyperbolic tangent</td><td><span class="tag tag-float">float</span></td></tr>
+                </table>
+            </div>
+
+            <h3>String Functions</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">len(s)</td><td>String length</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">left(s, n)</td><td>Left n characters</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">right(s, n)</td><td>Right n characters</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">mid(s, start [, len])</td><td>Substring</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">trim(s)</td><td>Remove whitespace (both ends)</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">ltrim(s)</td><td>Remove left whitespace</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">rtrim(s)</td><td>Remove right whitespace</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">ucase(s)</td><td>Convert to uppercase</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">lcase(s)</td><td>Convert to lowercase</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">capitalize(s [, mode])</td><td>Capitalize string</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">chr(n)</td><td>Character from ASCII code</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">asc(s)</td><td>ASCII code of first char</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">getc(s, idx)</td><td>ASCII code at index</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">findstring(s, find [, start])</td><td>Find substring position</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">replacestring(s, old, new)</td><td>Replace all occurrences</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">countstring(s, find)</td><td>Count occurrences</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">reversestring(s)</td><td>Reverse string</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">insertstring(s, ins, pos)</td><td>Insert at position</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">removestring(s, find)</td><td>Remove all occurrences</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">space(n)</td><td>String of n spaces</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">lset(s, n)</td><td>Left-pad to n chars</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">rset(s, n)</td><td>Right-pad to n chars</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">strcmp(s1, s2)</td><td>Compare strings (-1/0/1)</td><td><span class="tag tag-int">int</span></td></tr>
+                </table>
+            </div>
+
+            <h3>Type Conversion</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">str(n)</td><td>Integer to string</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">strf(n)</td><td>Float to string</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">strint(s)</td><td>String to integer</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">strfloat(s)</td><td>String to float</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">val(s)</td><td>String to float (alias)</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">valf(s)</td><td>String to float</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">vali(s)</td><td>String to integer</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">hex(n)</td><td>Integer to hex string</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">bin(n)</td><td>Integer to binary string</td><td><span class="tag tag-string">string</span></td></tr>
+                </table>
+            </div>
+
+            <h3>Random Numbers</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">random([max])</td><td>Random integer 0 to max (default: MAXINT)</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">random(min, max)</td><td>Random integer in range</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">randomseed(n)</td><td>Seed random generator</td><td><span class="tag tag-void">void</span></td></tr>
+                </table>
+            </div>
+
+            <h3>Date/Time Functions</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">date()</td><td>Current date as YYYYMMDD</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">time()</td><td>Seconds since midnight</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">year([date])</td><td>Year (current or from YYYYMMDD)</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">month([date])</td><td>Month 1-12</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">day([date])</td><td>Day 1-31</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">hour([time])</td><td>Hour 0-23</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">minute([time])</td><td>Minute 0-59</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">second([time])</td><td>Second 0-59</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">elapsed()</td><td>Milliseconds since program start</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">delay(ms)</td><td>Pause execution for milliseconds</td><td><span class="tag tag-void">void</span></td></tr>
+                </table>
+            </div>
+
+            <h3>System Functions</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">getenv(name)</td><td>Get environment variable</td><td><span class="tag tag-string">string</span></td></tr>
+                </table>
+            </div>
+
+            <h3>Cryptographic Functions</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">md5(s)</td><td>MD5 hash</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">sha1(s)</td><td>SHA-1 hash</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">sha256(s)</td><td>SHA-256 hash</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">sha512(s)</td><td>SHA-512 hash</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">crc32(s)</td><td>CRC32 checksum</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">base64enc(s)</td><td>Base64 encode</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">base64dec(s)</td><td>Base64 decode</td><td><span class="tag tag-string">string</span></td></tr>
+                </table>
+            </div>
+
+            <h3>JSON Functions</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">jsonparse(s)</td><td>Parse JSON string</td><td><span class="tag tag-int">int</span> (handle)</td></tr>
+                    <tr><td class="func-sig">jsonfree(handle)</td><td>Free JSON object</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">jsonvalue(handle)</td><td>Get value as string</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">jsontype(handle)</td><td>Get value type</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">jsonmember(handle, key)</td><td>Get object member</td><td><span class="tag tag-int">int</span> (handle)</td></tr>
+                    <tr><td class="func-sig">jsonelement(handle, idx)</td><td>Get array element</td><td><span class="tag tag-int">int</span> (handle)</td></tr>
+                    <tr><td class="func-sig">jsonsize(handle)</td><td>Get array/object size</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">jsonstring(handle)</td><td>Get string value</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">jsonnumber(handle)</td><td>Get number value</td><td><span class="tag tag-float">float</span></td></tr>
+                    <tr><td class="func-sig">jsonbool(handle)</td><td>Get boolean value</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">jsoncreate()</td><td>Create empty JSON object</td><td><span class="tag tag-int">int</span> (handle)</td></tr>
+                    <tr><td class="func-sig">jsonadd(handle, key, value)</td><td>Add member to object</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">jsonexport(handle)</td><td>Export to JSON string</td><td><span class="tag tag-string">string</span></td></tr>
+                </table>
+            </div>
+
+            <h3>Testing/Assertion Functions</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">assertEqual(a, b)</td><td>Assert integers equal</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">assertFloatEqual(a, b [, tol])</td><td>Assert floats equal</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">assertStringEqual(a, b)</td><td>Assert strings equal</td><td><span class="tag tag-void">void</span></td></tr>
+                </table>
+            </div>
+
+            <h3>Array Functions</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">sortarray(arr [, desc])</td><td>Sort array (0=asc, 1=desc)</td><td><span class="tag tag-void">void</span></td></tr>
+                </table>
+            </div>
+
+            <h3>List Functions</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">listAdd(list, value)</td><td>Add element to end</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">listInsert(list, value)</td><td>Insert at current position</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">listDelete(list)</td><td>Delete current element</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">listClear(list)</td><td>Remove all elements</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">listSize(list)</td><td>Number of elements</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">listFirst(list)</td><td>Move to first element</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">listLast(list)</td><td>Move to last element</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">listNext(list)</td><td>Move to next element</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">listPrev(list)</td><td>Move to previous element</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">listSelect(list, idx)</td><td>Move to index</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">listIndex(list)</td><td>Get current index</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">listGet(list)</td><td>Get current value</td><td>varies</td></tr>
+                    <tr><td class="func-sig">listSet(list, value)</td><td>Set current value</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">listReset(list)</td><td>Reset to before first</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">listSort(list [, desc])</td><td>Sort list</td><td><span class="tag tag-void">void</span></td></tr>
+                </table>
+            </div>
+
+            <h3>Map Functions</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Function</th><th>Description</th><th>Returns</th></tr>
+                    <tr><td class="func-sig">mapPut(map, key, value)</td><td>Add/update entry</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">mapGet(map, key)</td><td>Get value by key</td><td>varies</td></tr>
+                    <tr><td class="func-sig">mapDelete(map, key)</td><td>Remove entry</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">mapClear(map)</td><td>Remove all entries</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">mapSize(map)</td><td>Number of entries</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">mapContains(map, key)</td><td>Check if key exists</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">mapReset(map)</td><td>Reset iterator</td><td><span class="tag tag-void">void</span></td></tr>
+                    <tr><td class="func-sig">mapNext(map)</td><td>Move to next entry</td><td><span class="tag tag-int">int</span></td></tr>
+                    <tr><td class="func-sig">mapKey(map)</td><td>Get current key</td><td><span class="tag tag-string">string</span></td></tr>
+                    <tr><td class="func-sig">mapValue(map)</td><td>Get current value</td><td>varies</td></tr>
+                </table>
+            </div>
+        </section>
+
+        <!-- Pragmas Section -->
+        <section id="pragmas">
+            <h2>Pragmas</h2>
+
+            <h3>Application Settings</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Pragma</th><th>Description</th><th>Example</th></tr>
+                    <tr><td><code>#pragma appname</code></td><td>Application name</td><td><code>#pragma appname "MyApp"</code></td></tr>
+                    <tr><td><code>#pragma version</code></td><td>Show version info</td><td><code>#pragma version on</code></td></tr>
+                    <tr><td><code>#pragma modulename</code></td><td>Show module name</td><td><code>#pragma modulename on</code></td></tr>
+                    <tr><td><code>#pragma autoclose</code></td><td>Auto-close after N seconds</td><td><code>#pragma autoclose 5</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Console Settings</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Pragma</th><th>Description</th><th>Example</th></tr>
+                    <tr><td><code>#pragma console</code></td><td>Enable console output</td><td><code>#pragma console on</code></td></tr>
+                    <tr><td><code>#pragma consolesize</code></td><td>Console window size</td><td><code>#pragma consolesize "800x600"</code></td></tr>
+                    <tr><td><code>#pragma consoleposition</code></td><td>Console position</td><td><code>#pragma consoleposition "100,100"</code></td></tr>
+                    <tr><td><code>#pragma FastPrint</code></td><td>Optimize print output</td><td><code>#pragma FastPrint on</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Numeric Settings</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Pragma</th><th>Description</th><th>Example</th></tr>
+                    <tr><td><code>#pragma decimals</code></td><td>Float decimal places</td><td><code>#pragma decimals 3</code></td></tr>
+                    <tr><td><code>#pragma ftoi</code></td><td>Float-to-int conversion</td><td><code>#pragma ftoi "truncate"</code> or <code>"round"</code></td></tr>
+                    <tr><td><code>#pragma floattolerance</code></td><td>Float comparison tolerance</td><td><code>#pragma floattolerance 0.0001</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Stack Settings</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Pragma</th><th>Description</th><th>Example</th></tr>
+                    <tr><td><code>#pragma GlobalStack</code></td><td>Global variable slots</td><td><code>#pragma GlobalStack 1024</code></td></tr>
+                    <tr><td><code>#pragma FunctionStack</code></td><td>Call stack depth</td><td><code>#pragma FunctionStack 32</code></td></tr>
+                    <tr><td><code>#pragma EvalStack</code></td><td>Evaluation stack size</td><td><code>#pragma EvalStack 256</code></td></tr>
+                    <tr><td><code>#pragma LocalStack</code></td><td>Local variable slots</td><td><code>#pragma LocalStack 64</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Debug/Development</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Pragma</th><th>Description</th><th>Example</th></tr>
+                    <tr><td><code>#pragma ListASM</code></td><td>Show ASM listing</td><td><code>#pragma ListASM on</code></td></tr>
+                    <tr><td><code>#pragma asmdecimal</code></td><td>Decimal line numbers</td><td><code>#pragma asmdecimal on</code></td></tr>
+                    <tr><td><code>#pragma CreateLog</code></td><td>Create log file</td><td><code>#pragma CreateLog on</code></td></tr>
+                    <tr><td><code>#pragma PasteToClipboard</code></td><td>Copy ASM to clipboard</td><td><code>#pragma PasteToClipboard on</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Threading</h3>
+            <div class="card">
+                <table>
+                    <tr><th>Pragma</th><th>Description</th><th>Example</th></tr>
+                    <tr><td><code>#pragma RunThreaded</code></td><td>Run in separate thread</td><td><code>#pragma RunThreaded on</code></td></tr>
+                    <tr><td><code>#pragma DefaultFPS</code></td><td>Default frame rate</td><td><code>#pragma DefaultFPS 60</code></td></tr>
+                    <tr><td><code>#pragma ThreadKillWait</code></td><td>Thread kill timeout (ms)</td><td><code>#pragma ThreadKillWait 1000</code></td></tr>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <footer>
+        <p>CX Language Reference Manual - Version 1.039.45</p>
+        <p>Generated: January 2026</p>
+    </footer>
+</body>
+</html>

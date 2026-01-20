@@ -1,17 +1,19 @@
 # CX Implementation Status
-Version: 1.037.4
-Date: December 2025
+Version: 1.039.45
+Date: January 2026
 
-**See also:** [CX_Compiler_Report.html](CX_Compiler_Report.html) - Comprehensive technical report with ratings
+**See also:**
+- [CX_Compiler_Report.html](CX_Compiler_Report.html) - Comprehensive technical report with ratings
+- [CX_Language_Reference.html](CX_Language_Reference.html) - Language reference manual
 
 ## Current File Versions
 
 | Component | File | Description |
 |-----------|------|-------------|
-| Main compiler | `c2-modules-V23.pb` | Scanner, preprocessor, main entry |
-| Definitions | `c2-inc-v19.pbi` | Constants, opcodes, structures |
+| Main compiler | `c2-modules-V25.pb` | Scanner, preprocessor, main entry |
+| Definitions | `c2-inc-v21.pbi` | Constants, opcodes, structures |
 | AST parser | `c2-ast-v08.pbi` | Recursive descent parser |
-| Code generator | `c2-codegen-v08.pbi` | AST to bytecode (main CodeGenerator) |
+| Code generator | `c2-codegen-v09.pbi` | AST to bytecode (main CodeGenerator) |
 | Codegen emit | `c2-codegen-emit.pbi` | EmitInt procedure (instruction emission) |
 | Codegen vars | `c2-codegen-vars.pbi` | FetchVarOffset (variable resolution) |
 | Codegen types | `c2-codegen-types.pbi` | GetExprResultType, GetExprSlotOrTemp |
@@ -20,14 +22,16 @@ Date: December 2025
 | Type inference | `c2-typeinfer-V03.pbi` | Unified type resolution |
 | Postprocessor | `c2-postprocessor-V12.pbi` | Correctness passes only |
 | Optimizer | `c2-optimizer-V03.pbi` | Rule-based peephole/fusion (5 passes) |
-| VM core | `c2-vm-V17.pb` | Virtual machine execution |
-| VM commands | `c2-vm-commands-v15.pb` | Opcode implementations |
-| Arrays | `c2-arrays-v07.pbi` | Array operations (Pointer Array Arch) |
-| Pointers | `c2-pointers-v06.pbi` | Pointer operations |
-| Collections | `c2-collections-v04.pbi` | Lists and Maps |
-| Built-ins | `c2-builtins-v07.pbi` | Built-in functions |
-| Test runner | `test/run_all_tests.ps1` | Windows PowerShell test runner (75 examples) |
-| Quick test | `quick-test.ps1` | Fast test runner (excludes long tests) |
+| VM core | `c2-vm-V19.pb` | Virtual machine execution |
+| VM commands | `c2-vm-commands-v17.pb` | Opcode implementations |
+| Arrays | `c2-arrays-v08.pbi` | Array operations (Pointer Array Arch) |
+| Pointers | `c2-pointers-v07.pbi` | Pointer operations |
+| Collections | `c2-collections-v05.pbi` | Lists and Maps |
+| Built-ins | `c2-builtins-v09.pbi` | Built-in functions |
+| System builtins | `c2-builtins-system-v01.pbi` | System/utility functions (NEW) |
+| Serialization | `c2-serialize-v02.pbi` | .ocx file serialization |
+| Test runner | `tests/run_all_tests.ps1` | Windows PowerShell test runner |
+| Quick test | `tests/quick-test.ps1` | Fast test runner (excludes long tests) |
 
 ## Implemented Features
 
@@ -137,7 +141,23 @@ Located in `Examples/`:
 - Mandelbrot set renderer (19)
 - Julia set renderer (21)
 
-## Recent Changes (v1.031.x - v1.037.x)
+## Recent Changes (v1.031.x - v1.039.x)
+
+### v1.039.45
+- **System/Utility Built-in Functions**: Added new module `c2-builtins-system-v01.pbi`
+  - `delay(ms)` - pause execution for milliseconds
+  - `elapsed()` - milliseconds since program start
+  - `date()` - current date as YYYYMMDD integer
+  - `time()` - seconds since midnight
+  - `year()`, `month()`, `day()` - date component extraction (current or from date integer)
+  - `hour()`, `minute()`, `second()` - time component extraction (current or from time integer)
+  - `randomseed(n)` - seed the random number generator for reproducible sequences
+  - `getenv(name)` - get environment variable value
+- **Language Reference Manual**: Created comprehensive HTML documentation `CX_Language_Reference.html`
+  - Complete syntax reference with examples
+  - All built-in functions documented with return types
+  - Pragma reference for compiler settings
+- **vm_PushString Macro**: Added missing string push macro for VM built-in functions
 
 ### v1.037.2-4
 - **Struct Declaration Bug Fix**: Fixed `p1.Point;` syntax not allocating struct memory properly
