@@ -14,6 +14,7 @@
 #pragma RunThreaded on
 #pragma ftoi "truncate"
 #pragma version on
+#pragma ListASM on
 #pragma modulename on
 #pragma GlobalStack 2048
 #pragma FunctionStack 256

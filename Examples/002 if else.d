@@ -1,6 +1,6 @@
 
 /* 
-FizzBuzz 
+FizzBuzz - if/else test
 */
 
 #pragma appname "FizzBuzz"
@@ -15,7 +15,7 @@ FizzBuzz
 #pragma version on
 #pragma modulename on
 #pragma PasteToClipboard on
-#pragma floattolerance 0.001
+#pragma floattolerance 0.0001
 #pragma GlobalStack 1024
 #pragma FunctionStack 32
 #pragma EvalStack 256

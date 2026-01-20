@@ -2413,7 +2413,7 @@ CompilerIf #PB_Compiler_IsMainFile
 
 CompilerEndIf
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 20
+; CursorPosition = 8
 ; Folding = 0----------
 ; Markers = 569,718
 ; Optimizer
@@ -2422,10 +2422,9 @@ CompilerEndIf
 ; Executable = dpai.exe
 ; CPU = 1
 ; LinkerOptions = linker.txt
-; DisableDebugger
 ; CompileSourceDirectory
 ; Warnings = Display
-; EnableCompileCount = 2582
-; EnableBuildCount = 17
+; EnableCompileCount = 2597
+; EnableBuildCount = 19
 ; EnableExeConstant
 ; IncludeVersionInfo

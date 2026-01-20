@@ -21,6 +21,7 @@
 #pragma DefaultFPS 32
 #pragma ThreadKillWait 1800
 #pragma asmdecimal on
+#pragma ListASM on
 
 #define MAX_NODES 64
 

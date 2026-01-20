@@ -43,7 +43,10 @@ Module C2VM
       #BtnExit
       #BtnLoad
       #BtnRun
+      #BtnSave        ; V1.039.33: Save source button
+      #panelMain      ; V1.039.33: Tab panel (Output/Source)
       #edConsole
+      #edSource       ; V1.039.33: Source code editor
       #lstExamples    ; V1.027.4: Examples listbox for quick testing
    EndEnumeration
    
@@ -147,6 +150,7 @@ Module C2VM
    Global               szLogname.s          = "[default]"   ;"+" infront of name = append
 
    Global               gSelectedExample.i   = 0       ; V1.027.6: Track selected example in listbox
+   Global               gCurrentSourceFile.s = ""      ; V1.039.33: Track loaded source file for SAVE
 
    Global Dim           *ptrJumpTable(1)
    Global Dim           gStack.stStack(gFunctionStack)   ; Call stack (function frames)
@@ -534,12 +538,23 @@ Module C2VM
          ButtonGadget( #BtnExit,    5,    3,  90,  29, "EXIT" )
          ButtonGadget( #BtnLoad,  100,    3,  90,  29, "Load/Compile" )
          ButtonGadget( #BtnRun,   200,    3,  90,  29, "Run" )
+         ; V1.039.33: Save button for source editor
+         ButtonGadget( #BtnSave,  295,    3,  90,  29, "Save" )
+         DisableGadget(#BtnSave, #True)  ; Disabled until source loaded
 
          ; V1.027.4: Examples listbox on the left side
          ListViewGadget( #lstExamples, 0, 35, 200, 640 )
-         EditorGadget( #edConsole, 205,  35, 755, 640 )
-         ; V1.031.101: Add initial line so cy=0 has a line to update
-         AddGadgetItem( #edConsole, -1, "" )
+
+         ; V1.039.33: Panel with Output and Source tabs
+         PanelGadget(#panelMain, 205, 35, 755, 640)
+            AddGadgetItem(#panelMain, -1, "Output")
+            EditorGadget( #edConsole, 0, 0, 745, 610 )
+            ; V1.031.101: Add initial line so cy=0 has a line to update
+            AddGadgetItem( #edConsole, -1, "" )
+
+            AddGadgetItem(#panelMain, -1, "Source")
+            EditorGadget( #edSource, 0, 0, 745, 610 )
+         CloseGadgetList()
 
          ; Populate listbox with source files from Examples folder
          ; V1.031.30: Cross-platform path
@@ -593,6 +608,36 @@ Module C2VM
       ResizeGadget( #edConsole, 5, 5, x - 10, y - 10 )
    EndProcedure
 
+   ; V1.039.33: Load source file into editor and switch to Source tab
+   Procedure         LoadSourceIntoEditor(filename.s)
+      Protected      content.s, file.i, fileSize.i
+
+      file = ReadFile(#PB_Any, filename)
+      If file
+         fileSize = Lof(file)
+         If fileSize > 0
+            content = ReadString(file, #PB_UTF8 | #PB_File_IgnoreEOL, fileSize)
+         EndIf
+         CloseFile(file)
+         SetGadgetText(#edSource, content)
+         gCurrentSourceFile = filename
+         DisableGadget(#BtnSave, #False)
+         ; Switch to Source tab to show loaded code
+         If IsGadget(#panelMain)
+            SetGadgetState(#panelMain, 1)
+         EndIf
+         ; V1.039.36: Debug output
+         If IsGadget(#edConsole)
+            AddGadgetItem(#edConsole, -1, "Source loaded: " + filename + " (" + Str(fileSize) + " bytes)")
+         EndIf
+      Else
+         ; V1.039.36: Show error if file couldn't be opened
+         If IsGadget(#edConsole)
+            AddGadgetItem(#edConsole, -1, "Error loading source: " + filename)
+         EndIf
+      EndIf
+   EndProcedure
+
    Procedure         ResizeMain()
       Protected      x, y
 
@@ -606,7 +651,10 @@ Module C2VM
 
       ; V1.027.4: Resize listbox and console with proper layout
       ResizeGadget( #lstExamples, #PB_Ignore, #PB_Ignore, #PB_Ignore, y - 40 )
-      ResizeGadget( #edConsole, #PB_Ignore, #PB_Ignore, x - 205, y - 40 )
+      ; V1.039.33: Resize panel and editors inside tabs
+      ResizeGadget( #panelMain, #PB_Ignore, #PB_Ignore, x - 205, y - 40 )
+      ResizeGadget( #edConsole, 0, 0, x - 215, y - 70 )
+      ResizeGadget( #edSource, 0, 0, x - 215, y - 70 )
       Delay(gFPSFast)
       
    EndProcedure
@@ -1841,6 +1889,8 @@ Module C2VM
          vmClearRun()
 
          gModuleName = filename
+         ; V1.039.33: Load source into editor
+         LoadSourceIntoEditor(filename)
          AddGadgetItem(#edConsole, -1, "Loading: " + filename)
 
          If C2Lang::LoadLJ( filename )
@@ -1907,7 +1957,7 @@ Module C2VM
    EndProcedure
 
    Procedure            vmWindowEvents()
-      Protected         Event, e, err, i
+      Protected         Event, e, err, i, saveFile
       Protected.s       filename
 
       If gRunThreaded = #True
@@ -1925,6 +1975,11 @@ Module C2VM
          ; V1.031.104: Timer-based GUI queue processing for Linux threading support
          AddWindowTimer(#MainWindow, #C2VM_QUEUE_TIMER, 32)  ; ~60fps
          BindEvent(#PB_Event_Timer, @vmTimerCallback())
+
+         ; V1.039.34: Load initial source file into editor on GUI startup
+         If gModuleName > ""
+            LoadSourceIntoEditor(gModuleName)
+         EndIf
 
          While Not gExitApplication
             Event = WaitWindowEvent(gDefFPS)
@@ -1984,14 +2039,30 @@ Module C2VM
                      If filename > ""
                         DebugShowFilename()
                         gModuleName = filename
-   
+                        ; V1.039.33: Load source into editor
+                        LoadSourceIntoEditor(filename)
+
                         If C2Lang::LoadLJ( filename )
                            Debug "Error: " + C2Lang::Error( @err )
                         Else
                            C2Lang::Compile()
                         EndIf
                      EndIf
-   
+
+                  ElseIf e = #BtnSave
+                     ; V1.039.33: Save source from editor to file
+                     If gCurrentSourceFile > ""
+                        saveFile = CreateFile(#PB_Any, gCurrentSourceFile)
+                        If saveFile
+                           WriteString(saveFile, GetGadgetText(#edSource))
+                           CloseFile(saveFile)
+                           AddGadgetItem(#edConsole, -1, "Saved: " + gCurrentSourceFile)
+                           SetGadgetState(#panelMain, 0)  ; Switch to Output tab
+                        Else
+                           AddGadgetItem(#edConsole, -1, "Error saving: " + gCurrentSourceFile)
+                        EndIf
+                     EndIf
+
                   ElseIf e = #BtnRun
                      ; V1.031.108: Abort any autoclose countdown
                      gAbortAutoclose = #True

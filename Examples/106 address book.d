@@ -23,6 +23,7 @@
 #pragma ListASM on
 #pragma DumpASM off
 #pragma asmdecimal on
+#pragma ListASM on
 
 print("=================================================");
 print("         ADDRESS BOOK DATABASE V1.029.0");

@@ -58,7 +58,9 @@
 ; V1.039.0: Build type modes - compile with different #BUILD_TYPE for each executable
 #BUILD_GUI        = 0                 ; Full GUI + compiler + VM (default)
 #BUILD_COMPILER   = 1                 ; Command-line compiler + VM (auto-detects .d vs .od)
-#BUILD_TYPE       = #BUILD_GUI   ; <-- Change this to build different modes
+
+;#BUILD_TYPE       = #BUILD_GUI         ; <-- Change this to build different modes
+#BUILD_TYPE       = #BUILD_COMPILER   
 
 ; V1.039.0: .od (Object D) file format constants
 #OD_MAGIC$        = "DAIOBJ01"        ; Magic number for .od files (8 bytes)
@@ -1250,6 +1252,14 @@ Global _asmFuncName.s              ; Temp for ASMLine CALL display
 Global _asmSrcLocal.s              ; Temp for ASMLine LLMOV display
 Global _asmLocalKey.s              ; V1.039.21: Temp for _GetLocalName map key
 Global _asmEscapedStr.s            ; V1.039.26: Temp for _EscapeString macro
+Global _asmArrName.s               ; V1.039.32: Temp for ARGET/ARPUT array name
+Global _asmIdxName.s               ; V1.039.32: Temp for ARGET/ARPUT index display
+Global _asmValName.s               ; V1.039.32: Temp for ARPUT value display
+Global _asmIsLocalArr.i            ; V1.039.32: Temp for ARPUT local array detection
+Global _asmIdxIsStack.i            ; V1.039.32: Temp for ARPUT index is stack
+Global _asmIdxIsLopt.i             ; V1.039.32: Temp for ARPUT index is local var
+Global _asmValIsStack.i            ; V1.039.32: Temp for ARPUT value is stack
+Global _asmValIsLopt.i             ; V1.039.32: Temp for ARPUT value is local var
 
 ; V1.039.26: _EscapeString macro - convert control characters to escape sequences for ASM display
 Macro _EscapeString(str)
@@ -1361,15 +1371,63 @@ Macro          ASMLine(obj,show)
             line + _asmFuncName + "()"
          EndIf
       CompilerEndIf
-   ; Specialized array operations (no runtime branching) - opcode name encodes all info
-   ElseIf obj\code = #ljARRAYFETCH_INT_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_INT_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_INT_LOCAL_OPT Or obj\code = #ljARRAYFETCH_INT_LOCAL_STACK Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_OPT Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_STACK Or obj\code = #ljARRAYFETCH_STR_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_STR_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_STR_LOCAL_OPT Or obj\code = #ljARRAYFETCH_STR_LOCAL_STACK Or obj\code = #ljARRAYSTORE_INT_GLOBAL_OPT_OPT Or obj\code = #ljARRAYSTORE_INT_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_INT_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_INT_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_OPT_OPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_OPT_OPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_OPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_OPT_OPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_OPT_OPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_STACK_STACK
-      ; V1.039.20: Only show details in debug mode
-      If gAsmDebugMode
-         line + "[arr=" + Str(obj\i)
-         If obj\ndx >= 0 : line + " idx=" + Str(obj\ndx) : EndIf
-         If obj\n >= 0 : line + " val=" + Str(obj\n) : EndIf
-         line + "]"
+   ; V1.039.32: Specialized ARGET (array fetch) operations - show arr[idx] --> [sp]
+   ElseIf obj\code = #ljARRAYFETCH_INT_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_INT_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_INT_GLOBAL_LOPT Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_LOPT Or obj\code = #ljARRAYFETCH_STR_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_STR_GLOBAL_STACK Or obj\code = #ljARRAYFETCH_STR_GLOBAL_LOPT
+      ; Global array fetch: arr[idx] --> [sp]
+      _asmArrName = gVarMeta(obj\i)\name
+      ; Index source: OPT=global var, LOPT=local var, STACK=stack
+      If obj\code = #ljARRAYFETCH_INT_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_OPT Or obj\code = #ljARRAYFETCH_STR_GLOBAL_OPT
+         _asmIdxName = gVarMeta(obj\ndx)\name
+      ElseIf obj\code = #ljARRAYFETCH_INT_GLOBAL_LOPT Or obj\code = #ljARRAYFETCH_FLOAT_GLOBAL_LOPT Or obj\code = #ljARRAYFETCH_STR_GLOBAL_LOPT
+         _GetLocalName(obj\ndx) : _asmIdxName = gAsmLocalName
+      Else
+         _asmIdxName = "[sp]"
       EndIf
+      line + _asmArrName + "[" + _asmIdxName + "] --> [sp]"
+   ElseIf obj\code = #ljARRAYFETCH_INT_LOCAL_OPT Or obj\code = #ljARRAYFETCH_INT_LOCAL_STACK Or obj\code = #ljARRAYFETCH_INT_LOCAL_LOPT Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_OPT Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_STACK Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_LOPT Or obj\code = #ljARRAYFETCH_STR_LOCAL_OPT Or obj\code = #ljARRAYFETCH_STR_LOCAL_STACK Or obj\code = #ljARRAYFETCH_STR_LOCAL_LOPT
+      ; Local array fetch: _arr[idx] --> [sp]
+      _GetLocalName(obj\i) : _asmArrName = gAsmLocalName
+      ; Index source
+      If obj\code = #ljARRAYFETCH_INT_LOCAL_OPT Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_OPT Or obj\code = #ljARRAYFETCH_STR_LOCAL_OPT
+         _asmIdxName = gVarMeta(obj\ndx)\name
+      ElseIf obj\code = #ljARRAYFETCH_INT_LOCAL_LOPT Or obj\code = #ljARRAYFETCH_FLOAT_LOCAL_LOPT Or obj\code = #ljARRAYFETCH_STR_LOCAL_LOPT
+         _GetLocalName(obj\ndx) : _asmIdxName = gAsmLocalName
+      Else
+         _asmIdxName = "[sp]"
+      EndIf
+      line + _asmArrName + "[" + _asmIdxName + "] --> [sp]"
+   ; V1.039.32: Specialized ARPUT (array store) operations - show arr[idx] <-- value
+   ElseIf obj\code >= #ljARRAYSTORE_INT_GLOBAL_OPT_OPT And obj\code <= #ljARRAYSTORE_STR_LOCAL_LOPT_STACK
+      ; Determine if global or local array by checking opcode range
+      ; Global arrays: *_GLOBAL_* opcodes, Local arrays: *_LOCAL_* opcodes
+      _asmIsLocalArr = Bool((obj\code >= #ljARRAYSTORE_INT_LOCAL_OPT_OPT And obj\code <= #ljARRAYSTORE_INT_LOCAL_STACK_STACK) Or (obj\code >= #ljARRAYSTORE_FLOAT_LOCAL_OPT_OPT And obj\code <= #ljARRAYSTORE_FLOAT_LOCAL_STACK_STACK) Or (obj\code >= #ljARRAYSTORE_STR_LOCAL_OPT_OPT And obj\code <= #ljARRAYSTORE_STR_LOCAL_STACK_STACK) Or (obj\code = #ljARRAYSTORE_INT_LOCAL_OPT_LOPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_LOPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_OPT_LOPT) Or (obj\code >= #ljARRAYSTORE_INT_LOCAL_LOPT_LOPT And obj\code <= #ljARRAYSTORE_STR_LOCAL_LOPT_STACK))
+      ; Array name
+      If _asmIsLocalArr
+         _GetLocalName(obj\i) : _asmArrName = gAsmLocalName
+      Else
+         _asmArrName = gVarMeta(obj\i)\name
+      EndIf
+      ; Index: check if STACK or LOPT index by looking at opcode pattern
+      _asmIdxIsStack = Bool(obj\code = #ljARRAYSTORE_INT_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_INT_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_STACK_OPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_STACK_OPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_STACK_STACK)
+      _asmIdxIsLopt = Bool(obj\code = #ljARRAYSTORE_INT_GLOBAL_LOPT_LOPT Or obj\code = #ljARRAYSTORE_INT_GLOBAL_LOPT_OPT Or obj\code = #ljARRAYSTORE_INT_GLOBAL_LOPT_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_LOPT_LOPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_LOPT_OPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_LOPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_LOPT_LOPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_LOPT_OPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_LOPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_LOPT_LOPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_LOPT_OPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_LOPT_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_LOPT_LOPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_LOPT_OPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_LOPT_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_LOPT_LOPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_LOPT_OPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_LOPT_STACK)
+      If _asmIdxIsStack
+         _asmIdxName = "[sp]"
+      ElseIf _asmIdxIsLopt
+         _GetLocalName(obj\ndx) : _asmIdxName = gAsmLocalName
+      Else
+         _asmIdxName = gVarMeta(obj\ndx)\name
+      EndIf
+      ; Value source: STACK vs LOPT vs OPT
+      _asmValIsStack = Bool(obj\code = #ljARRAYSTORE_INT_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_INT_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_OPT_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_STACK_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_OPT_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_STACK_STACK Or obj\code = #ljARRAYSTORE_INT_GLOBAL_LOPT_STACK Or obj\code = #ljARRAYSTORE_INT_LOCAL_LOPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_LOPT_STACK Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_LOPT_STACK Or obj\code = #ljARRAYSTORE_STR_GLOBAL_LOPT_STACK Or obj\code = #ljARRAYSTORE_STR_LOCAL_LOPT_STACK)
+      _asmValIsLopt = Bool(obj\code = #ljARRAYSTORE_INT_GLOBAL_OPT_LOPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_OPT_LOPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_OPT_LOPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_OPT_LOPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_OPT_LOPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_OPT_LOPT Or obj\code = #ljARRAYSTORE_INT_GLOBAL_LOPT_LOPT Or obj\code = #ljARRAYSTORE_INT_LOCAL_LOPT_LOPT Or obj\code = #ljARRAYSTORE_FLOAT_GLOBAL_LOPT_LOPT Or obj\code = #ljARRAYSTORE_FLOAT_LOCAL_LOPT_LOPT Or obj\code = #ljARRAYSTORE_STR_GLOBAL_LOPT_LOPT Or obj\code = #ljARRAYSTORE_STR_LOCAL_LOPT_LOPT)
+      If _asmValIsStack
+         _asmValName = "[sp]"
+      ElseIf _asmValIsLopt
+         _GetLocalName(obj\n) : _asmValName = gAsmLocalName
+      Else
+         _asmValName = gVarMeta(obj\n)\name
+      EndIf
+      line + _asmArrName + "[" + _asmIdxName + "] <-- " + _asmValName
    ElseIf obj\code = #ljARRAYFETCH Or obj\code = #ljARRAYFETCH_INT Or obj\code = #ljARRAYFETCH_FLOAT Or obj\code = #ljARRAYFETCH_STR Or obj\code = #ljARRAYSTORE Or obj\code = #ljARRAYSTORE_INT Or obj\code = #ljARRAYSTORE_FLOAT Or obj\code = #ljARRAYSTORE_STR
       ; V1.039.20: Only show details in debug mode
       If gAsmDebugMode
@@ -1380,56 +1438,88 @@ Macro          ASMLine(obj,show)
          EndIf
          line + " j=" + Str(obj\j) + "]"
       EndIf
-   ; V1.022.8: Struct array operations - V1.039.20: debug mode only
-   ElseIf obj\code = #ljSTRUCTARRAY_FETCH_INT Or obj\code = #ljSTRUCTARRAY_FETCH_FLOAT Or obj\code = #ljSTRUCTARRAY_FETCH_STR Or obj\code = #ljSTRUCTARRAY_STORE_INT Or obj\code = #ljSTRUCTARRAY_STORE_FLOAT Or obj\code = #ljSTRUCTARRAY_STORE_STR
-      If gAsmDebugMode
-         line + "[base=" + Str(obj\i)
-         If obj\ndx >= 0 : line + " idx=slot" + Str(obj\ndx) : Else : line + " idx=stack" : EndIf
-         If obj\code = #ljSTRUCTARRAY_STORE_INT Or obj\code = #ljSTRUCTARRAY_STORE_FLOAT Or obj\code = #ljSTRUCTARRAY_STORE_STR
-            If obj\n >= 0 : line + " val=slot" + Str(obj\n) : Else : line + " val=stack" : EndIf
-         EndIf
-         line + " local=" + Str(obj\j) + "]"
-         flag + 1
+   ; V1.039.32: Struct field access - show structname+offset --> [sp] or <-- [sp]
+   ElseIf obj\code = #ljSTRUCT_FETCH_INT Or obj\code = #ljSTRUCT_FETCH_FLOAT Or obj\code = #ljSTRUCT_FETCH_STR
+      ; Global struct fetch: structname+offset --> [sp]
+      line + gVarMeta(obj\i)\name + "+" + Str(obj\j) + " --> [sp]"
+   ElseIf obj\code = #ljSTRUCT_FETCH_INT_LOCAL Or obj\code = #ljSTRUCT_FETCH_FLOAT_LOCAL Or obj\code = #ljSTRUCT_FETCH_STR_LOCAL
+      ; Local struct fetch: _structname+offset --> [sp]
+      _GetLocalName(obj\i) : line + gAsmLocalName + "+" + Str(obj\j) + " --> [sp]"
+   ElseIf obj\code = #ljSTRUCT_STORE_INT Or obj\code = #ljSTRUCT_STORE_FLOAT Or obj\code = #ljSTRUCT_STORE_STR
+      ; Global struct store: structname+offset <-- [sp]
+      line + gVarMeta(obj\i)\name + "+" + Str(obj\j) + " <-- [sp]"
+   ElseIf obj\code = #ljSTRUCT_STORE_INT_LOCAL Or obj\code = #ljSTRUCT_STORE_FLOAT_LOCAL Or obj\code = #ljSTRUCT_STORE_STR_LOCAL
+      ; Local struct store: _structname+offset <-- [sp]
+      _GetLocalName(obj\i) : line + gAsmLocalName + "+" + Str(obj\j) + " <-- [sp]"
+   ; V1.022.8: Struct array operations - V1.039.32: show struct[idx] --> [sp] or <-- value
+   ElseIf obj\code = #ljSTRUCTARRAY_FETCH_INT Or obj\code = #ljSTRUCTARRAY_FETCH_FLOAT Or obj\code = #ljSTRUCTARRAY_FETCH_STR
+      ; Struct array fetch: struct[idx] --> [sp]
+      If obj\j = 1
+         _GetLocalName(obj\i) : _asmArrName = gAsmLocalName
+      Else
+         _asmArrName = gVarMeta(obj\i)\name
       EndIf
-   ; V1.022.44: Array of Struct operations - V1.039.20: debug mode only
-   ElseIf obj\code = #ljARRAYOFSTRUCT_FETCH_INT Or obj\code = #ljARRAYOFSTRUCT_FETCH_FLOAT Or obj\code = #ljARRAYOFSTRUCT_FETCH_STR Or obj\code = #ljARRAYOFSTRUCT_STORE_INT Or obj\code = #ljARRAYOFSTRUCT_STORE_FLOAT Or obj\code = #ljARRAYOFSTRUCT_STORE_STR Or obj\code = #ljARRAYOFSTRUCT_FETCH_INT_LOPT Or obj\code = #ljARRAYOFSTRUCT_FETCH_FLOAT_LOPT Or obj\code = #ljARRAYOFSTRUCT_FETCH_STR_LOPT Or obj\code = #ljARRAYOFSTRUCT_STORE_INT_LOPT Or obj\code = #ljARRAYOFSTRUCT_STORE_FLOAT_LOPT Or obj\code = #ljARRAYOFSTRUCT_STORE_STR_LOPT
-      If gAsmDebugMode
-         line + "[arr=" + Str(obj\i) + " idx=slot" + Str(obj\ndx) + " elemSz=" + Str(obj\j) + " fldOfs=" + Str(obj\n) + "]"
-         flag + 1
+      If obj\ndx >= 0 : _asmIdxName = gVarMeta(obj\ndx)\name : Else : _asmIdxName = "[sp]" : EndIf
+      line + _asmArrName + "[" + _asmIdxName + "] --> [sp]"
+   ElseIf obj\code = #ljSTRUCTARRAY_STORE_INT Or obj\code = #ljSTRUCTARRAY_STORE_FLOAT Or obj\code = #ljSTRUCTARRAY_STORE_STR
+      ; Struct array store: struct[idx] <-- value
+      If obj\j = 1
+         _GetLocalName(obj\i) : _asmArrName = gAsmLocalName
+      Else
+         _asmArrName = gVarMeta(obj\i)\name
       EndIf
-   ; V1.022.54: Struct pointer operations - V1.039.20: debug mode only
+      If obj\ndx >= 0 : _asmIdxName = gVarMeta(obj\ndx)\name : Else : _asmIdxName = "[sp]" : EndIf
+      If obj\n >= 0 : _asmValName = gVarMeta(obj\n)\name : Else : _asmValName = "[sp]" : EndIf
+      line + _asmArrName + "[" + _asmIdxName + "] <-- " + _asmValName
+   ; V1.022.44: Array of Struct operations - V1.039.32: show arr[idx]+fldOfs --> [sp] or <-- value
+   ElseIf obj\code = #ljARRAYOFSTRUCT_FETCH_INT Or obj\code = #ljARRAYOFSTRUCT_FETCH_FLOAT Or obj\code = #ljARRAYOFSTRUCT_FETCH_STR
+      ; Array of struct fetch: arr[idx]+fldOfs --> [sp]
+      _asmArrName = gVarMeta(obj\i)\name
+      _asmIdxName = gVarMeta(obj\ndx)\name
+      line + _asmArrName + "[" + _asmIdxName + "]+" + Str(obj\n) + " --> [sp]"
+   ElseIf obj\code = #ljARRAYOFSTRUCT_FETCH_INT_LOPT Or obj\code = #ljARRAYOFSTRUCT_FETCH_FLOAT_LOPT Or obj\code = #ljARRAYOFSTRUCT_FETCH_STR_LOPT
+      ; Array of struct fetch with local index: arr[_idx]+fldOfs --> [sp]
+      _asmArrName = gVarMeta(obj\i)\name
+      _GetLocalName(obj\ndx) : _asmIdxName = gAsmLocalName
+      line + _asmArrName + "[" + _asmIdxName + "]+" + Str(obj\n) + " --> [sp]"
+   ElseIf obj\code = #ljARRAYOFSTRUCT_STORE_INT Or obj\code = #ljARRAYOFSTRUCT_STORE_FLOAT Or obj\code = #ljARRAYOFSTRUCT_STORE_STR
+      ; Array of struct store: arr[idx]+fldOfs <-- [sp]
+      _asmArrName = gVarMeta(obj\i)\name
+      _asmIdxName = gVarMeta(obj\ndx)\name
+      line + _asmArrName + "[" + _asmIdxName + "]+" + Str(obj\n) + " <-- [sp]"
+   ElseIf obj\code = #ljARRAYOFSTRUCT_STORE_INT_LOPT Or obj\code = #ljARRAYOFSTRUCT_STORE_FLOAT_LOPT Or obj\code = #ljARRAYOFSTRUCT_STORE_STR_LOPT
+      ; Array of struct store with local index: arr[_idx]+fldOfs <-- [sp]
+      _asmArrName = gVarMeta(obj\i)\name
+      _GetLocalName(obj\ndx) : _asmIdxName = gAsmLocalName
+      line + _asmArrName + "[" + _asmIdxName + "]+" + Str(obj\n) + " <-- [sp]"
+   ; V1.022.54: Struct pointer operations - V1.039.32: show *ptr+offset --> [sp] or <-- value
    ElseIf obj\code = #ljGETSTRUCTADDR
-      If gAsmDebugMode
-         line + "[struct=" + Str(obj\i) + "] --> [sp]"
-         flag + 1
-      EndIf
-   ElseIf obj\code = #ljPTRSTRUCTFETCH_INT Or obj\code = #ljPTRSTRUCTFETCH_FLOAT Or obj\code = #ljPTRSTRUCTFETCH_STR Or obj\code = #ljPTRSTRUCTSTORE_INT Or obj\code = #ljPTRSTRUCTSTORE_FLOAT Or obj\code = #ljPTRSTRUCTSTORE_STR Or obj\code = #ljPTRSTRUCTSTORE_INT_LOPT Or obj\code = #ljPTRSTRUCTSTORE_FLOAT_LOPT Or obj\code = #ljPTRSTRUCTSTORE_STR_LOPT
-      If gAsmDebugMode
-         line + "[ptr=slot" + Str(obj\i) + " fldOfs=" + Str(obj\n) + " val=" + Str(obj\ndx) + "]"
-         flag + 1
-      EndIf
-   ; V1.022.119: LPTR variants - V1.039.20: debug mode only
-   ; V1.039.25: Show local variable names for ptr and val
+      ; Get struct address: &structname --> [sp]
+      line + "&" + gVarMeta(obj\i)\name + " --> [sp]"
+   ElseIf obj\code = #ljPTRSTRUCTFETCH_INT Or obj\code = #ljPTRSTRUCTFETCH_FLOAT Or obj\code = #ljPTRSTRUCTFETCH_STR
+      ; Ptr struct fetch (global ptr): *ptrname+offset --> [sp]
+      line + "*" + gVarMeta(obj\i)\name + "+" + Str(obj\n) + " --> [sp]"
+   ElseIf obj\code = #ljPTRSTRUCTSTORE_INT Or obj\code = #ljPTRSTRUCTSTORE_FLOAT Or obj\code = #ljPTRSTRUCTSTORE_STR
+      ; Ptr struct store (global ptr, stack value): *ptrname+offset <-- [sp]
+      line + "*" + gVarMeta(obj\i)\name + "+" + Str(obj\n) + " <-- [sp]"
+   ElseIf obj\code = #ljPTRSTRUCTSTORE_INT_LOPT Or obj\code = #ljPTRSTRUCTSTORE_FLOAT_LOPT Or obj\code = #ljPTRSTRUCTSTORE_STR_LOPT
+      ; Ptr struct store (global ptr, local value): *ptrname+offset <-- _localval
+      _GetLocalName(obj\ndx)
+      line + "*" + gVarMeta(obj\i)\name + "+" + Str(obj\n) + " <-- " + gAsmLocalName
+   ; V1.022.119: LPTR variants - V1.039.32: show *_localptr+offset
    ElseIf obj\code = #ljPTRSTRUCTFETCH_INT_LPTR Or obj\code = #ljPTRSTRUCTFETCH_FLOAT_LPTR Or obj\code = #ljPTRSTRUCTFETCH_STR_LPTR
-      If gAsmDebugMode
-         _GetLocalName(obj\i)
-         line + "[ptr=" + gAsmLocalName + " fldOfs=" + Str(obj\n) + "] --> [sp]"
-         flag + 1
-      EndIf
+      ; Ptr struct fetch (local ptr): *_ptrname+offset --> [sp]
+      _GetLocalName(obj\i)
+      line + "*" + gAsmLocalName + "+" + Str(obj\n) + " --> [sp]"
    ElseIf obj\code = #ljPTRSTRUCTSTORE_INT_LPTR Or obj\code = #ljPTRSTRUCTSTORE_FLOAT_LPTR Or obj\code = #ljPTRSTRUCTSTORE_STR_LPTR
-      If gAsmDebugMode
-         _GetLocalName(obj\i)
-         line + "[ptr=" + gAsmLocalName + " fldOfs=" + Str(obj\n) + " val=slot" + Str(obj\ndx) + "]"
-         flag + 1
-      EndIf
+      ; Ptr struct store (local ptr, global value): *_ptrname+offset <-- valuename
+      _GetLocalName(obj\i)
+      line + "*" + gAsmLocalName + "+" + Str(obj\n) + " <-- " + gVarMeta(obj\ndx)\name
    ElseIf obj\code = #ljPTRSTRUCTSTORE_INT_LPTR_LOPT Or obj\code = #ljPTRSTRUCTSTORE_FLOAT_LPTR_LOPT Or obj\code = #ljPTRSTRUCTSTORE_STR_LPTR_LOPT
-      If gAsmDebugMode
-         _GetLocalName(obj\i)
-         _asmSrcLocal = gAsmLocalName
-         _GetLocalName(obj\ndx)
-         line + "[ptr=" + _asmSrcLocal + " fldOfs=" + Str(obj\n) + " val=" + gAsmLocalName + "]"
-         flag + 1
-      EndIf
+      ; Ptr struct store (local ptr, local value): *_ptrname+offset <-- _localval
+      _GetLocalName(obj\i) : _asmSrcLocal = gAsmLocalName
+      _GetLocalName(obj\ndx)
+      line + "*" + _asmSrcLocal + "+" + Str(obj\n) + " <-- " + gAsmLocalName
    ElseIf obj\code = #ljMOV
       ; V1.034.37: Unified MOV with n field for locality
       ; n & 1 = source is local, n >> 1 = destination is local
@@ -1463,8 +1553,19 @@ Macro          ASMLine(obj,show)
             If gAsmDebugMode : line + " (n=" + Str(obj\n) + " LG)" : EndIf
          Else
             ; GG: global to global
-            _ASMLineHelper1( show, obj\j )
-            line + "[" + gVarMeta( obj\j )\name + temp + "] --> [" + gVarMeta( obj\i )\name + "]"
+            ; V1.039.33: Only show value in parens for named variables, not constants
+            If gVarMeta( obj\j )\flags & #C2FLAG_IDENT
+               line + gVarMeta( obj\j )\name + " --> [" + gVarMeta( obj\i )\name + "]"
+            ElseIf gVarMeta( obj\j )\flags & #C2FLAG_INT
+               line + Str(gVarMeta( obj\j )\valueInt) + " --> [" + gVarMeta( obj\i )\name + "]"
+            ElseIf gVarMeta( obj\j )\flags & #C2FLAG_FLOAT
+               line + StrD(gVarMeta( obj\j )\valueFloat, 3) + " --> [" + gVarMeta( obj\i )\name + "]"
+            ElseIf gVarMeta( obj\j )\flags & #C2FLAG_STR
+               _EscapeString(gVarMeta( obj\j )\valueString)
+               line + Chr(34) + _asmEscapedStr + Chr(34) + " --> [" + gVarMeta( obj\i )\name + "]"
+            Else
+               line + gVarMeta( obj\j )\name + " --> [" + gVarMeta( obj\i )\name + "]"
+            EndIf
             If gAsmDebugMode : line + " (n=" + Str(obj\n) + " GG)" : EndIf
          EndIf
       EndIf
@@ -1702,6 +1803,62 @@ Macro          ASMLine(obj,show)
       Else
          line + "func" + Str(obj\i) + "()"
       EndIf
+   ; V1.039.33: List operations - show list name where available
+   ElseIf obj\code = #ljLIST_NEW
+      ; LIST_NEW: \i = slot/offset, \j = type, \n = isLocal
+      If obj\n = 1
+         _GetLocalName(obj\i) : line + gAsmLocalName
+      Else
+         line + gVarMeta(obj\i)\name
+      EndIf
+      If gAsmDebugMode : line + " (type=" + Str(obj\j) + ")" : EndIf
+   ElseIf obj\code >= #ljLIST_ADD And obj\code <= #ljLIST_SORT
+      ; Generic list ops - just show operation hint
+      line + "[sp] = list"
+   ElseIf obj\code >= #ljLIST_ADD_INT And obj\code <= #ljLIST_SET_STR
+      ; Typed list add/insert/get/set operations
+      If obj\code = #ljLIST_ADD_INT Or obj\code = #ljLIST_ADD_FLOAT Or obj\code = #ljLIST_ADD_STR
+         line + "list[sp] <-- [sp]"
+      ElseIf obj\code = #ljLIST_INSERT_INT Or obj\code = #ljLIST_INSERT_FLOAT Or obj\code = #ljLIST_INSERT_STR
+         line + "list[sp] <-- [sp] (insert)"
+      ElseIf obj\code = #ljLIST_GET_INT Or obj\code = #ljLIST_GET_FLOAT Or obj\code = #ljLIST_GET_STR
+         line + "list[sp] --> [sp]"
+      ElseIf obj\code = #ljLIST_SET_INT Or obj\code = #ljLIST_SET_FLOAT Or obj\code = #ljLIST_SET_STR
+         line + "list[sp] <-- [sp] (set)"
+      EndIf
+   ElseIf obj\code = #ljLIST_ADD_STRUCT Or obj\code = #ljLIST_GET_STRUCT Or obj\code = #ljLIST_SET_STRUCT
+      line + "list[sp] <-> struct"
+   ElseIf obj\code = #ljLIST_ADD_STRUCT_PTR Or obj\code = #ljLIST_GET_STRUCT_PTR
+      line + "list[sp] <-> *struct"
+   ; V1.039.33: Map operations - show map name where available
+   ElseIf obj\code = #ljMAP_NEW
+      ; MAP_NEW: \i = slot/offset, \j = type, \n = isLocal
+      If obj\n = 1
+         _GetLocalName(obj\i) : line + gAsmLocalName
+      Else
+         line + gVarMeta(obj\i)\name
+      EndIf
+      If gAsmDebugMode : line + " (type=" + Str(obj\j) + ")" : EndIf
+   ElseIf obj\code >= #ljMAP_PUT And obj\code <= #ljMAP_VALUE
+      ; Generic map ops
+      line + "[sp] = map"
+   ElseIf obj\code = #ljMAP_PUT_INT Or obj\code = #ljMAP_PUT_FLOAT Or obj\code = #ljMAP_PUT_STR
+      line + "map[sp][key] <-- [sp]"
+   ElseIf obj\code = #ljMAP_GET_INT Or obj\code = #ljMAP_GET_FLOAT Or obj\code = #ljMAP_GET_STR
+      line + "map[sp][key] --> [sp]"
+   ElseIf obj\code = #ljMAP_VALUE_INT Or obj\code = #ljMAP_VALUE_FLOAT Or obj\code = #ljMAP_VALUE_STR
+      line + "map[sp].value --> [sp]"
+   ElseIf obj\code = #ljMAP_PUT_STRUCT Or obj\code = #ljMAP_GET_STRUCT Or obj\code = #ljMAP_VALUE_STRUCT
+      line + "map[sp] <-> struct"
+   ElseIf obj\code = #ljMAP_PUT_STRUCT_PTR Or obj\code = #ljMAP_GET_STRUCT_PTR
+      line + "map[sp] <-> *struct"
+   ; V1.039.33: Assert operations - show expected/actual
+   ElseIf obj\code = #ljBUILTIN_ASSERT_EQUAL
+      line + "assert [sp-1] == [sp]"
+   ElseIf obj\code = #ljBUILTIN_ASSERT_FLOAT
+      line + "assert [sp-2] ==. [sp-1] (tol=[sp])"
+   ElseIf obj\code = #ljBUILTIN_ASSERT_STRING
+      line + "assert [sp-1] == [sp] (str)"
    EndIf
    ; V1.039.20: Only show FLAGS in debug mode
    CompilerIf Not show
@@ -1959,9 +2116,9 @@ Macro _INIT_OPCODE_NAMES
    gszATR(#ljBUILTIN_ABS)\s = "BI_ABS"
    gszATR(#ljBUILTIN_MIN)\s = "BI_MIN"
    gszATR(#ljBUILTIN_MAX)\s = "BI_MAX"
-   gszATR(#ljBUILTIN_ASSERT_EQUAL)\s = "BI_ASEQ"
-   gszATR(#ljBUILTIN_ASSERT_FLOAT)\s = "BI_ASFLT"
-   gszATR(#ljBUILTIN_ASSERT_STRING)\s = "BI_ASSTR"
+   gszATR(#ljBUILTIN_ASSERT_EQUAL)\s = "BI_ASSERT_EQ"
+   gszATR(#ljBUILTIN_ASSERT_FLOAT)\s = "BI_ASSERT_FLT"
+   gszATR(#ljBUILTIN_ASSERT_STRING)\s = "BI_ASSERT_STR"
    gszATR(#ljBUILTIN_SQRT)\s = "BI_SQRT"
    gszATR(#ljBUILTIN_POW)\s = "BI_POW"
    gszATR(#ljBUILTIN_LEN)\s = "BI_LEN"
@@ -2050,74 +2207,77 @@ Macro _INIT_OPCODE_NAMES
    gszATR(#ljARRAYSTORE_INT)\s = "ARRAYSTORE_INT"
    gszATR(#ljARRAYSTORE_FLOAT)\s = "ARRAYSTORE_FLOAT"
    gszATR(#ljARRAYSTORE_STR)\s = "ARRAYSTORE_STR"
-   ; V1.037.3: Normalized ASM names - AF=ArrayFetch, AS=ArrayStore, I/F/S=Int/Float/Str
-   ; G/L=Global/Local, O=Opt(gslot), LO=LOpt(lslot), ST=Stack
-   gszATR(#ljARRAYFETCH_INT_GLOBAL_OPT)\s = "AF_I_G_O"
-   gszATR(#ljARRAYFETCH_INT_GLOBAL_STACK)\s = "AF_I_G_ST"
-   gszATR(#ljARRAYFETCH_INT_LOCAL_OPT)\s = "AF_I_L_O"
-   gszATR(#ljARRAYFETCH_INT_LOCAL_STACK)\s = "AF_I_L_ST"
-   gszATR(#ljARRAYFETCH_FLOAT_GLOBAL_OPT)\s = "AF_F_G_O"
-   gszATR(#ljARRAYFETCH_FLOAT_GLOBAL_STACK)\s = "AF_F_G_ST"
-   gszATR(#ljARRAYFETCH_FLOAT_LOCAL_OPT)\s = "AF_F_L_O"
-   gszATR(#ljARRAYFETCH_FLOAT_LOCAL_STACK)\s = "AF_F_L_ST"
-   gszATR(#ljARRAYFETCH_STR_GLOBAL_OPT)\s = "AF_S_G_O"
-   gszATR(#ljARRAYFETCH_STR_GLOBAL_STACK)\s = "AF_S_G_ST"
-   gszATR(#ljARRAYFETCH_STR_LOCAL_OPT)\s = "AF_S_L_O"
-   gszATR(#ljARRAYFETCH_STR_LOCAL_STACK)\s = "AF_S_L_ST"
-   gszATR(#ljARRAYSTORE_INT_GLOBAL_OPT_OPT)\s = "AS_I_G_O_O"
-   gszATR(#ljARRAYSTORE_INT_GLOBAL_OPT_STACK)\s = "AS_I_G_O_ST"
-   gszATR(#ljARRAYSTORE_INT_GLOBAL_STACK_OPT)\s = "AS_I_G_ST_O"
-   gszATR(#ljARRAYSTORE_INT_GLOBAL_STACK_STACK)\s = "AS_I_G_ST_ST"
-   gszATR(#ljARRAYSTORE_INT_LOCAL_OPT_OPT)\s = "AS_I_L_O_O"
-   gszATR(#ljARRAYSTORE_INT_LOCAL_OPT_STACK)\s = "AS_I_L_O_ST"
-   gszATR(#ljARRAYSTORE_INT_LOCAL_STACK_OPT)\s = "AS_I_L_ST_O"
-   gszATR(#ljARRAYSTORE_INT_LOCAL_STACK_STACK)\s = "AS_I_L_ST_ST"
-   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_OPT_OPT)\s = "AS_F_G_O_O"
-   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_OPT_STACK)\s = "AS_F_G_O_ST"
-   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_STACK_OPT)\s = "AS_F_G_ST_O"
-   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_STACK_STACK)\s = "AS_F_G_ST_ST"
-   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_OPT_OPT)\s = "AS_F_L_O_O"
-   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_OPT_STACK)\s = "AS_F_L_O_ST"
-   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_STACK_OPT)\s = "AS_F_L_ST_O"
-   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_STACK_STACK)\s = "AS_F_L_ST_ST"
-   gszATR(#ljARRAYSTORE_STR_GLOBAL_OPT_OPT)\s = "AS_S_G_O_O"
-   gszATR(#ljARRAYSTORE_STR_GLOBAL_OPT_STACK)\s = "AS_S_G_O_ST"
-   gszATR(#ljARRAYSTORE_STR_GLOBAL_STACK_OPT)\s = "AS_S_G_ST_O"
-   gszATR(#ljARRAYSTORE_STR_GLOBAL_STACK_STACK)\s = "AS_S_G_ST_ST"
-   gszATR(#ljARRAYSTORE_STR_LOCAL_OPT_OPT)\s = "AS_S_L_O_O"
-   gszATR(#ljARRAYSTORE_STR_LOCAL_OPT_STACK)\s = "AS_S_L_O_ST"
-   gszATR(#ljARRAYSTORE_STR_LOCAL_STACK_OPT)\s = "AS_S_L_ST_O"
-   gszATR(#ljARRAYSTORE_STR_LOCAL_STACK_STACK)\s = "AS_S_L_ST_ST"
-   gszATR(#ljARRAYSTORE_INT_GLOBAL_OPT_LOPT)\s = "AS_I_G_O_LO"
-   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_OPT_LOPT)\s = "AS_F_G_O_LO"
-   gszATR(#ljARRAYSTORE_STR_GLOBAL_OPT_LOPT)\s = "AS_S_G_O_LO"
-   gszATR(#ljARRAYSTORE_INT_LOCAL_OPT_LOPT)\s = "AS_I_L_O_LO"
-   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_OPT_LOPT)\s = "AS_F_L_O_LO"
-   gszATR(#ljARRAYSTORE_STR_LOCAL_OPT_LOPT)\s = "AS_S_L_O_LO"
-   gszATR(#ljARRAYFETCH_INT_GLOBAL_LOPT)\s = "AF_I_G_LO"
-   gszATR(#ljARRAYFETCH_FLOAT_GLOBAL_LOPT)\s = "AF_F_G_LO"
-   gszATR(#ljARRAYFETCH_STR_GLOBAL_LOPT)\s = "AF_S_G_LO"
-   gszATR(#ljARRAYSTORE_INT_GLOBAL_LOPT_LOPT)\s = "AS_I_G_LO_LO"
-   gszATR(#ljARRAYSTORE_INT_GLOBAL_LOPT_OPT)\s = "AS_I_G_LO_O"
-   gszATR(#ljARRAYSTORE_INT_GLOBAL_LOPT_STACK)\s = "AS_I_G_LO_ST"
-   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_LOPT_LOPT)\s = "AS_F_G_LO_LO"
-   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_LOPT_OPT)\s = "AS_F_G_LO_O"
-   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_LOPT_STACK)\s = "AS_F_G_LO_ST"
-   gszATR(#ljARRAYSTORE_STR_GLOBAL_LOPT_LOPT)\s = "AS_S_G_LO_LO"
-   gszATR(#ljARRAYSTORE_STR_GLOBAL_LOPT_OPT)\s = "AS_S_G_LO_O"
-   gszATR(#ljARRAYSTORE_STR_GLOBAL_LOPT_STACK)\s = "AS_S_G_LO_ST"
-   gszATR(#ljARRAYFETCH_INT_LOCAL_LOPT)\s = "AF_I_L_LO"
-   gszATR(#ljARRAYFETCH_FLOAT_LOCAL_LOPT)\s = "AF_F_L_LO"
-   gszATR(#ljARRAYFETCH_STR_LOCAL_LOPT)\s = "AF_S_L_LO"
-   gszATR(#ljARRAYSTORE_INT_LOCAL_LOPT_LOPT)\s = "AS_I_L_LO_LO"
-   gszATR(#ljARRAYSTORE_INT_LOCAL_LOPT_OPT)\s = "AS_I_L_LO_O"
-   gszATR(#ljARRAYSTORE_INT_LOCAL_LOPT_STACK)\s = "AS_I_L_LO_ST"
-   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_LOPT_LOPT)\s = "AS_F_L_LO_LO"
-   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_LOPT_OPT)\s = "AS_F_L_LO_O"
-   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_LOPT_STACK)\s = "AS_F_L_LO_ST"
-   gszATR(#ljARRAYSTORE_STR_LOCAL_LOPT_LOPT)\s = "AS_S_L_LO_LO"
-   gszATR(#ljARRAYSTORE_STR_LOCAL_LOPT_OPT)\s = "AS_S_L_LO_O"
-   gszATR(#ljARRAYSTORE_STR_LOCAL_LOPT_STACK)\s = "AS_S_L_LO_ST"
+   ; V1.039.32: Clearer ASM names - ARGET=ArrayGet, ARPUT=ArrayPut
+   ; I/F/S=Int/Float/Str, G/L=Global/Local array
+   ; Sources: V=global Var slot, L=Local var slot, S=Stack
+   ; ARGET_IGV = Array Get Int Global, index from Var
+   ; ARPUT_IGVS = Array Put Int Global, index from Var, value from Stack
+   gszATR(#ljARRAYFETCH_INT_GLOBAL_OPT)\s = "ARGET_IGV"
+   gszATR(#ljARRAYFETCH_INT_GLOBAL_STACK)\s = "ARGET_IGS"
+   gszATR(#ljARRAYFETCH_INT_LOCAL_OPT)\s = "ARGET_ILV"
+   gszATR(#ljARRAYFETCH_INT_LOCAL_STACK)\s = "ARGET_ILS"
+   gszATR(#ljARRAYFETCH_FLOAT_GLOBAL_OPT)\s = "ARGET_FGV"
+   gszATR(#ljARRAYFETCH_FLOAT_GLOBAL_STACK)\s = "ARGET_FGS"
+   gszATR(#ljARRAYFETCH_FLOAT_LOCAL_OPT)\s = "ARGET_FLV"
+   gszATR(#ljARRAYFETCH_FLOAT_LOCAL_STACK)\s = "ARGET_FLS"
+   gszATR(#ljARRAYFETCH_STR_GLOBAL_OPT)\s = "ARGET_SGV"
+   gszATR(#ljARRAYFETCH_STR_GLOBAL_STACK)\s = "ARGET_SGS"
+   gszATR(#ljARRAYFETCH_STR_LOCAL_OPT)\s = "ARGET_SLV"
+   gszATR(#ljARRAYFETCH_STR_LOCAL_STACK)\s = "ARGET_SLS"
+   gszATR(#ljARRAYSTORE_INT_GLOBAL_OPT_OPT)\s = "ARPUT_IGVV"
+   gszATR(#ljARRAYSTORE_INT_GLOBAL_OPT_STACK)\s = "ARPUT_IGVS"
+   gszATR(#ljARRAYSTORE_INT_GLOBAL_STACK_OPT)\s = "ARPUT_IGSV"
+   gszATR(#ljARRAYSTORE_INT_GLOBAL_STACK_STACK)\s = "ARPUT_IGSS"
+   gszATR(#ljARRAYSTORE_INT_LOCAL_OPT_OPT)\s = "ARPUT_ILVV"
+   gszATR(#ljARRAYSTORE_INT_LOCAL_OPT_STACK)\s = "ARPUT_ILVS"
+   gszATR(#ljARRAYSTORE_INT_LOCAL_STACK_OPT)\s = "ARPUT_ILSV"
+   gszATR(#ljARRAYSTORE_INT_LOCAL_STACK_STACK)\s = "ARPUT_ILSS"
+   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_OPT_OPT)\s = "ARPUT_FGVV"
+   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_OPT_STACK)\s = "ARPUT_FGVS"
+   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_STACK_OPT)\s = "ARPUT_FGSV"
+   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_STACK_STACK)\s = "ARPUT_FGSS"
+   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_OPT_OPT)\s = "ARPUT_FLVV"
+   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_OPT_STACK)\s = "ARPUT_FLVS"
+   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_STACK_OPT)\s = "ARPUT_FLSV"
+   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_STACK_STACK)\s = "ARPUT_FLSS"
+   gszATR(#ljARRAYSTORE_STR_GLOBAL_OPT_OPT)\s = "ARPUT_SGVV"
+   gszATR(#ljARRAYSTORE_STR_GLOBAL_OPT_STACK)\s = "ARPUT_SGVS"
+   gszATR(#ljARRAYSTORE_STR_GLOBAL_STACK_OPT)\s = "ARPUT_SGSV"
+   gszATR(#ljARRAYSTORE_STR_GLOBAL_STACK_STACK)\s = "ARPUT_SGSS"
+   gszATR(#ljARRAYSTORE_STR_LOCAL_OPT_OPT)\s = "ARPUT_SLVV"
+   gszATR(#ljARRAYSTORE_STR_LOCAL_OPT_STACK)\s = "ARPUT_SLVS"
+   gszATR(#ljARRAYSTORE_STR_LOCAL_STACK_OPT)\s = "ARPUT_SLSV"
+   gszATR(#ljARRAYSTORE_STR_LOCAL_STACK_STACK)\s = "ARPUT_SLSS"
+   gszATR(#ljARRAYSTORE_INT_GLOBAL_OPT_LOPT)\s = "ARPUT_IGVL"
+   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_OPT_LOPT)\s = "ARPUT_FGVL"
+   gszATR(#ljARRAYSTORE_STR_GLOBAL_OPT_LOPT)\s = "ARPUT_SGVL"
+   gszATR(#ljARRAYSTORE_INT_LOCAL_OPT_LOPT)\s = "ARPUT_ILVL"
+   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_OPT_LOPT)\s = "ARPUT_FLVL"
+   gszATR(#ljARRAYSTORE_STR_LOCAL_OPT_LOPT)\s = "ARPUT_SLVL"
+   gszATR(#ljARRAYFETCH_INT_GLOBAL_LOPT)\s = "ARGET_IGL"
+   gszATR(#ljARRAYFETCH_FLOAT_GLOBAL_LOPT)\s = "ARGET_FGL"
+   gszATR(#ljARRAYFETCH_STR_GLOBAL_LOPT)\s = "ARGET_SGL"
+   gszATR(#ljARRAYSTORE_INT_GLOBAL_LOPT_LOPT)\s = "ARPUT_IGLL"
+   gszATR(#ljARRAYSTORE_INT_GLOBAL_LOPT_OPT)\s = "ARPUT_IGLV"
+   gszATR(#ljARRAYSTORE_INT_GLOBAL_LOPT_STACK)\s = "ARPUT_IGLS"
+   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_LOPT_LOPT)\s = "ARPUT_FGLL"
+   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_LOPT_OPT)\s = "ARPUT_FGLV"
+   gszATR(#ljARRAYSTORE_FLOAT_GLOBAL_LOPT_STACK)\s = "ARPUT_FGLS"
+   gszATR(#ljARRAYSTORE_STR_GLOBAL_LOPT_LOPT)\s = "ARPUT_SGLL"
+   gszATR(#ljARRAYSTORE_STR_GLOBAL_LOPT_OPT)\s = "ARPUT_SGLV"
+   gszATR(#ljARRAYSTORE_STR_GLOBAL_LOPT_STACK)\s = "ARPUT_SGLS"
+   gszATR(#ljARRAYFETCH_INT_LOCAL_LOPT)\s = "ARGET_ILL"
+   gszATR(#ljARRAYFETCH_FLOAT_LOCAL_LOPT)\s = "ARGET_FLL"
+   gszATR(#ljARRAYFETCH_STR_LOCAL_LOPT)\s = "ARGET_SLL"
+   gszATR(#ljARRAYSTORE_INT_LOCAL_LOPT_LOPT)\s = "ARPUT_ILLL"
+   gszATR(#ljARRAYSTORE_INT_LOCAL_LOPT_OPT)\s = "ARPUT_ILLV"
+   gszATR(#ljARRAYSTORE_INT_LOCAL_LOPT_STACK)\s = "ARPUT_ILLS"
+   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_LOPT_LOPT)\s = "ARPUT_FLLL"
+   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_LOPT_OPT)\s = "ARPUT_FLLV"
+   gszATR(#ljARRAYSTORE_FLOAT_LOCAL_LOPT_STACK)\s = "ARPUT_FLLS"
+   gszATR(#ljARRAYSTORE_STR_LOCAL_LOPT_LOPT)\s = "ARPUT_SLLL"
+   gszATR(#ljARRAYSTORE_STR_LOCAL_LOPT_OPT)\s = "ARPUT_SLLV"
+   gszATR(#ljARRAYSTORE_STR_LOCAL_LOPT_STACK)\s = "ARPUT_SLLS"
    gszATR(#ljGETADDR)\s = "GETADDR"
    gszATR(#ljGETADDRF)\s = "GETADDRF"
    gszATR(#ljGETADDRS)\s = "GETADDRS"
@@ -2162,62 +2322,63 @@ Macro _INIT_OPCODE_NAMES
    gszATR(#ljStruct)\s = "STRUCT"
    gszATR(#ljStructField)\s = "STRUCTFIELD"
    gszATR(#ljStructInit)\s = "STRUCTINIT"
-   ; SA=StructArray, AOS=ArrayOfStruct, PSF=PtrStructFetch, PSS=PtrStructStore
-   gszATR(#ljSTRUCTARRAY_FETCH_INT)\s = "SA_F_I"
-   gszATR(#ljSTRUCTARRAY_FETCH_FLOAT)\s = "SA_F_F"
-   gszATR(#ljSTRUCTARRAY_FETCH_STR)\s = "SA_F_S"
-   gszATR(#ljSTRUCTARRAY_STORE_INT)\s = "SA_S_I"
-   gszATR(#ljSTRUCTARRAY_STORE_FLOAT)\s = "SA_S_F"
-   gszATR(#ljSTRUCTARRAY_STORE_STR)\s = "SA_S_S"
-   gszATR(#ljARRAYOFSTRUCT_FETCH_INT)\s = "AOS_F_I"
-   gszATR(#ljARRAYOFSTRUCT_FETCH_FLOAT)\s = "AOS_F_F"
-   gszATR(#ljARRAYOFSTRUCT_FETCH_STR)\s = "AOS_F_S"
-   gszATR(#ljARRAYOFSTRUCT_STORE_INT)\s = "AOS_S_I"
-   gszATR(#ljARRAYOFSTRUCT_STORE_FLOAT)\s = "AOS_S_F"
-   gszATR(#ljARRAYOFSTRUCT_STORE_STR)\s = "AOS_S_S"
-   gszATR(#ljARRAYOFSTRUCT_FETCH_INT_LOPT)\s = "AOS_F_I_LO"
-   gszATR(#ljARRAYOFSTRUCT_FETCH_FLOAT_LOPT)\s = "AOS_F_F_LO"
-   gszATR(#ljARRAYOFSTRUCT_FETCH_STR_LOPT)\s = "AOS_F_S_LO"
-   gszATR(#ljARRAYOFSTRUCT_STORE_INT_LOPT)\s = "AOS_S_I_LO"
-   gszATR(#ljARRAYOFSTRUCT_STORE_FLOAT_LOPT)\s = "AOS_S_F_LO"
-   gszATR(#ljARRAYOFSTRUCT_STORE_STR_LOPT)\s = "AOS_S_S_LO"
+   ; V1.039.32: STAR=StructArray, ARST=ArrayOfStruct
+   gszATR(#ljSTRUCTARRAY_FETCH_INT)\s = "STARGET_I"
+   gszATR(#ljSTRUCTARRAY_FETCH_FLOAT)\s = "STARGET_F"
+   gszATR(#ljSTRUCTARRAY_FETCH_STR)\s = "STARGET_S"
+   gszATR(#ljSTRUCTARRAY_STORE_INT)\s = "STARPUT_I"
+   gszATR(#ljSTRUCTARRAY_STORE_FLOAT)\s = "STARPUT_F"
+   gszATR(#ljSTRUCTARRAY_STORE_STR)\s = "STARPUT_S"
+   gszATR(#ljARRAYOFSTRUCT_FETCH_INT)\s = "ARSTGET_I"
+   gszATR(#ljARRAYOFSTRUCT_FETCH_FLOAT)\s = "ARSTGET_F"
+   gszATR(#ljARRAYOFSTRUCT_FETCH_STR)\s = "ARSTGET_S"
+   gszATR(#ljARRAYOFSTRUCT_STORE_INT)\s = "ARSTPUT_I"
+   gszATR(#ljARRAYOFSTRUCT_STORE_FLOAT)\s = "ARSTPUT_F"
+   gszATR(#ljARRAYOFSTRUCT_STORE_STR)\s = "ARSTPUT_S"
+   gszATR(#ljARRAYOFSTRUCT_FETCH_INT_LOPT)\s = "ARSTGET_ILO"
+   gszATR(#ljARRAYOFSTRUCT_FETCH_FLOAT_LOPT)\s = "ARSTGET_FLO"
+   gszATR(#ljARRAYOFSTRUCT_FETCH_STR_LOPT)\s = "ARSTGET_SLO"
+   gszATR(#ljARRAYOFSTRUCT_STORE_INT_LOPT)\s = "ARSTPUT_ILO"
+   gszATR(#ljARRAYOFSTRUCT_STORE_FLOAT_LOPT)\s = "ARSTPUT_FLO"
+   gszATR(#ljARRAYOFSTRUCT_STORE_STR_LOPT)\s = "ARSTPUT_SLO"
    gszATR(#ljGETSTRUCTADDR)\s = "GETSTRUCTADDR"
-   gszATR(#ljPTRSTRUCTFETCH_INT)\s = "PSF_I"
-   gszATR(#ljPTRSTRUCTFETCH_FLOAT)\s = "PSF_F"
-   gszATR(#ljPTRSTRUCTFETCH_STR)\s = "PSF_S"
-   gszATR(#ljPTRSTRUCTSTORE_INT)\s = "PSS_I"
-   gszATR(#ljPTRSTRUCTSTORE_FLOAT)\s = "PSS_F"
-   gszATR(#ljPTRSTRUCTSTORE_STR)\s = "PSS_S"
-   gszATR(#ljPTRSTRUCTSTORE_INT_LOPT)\s = "PSS_I_LO"
-   gszATR(#ljPTRSTRUCTSTORE_FLOAT_LOPT)\s = "PSS_F_LO"
-   gszATR(#ljPTRSTRUCTSTORE_STR_LOPT)\s = "PSS_S_LO"
-   gszATR(#ljPTRSTRUCTFETCH_INT_LPTR)\s = "PSF_I_LP"
-   gszATR(#ljPTRSTRUCTFETCH_FLOAT_LPTR)\s = "PSF_F_LP"
-   gszATR(#ljPTRSTRUCTFETCH_STR_LPTR)\s = "PSF_S_LP"
-   gszATR(#ljPTRSTRUCTSTORE_INT_LPTR)\s = "PSS_I_LP"
-   gszATR(#ljPTRSTRUCTSTORE_FLOAT_LPTR)\s = "PSS_F_LP"
-   gszATR(#ljPTRSTRUCTSTORE_STR_LPTR)\s = "PSS_S_LP"
-   gszATR(#ljPTRSTRUCTSTORE_INT_LPTR_LOPT)\s = "PSS_I_LP_LO"
-   gszATR(#ljPTRSTRUCTSTORE_FLOAT_LPTR_LOPT)\s = "PSS_F_LP_LO"
-   gszATR(#ljPTRSTRUCTSTORE_STR_LPTR_LOPT)\s = "PSS_S_LP_LO"
+   ; V1.039.32: PSTGET=PtrStructGet, PSTPUT=PtrStructPut, LP=LocalPtr, LO=LocalOpt
+   gszATR(#ljPTRSTRUCTFETCH_INT)\s = "PSTGET_I"
+   gszATR(#ljPTRSTRUCTFETCH_FLOAT)\s = "PSTGET_F"
+   gszATR(#ljPTRSTRUCTFETCH_STR)\s = "PSTGET_S"
+   gszATR(#ljPTRSTRUCTSTORE_INT)\s = "PSTPUT_I"
+   gszATR(#ljPTRSTRUCTSTORE_FLOAT)\s = "PSTPUT_F"
+   gszATR(#ljPTRSTRUCTSTORE_STR)\s = "PSTPUT_S"
+   gszATR(#ljPTRSTRUCTSTORE_INT_LOPT)\s = "PSTPUT_ILO"
+   gszATR(#ljPTRSTRUCTSTORE_FLOAT_LOPT)\s = "PSTPUT_FLO"
+   gszATR(#ljPTRSTRUCTSTORE_STR_LOPT)\s = "PSTPUT_SLO"
+   gszATR(#ljPTRSTRUCTFETCH_INT_LPTR)\s = "PSTGET_ILP"
+   gszATR(#ljPTRSTRUCTFETCH_FLOAT_LPTR)\s = "PSTGET_FLP"
+   gszATR(#ljPTRSTRUCTFETCH_STR_LPTR)\s = "PSTGET_SLP"
+   gszATR(#ljPTRSTRUCTSTORE_INT_LPTR)\s = "PSTPUT_ILP"
+   gszATR(#ljPTRSTRUCTSTORE_FLOAT_LPTR)\s = "PSTPUT_FLP"
+   gszATR(#ljPTRSTRUCTSTORE_STR_LPTR)\s = "PSTPUT_SLP"
+   gszATR(#ljPTRSTRUCTSTORE_INT_LPTR_LOPT)\s = "PSTPUT_ILPLO"
+   gszATR(#ljPTRSTRUCTSTORE_FLOAT_LPTR_LOPT)\s = "PSTPUT_FLPLO"
+   gszATR(#ljPTRSTRUCTSTORE_STR_LPTR_LOPT)\s = "PSTPUT_SLPLO"
    gszATR(#ljARRAYRESIZE)\s = "ARRAYRESIZE"
    gszATR(#ljSTRUCTCOPY)\s = "STRUCTCOPY"
    gszATR(#ljSTRUCT_ALLOC)\s = "ST_ALLOC"
    gszATR(#ljSTRUCT_ALLOC_LOCAL)\s = "ST_ALLOC_L"
    gszATR(#ljSTRUCT_FREE)\s = "ST_FREE"
-   ; SF=StructFetch, SS=StructStore
-   gszATR(#ljSTRUCT_FETCH_INT)\s = "SF_I"
-   gszATR(#ljSTRUCT_FETCH_FLOAT)\s = "SF_F"
-   gszATR(#ljSTRUCT_FETCH_INT_LOCAL)\s = "SF_I_L"
-   gszATR(#ljSTRUCT_FETCH_FLOAT_LOCAL)\s = "SF_F_L"
-   gszATR(#ljSTRUCT_STORE_INT)\s = "SS_I"
-   gszATR(#ljSTRUCT_STORE_FLOAT)\s = "SS_F"
-   gszATR(#ljSTRUCT_STORE_INT_LOCAL)\s = "SS_I_L"
-   gszATR(#ljSTRUCT_STORE_FLOAT_LOCAL)\s = "SS_F_L"
-   gszATR(#ljSTRUCT_FETCH_STR)\s = "SF_S"
-   gszATR(#ljSTRUCT_FETCH_STR_LOCAL)\s = "SF_S_L"
-   gszATR(#ljSTRUCT_STORE_STR)\s = "SS_S"
-   gszATR(#ljSTRUCT_STORE_STR_LOCAL)\s = "SS_S_L"
+   ; V1.039.32: STGET=StructGet, STPUT=StructPut, _L=Local struct
+   gszATR(#ljSTRUCT_FETCH_INT)\s = "STGET_I"
+   gszATR(#ljSTRUCT_FETCH_FLOAT)\s = "STGET_F"
+   gszATR(#ljSTRUCT_FETCH_INT_LOCAL)\s = "STGET_IL"
+   gszATR(#ljSTRUCT_FETCH_FLOAT_LOCAL)\s = "STGET_FL"
+   gszATR(#ljSTRUCT_STORE_INT)\s = "STPUT_I"
+   gszATR(#ljSTRUCT_STORE_FLOAT)\s = "STPUT_F"
+   gszATR(#ljSTRUCT_STORE_INT_LOCAL)\s = "STPUT_IL"
+   gszATR(#ljSTRUCT_STORE_FLOAT_LOCAL)\s = "STPUT_FL"
+   gszATR(#ljSTRUCT_FETCH_STR)\s = "STGET_S"
+   gszATR(#ljSTRUCT_FETCH_STR_LOCAL)\s = "STGET_SL"
+   gszATR(#ljSTRUCT_STORE_STR)\s = "STPUT_S"
+   gszATR(#ljSTRUCT_STORE_STR_LOCAL)\s = "STPUT_SL"
    gszATR(#ljSTRUCT_COPY_PTR)\s = "STRUCT_COPY_PTR"
    gszATR(#ljFETCH_STRUCT)\s = "FETCH_STRUCT"
    gszATR(#ljLFETCH_STRUCT)\s = "LFETCH_STRUCT"
@@ -2238,22 +2399,22 @@ Macro _INIT_OPCODE_NAMES
    gszATR(#ljLIST_SET)\s = "LIST_SET"
    gszATR(#ljLIST_RESET)\s = "LIST_RESET"
    gszATR(#ljLIST_SORT)\s = "LIST_SORT"
-   ; L_ = List_, M_ = Map_
-   gszATR(#ljLIST_ADD_INT)\s = "L_ADD_I"
-   gszATR(#ljLIST_ADD_FLOAT)\s = "L_ADD_F"
-   gszATR(#ljLIST_ADD_STR)\s = "L_ADD_S"
-   gszATR(#ljLIST_INSERT_INT)\s = "L_INS_I"
-   gszATR(#ljLIST_INSERT_FLOAT)\s = "L_INS_F"
-   gszATR(#ljLIST_INSERT_STR)\s = "L_INS_S"
-   gszATR(#ljLIST_GET_INT)\s = "L_GET_I"
-   gszATR(#ljLIST_GET_FLOAT)\s = "L_GET_F"
-   gszATR(#ljLIST_GET_STR)\s = "L_GET_S"
-   gszATR(#ljLIST_SET_INT)\s = "L_SET_I"
-   gszATR(#ljLIST_SET_FLOAT)\s = "L_SET_F"
-   gszATR(#ljLIST_SET_STR)\s = "L_SET_S"
-   gszATR(#ljLIST_ADD_STRUCT)\s = "L_ADD_ST"
-   gszATR(#ljLIST_GET_STRUCT)\s = "L_GET_ST"
-   gszATR(#ljLIST_SET_STRUCT)\s = "L_SET_ST"
+   ; V1.039.32: LIST_ = List operations (full name)
+   gszATR(#ljLIST_ADD_INT)\s = "LIST_ADD_I"
+   gszATR(#ljLIST_ADD_FLOAT)\s = "LIST_ADD_F"
+   gszATR(#ljLIST_ADD_STR)\s = "LIST_ADD_S"
+   gszATR(#ljLIST_INSERT_INT)\s = "LIST_INS_I"
+   gszATR(#ljLIST_INSERT_FLOAT)\s = "LIST_INS_F"
+   gszATR(#ljLIST_INSERT_STR)\s = "LIST_INS_S"
+   gszATR(#ljLIST_GET_INT)\s = "LIST_GET_I"
+   gszATR(#ljLIST_GET_FLOAT)\s = "LIST_GET_F"
+   gszATR(#ljLIST_GET_STR)\s = "LIST_GET_S"
+   gszATR(#ljLIST_SET_INT)\s = "LIST_SET_I"
+   gszATR(#ljLIST_SET_FLOAT)\s = "LIST_SET_F"
+   gszATR(#ljLIST_SET_STR)\s = "LIST_SET_S"
+   gszATR(#ljLIST_ADD_STRUCT)\s = "LIST_ADD_ST"
+   gszATR(#ljLIST_GET_STRUCT)\s = "LIST_GET_ST"
+   gszATR(#ljLIST_SET_STRUCT)\s = "LIST_SET_ST"
    gszATR(#ljMap)\s = "MAP"
    gszATR(#ljMAP_NEW)\s = "MAP_NEW"
    gszATR(#ljMAP_PUT)\s = "MAP_PUT"
@@ -2266,22 +2427,23 @@ Macro _INIT_OPCODE_NAMES
    gszATR(#ljMAP_NEXT)\s = "MAP_NEXT"
    gszATR(#ljMAP_KEY)\s = "MAP_KEY"
    gszATR(#ljMAP_VALUE)\s = "MAP_VALUE"
-   gszATR(#ljMAP_PUT_INT)\s = "M_PUT_I"
-   gszATR(#ljMAP_PUT_FLOAT)\s = "M_PUT_F"
-   gszATR(#ljMAP_PUT_STR)\s = "M_PUT_S"
-   gszATR(#ljMAP_GET_INT)\s = "M_GET_I"
-   gszATR(#ljMAP_GET_FLOAT)\s = "M_GET_F"
-   gszATR(#ljMAP_GET_STR)\s = "M_GET_S"
-   gszATR(#ljMAP_VALUE_INT)\s = "M_VAL_I"
-   gszATR(#ljMAP_VALUE_FLOAT)\s = "M_VAL_F"
-   gszATR(#ljMAP_VALUE_STR)\s = "M_VAL_S"
-   gszATR(#ljMAP_PUT_STRUCT)\s = "M_PUT_ST"
-   gszATR(#ljMAP_GET_STRUCT)\s = "M_GET_ST"
-   gszATR(#ljMAP_VALUE_STRUCT)\s = "M_VAL_ST"
-   gszATR(#ljLIST_ADD_STRUCT_PTR)\s = "L_ADD_STP"
-   gszATR(#ljLIST_GET_STRUCT_PTR)\s = "L_GET_STP"
-   gszATR(#ljMAP_PUT_STRUCT_PTR)\s = "M_PUT_STP"
-   gszATR(#ljMAP_GET_STRUCT_PTR)\s = "M_GET_STP"
+   ; V1.039.32: MAP_ = Map operations (full name)
+   gszATR(#ljMAP_PUT_INT)\s = "MAP_PUT_I"
+   gszATR(#ljMAP_PUT_FLOAT)\s = "MAP_PUT_F"
+   gszATR(#ljMAP_PUT_STR)\s = "MAP_PUT_S"
+   gszATR(#ljMAP_GET_INT)\s = "MAP_GET_I"
+   gszATR(#ljMAP_GET_FLOAT)\s = "MAP_GET_F"
+   gszATR(#ljMAP_GET_STR)\s = "MAP_GET_S"
+   gszATR(#ljMAP_VALUE_INT)\s = "MAP_VAL_I"
+   gszATR(#ljMAP_VALUE_FLOAT)\s = "MAP_VAL_F"
+   gszATR(#ljMAP_VALUE_STR)\s = "MAP_VAL_S"
+   gszATR(#ljMAP_PUT_STRUCT)\s = "MAP_PUT_ST"
+   gszATR(#ljMAP_GET_STRUCT)\s = "MAP_GET_ST"
+   gszATR(#ljMAP_VALUE_STRUCT)\s = "MAP_VAL_ST"
+   gszATR(#ljLIST_ADD_STRUCT_PTR)\s = "LIST_ADD_STP"
+   gszATR(#ljLIST_GET_STRUCT_PTR)\s = "LIST_GET_STP"
+   gszATR(#ljMAP_PUT_STRUCT_PTR)\s = "MAP_PUT_STP"
+   gszATR(#ljMAP_GET_STRUCT_PTR)\s = "MAP_GET_STP"
    ; FE = Foreach
    gszATR(#ljFOREACH_LIST_INIT)\s = "FE_L_INIT"
    gszATR(#ljFOREACH_LIST_NEXT)\s = "FE_L_NEXT"
@@ -2375,8 +2537,8 @@ EndMacro
 ; Total opcodes: 505
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 62
-; FirstLine = 42
+; CursorPosition = 61
+; FirstLine = 55
 ; Folding = ---
 ; Optimizer
 ; EnableAsm
