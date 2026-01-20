@@ -2327,7 +2327,22 @@ CompilerIf #PB_Compiler_IsMainFile
                If C2VM::gTestMode : PrintN("LOAD ERROR: " + C2Lang::Error( @err )) : EndIf
             Else
                C2VM::gModuleName = filename
+               ; V1.039.40: Show splash window during compilation for visual feedback
+               Define splashWin.i = 0
+               If Not C2VM::gTestMode
+                  splashWin = OpenWindow(#PB_Any, #PB_Ignore, #PB_Ignore, 400, 80, "D-Plus Compiler", #PB_Window_ScreenCentered | #PB_Window_BorderLess)
+                  If splashWin
+                     TextGadget(#PB_Any, 10, 15, 380, 25, "Compiling: " + GetFilePart(filename), #PB_Text_Center)
+                     TextGadget(#PB_Any, 10, 45, 380, 25, "Please wait...", #PB_Text_Center)
+                     ; Force window to paint before starting compilation
+                     While WindowEvent() : Wend
+                  EndIf
+               EndIf
                Define compileResult.i = C2Lang::Compile()
+               ; Close splash window
+               If splashWin And IsWindow(splashWin)
+                  CloseWindow(splashWin)
+               EndIf
                If compileResult = 0
                   ; V1.033.43: Add autoclose pragma from command line if specified
                   ; V1.039.9: Now uses gCmdAutocloseSet flag so -x 0 can disable pragma autoclose
@@ -2421,7 +2436,7 @@ CompilerIf #PB_Compiler_IsMainFile
 
 CompilerEndIf
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 6
+; CursorPosition = 15
 ; Folding = 0----------
 ; Markers = 569,718
 ; Optimizer
@@ -2432,7 +2447,7 @@ CompilerEndIf
 ; LinkerOptions = linker.txt
 ; CompileSourceDirectory
 ; Warnings = Display
-; EnableCompileCount = 2600
-; EnableBuildCount = 19
+; EnableCompileCount = 2603
+; EnableBuildCount = 21
 ; EnableExeConstant
 ; IncludeVersionInfo
