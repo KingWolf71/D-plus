@@ -1687,22 +1687,10 @@ Module C2VM
 
       If gAutoclose
          ; V1.039.11: Visual countdown on same line
+         ; V1.039.42: Fixed duplicate autoclose message - first iteration adds line, rest update
          vm_ConsoleOrGUI( "" )
          gAbortAutoclose = 0
-
-         ; Add initial countdown line
-         line = "Auto-close in " + Str(gAutoclose) + "...  "
-         CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
-            Print( line )
-         CompilerElse
-            If gTestMode = #True
-               Print( line )
-            ElseIf gRunThreaded
-               vmQueueGUIMessage(#MSG_ADD_LINE, #edConsole, 0, line)
-            Else
-               AddGadgetItem( #edConsole, -1, line )
-            EndIf
-         CompilerEndIf
+         Define firstAutoclose.i = #True
 
          ; Countdown loop - update same line each second
          For i = gAutoclose To 1 Step -1
@@ -1710,15 +1698,34 @@ Module C2VM
             line = "Auto-close in " + Str(i) + "...  "
 
             CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
-               Print( Chr(13) + line )
+               If firstAutoclose
+                  Print( line )
+                  firstAutoclose = #False
+               Else
+                  Print( Chr(13) + line )
+               EndIf
             CompilerElse
                If gTestMode = #True
-                  Print( Chr(13) + line )
+                  If firstAutoclose
+                     Print( line )
+                     firstAutoclose = #False
+                  Else
+                     Print( Chr(13) + line )
+                  EndIf
                ElseIf gRunThreaded
-                  ; Update last line in GUI
-                  vmQueueGUIMessage(#MSG_SET_LINE, #edConsole, CountGadgetItems(#edConsole) - 1, line)
+                  If firstAutoclose
+                     vmQueueGUIMessage(#MSG_ADD_LINE, #edConsole, 0, line)
+                     firstAutoclose = #False
+                  Else
+                     vmQueueGUIMessage(#MSG_SET_LINE, #edConsole, CountGadgetItems(#edConsole) - 1, line)
+                  EndIf
                Else
-                  SetGadgetItemText(#edConsole, CountGadgetItems(#edConsole) - 1, line)
+                  If firstAutoclose
+                     AddGadgetItem( #edConsole, -1, line )
+                     firstAutoclose = #False
+                  Else
+                     SetGadgetItemText(#edConsole, CountGadgetItems(#edConsole) - 1, line)
+                  EndIf
                EndIf
             CompilerEndIf
 
@@ -2121,6 +2128,9 @@ Module C2VM
          EndIf
 
          If IsWindow( #MainWindow )
+            ; V1.039.41: Bring window to foreground (after splash closes)
+            SetActiveWindow(#MainWindow)
+
             ; V1.039.8: Use appropriate event loop
             If gSimpleOutputMode
                vmSimpleWindowEvents()

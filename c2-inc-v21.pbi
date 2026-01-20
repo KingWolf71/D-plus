@@ -59,8 +59,8 @@
 #BUILD_GUI        = 0                 ; Full GUI + compiler + VM (default)
 #BUILD_COMPILER   = 1                 ; Command-line compiler + VM (auto-detects .d vs .od)
 
-#BUILD_TYPE       = #BUILD_GUI         ; <-- Change this to build different modes
-;#BUILD_TYPE       = #BUILD_COMPILER   
+;#BUILD_TYPE       = #BUILD_GUI         ; <-- Change this to build different modes
+#BUILD_TYPE       = #BUILD_COMPILER   
 
 ; V1.039.0: .od (Object D) file format constants
 #OD_MAGIC$        = "DAIOBJ01"        ; Magic number for .od files (8 bytes)
@@ -2538,7 +2538,7 @@ EndMacro
 
 ; IDE Options = PureBasic 6.30 (Windows - x64)
 ; CursorPosition = 61
-; FirstLine = 55
+; FirstLine = 42
 ; Folding = ---
 ; Optimizer
 ; EnableAsm

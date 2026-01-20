@@ -1,7 +1,10 @@
 1. Priority is on VM execution speed
 2. Windows Purebasic path D:\WIP\APPS\PureBasic.610
 3. Linux compilation: wsl -d Ubuntu-24.04 -e bash -c "export PUREBASIC_HOME=/home/terence/Apps/purebasic621 && cd /mnt/d/OneDrive/WIP/Sources/D-Plus.2026 && \$PUREBASIC_HOME/compilers/pbcompiler c2-modules-V25.pb -e dpai_linux -t -cl 2>&1" (use -t for thread-safe, -cl for console mode)
-4. Windows compilation: pbcompiler /OPTIMIZER /THREAD /DYNAMICCPU c2-modules-V25.pb /EXE dpai.exe (add /CONSOLE for console mode, requires PureBasic 6.10+)
+4. Windows compilation:
+    - Console version: pbcompiler /OPTIMIZER /THREAD /DYNAMICCPU /CONSOLE c2-modules-V25.pb /EXE dpai.exe
+    - Windows version: pbcompiler /OPTIMIZER /THREAD /DYNAMICCPU c2-modules-V25.pb /EXE dpai-win.exe (shows splash during compilation)
+    - Splash screen: pbcompiler splash.pb /EXE splash.exe (required for dpai-win.exe)
 5. Always leave definitions at beginning of procedure - no exceptions
 6. No procedure static variables; we use global variables which can be reset between runs
 7. If there is an _*.ver file add a .1 everytime we interact (MAJ.MIN.FIX)
@@ -29,6 +32,7 @@
     - --asm-debug: Output detailed ASM with FLAGS/slot info
     - --asm-decimal: Use decimal line numbers in ASM (default: hex)
     - -x, --autoquit <s>: Auto-close after <s> seconds
+    - --no-od: Don't create .od file (compile and run only)
     - Auto-detects .d (source) vs .od (compiled) files
 23. Test runner: tests/run-tests-win.ps1 runs all example tests on Windows
 24. Stack size: 8MB via linker.txt for large compilation (comprehensive tests)

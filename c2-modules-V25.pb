@@ -1823,10 +1823,18 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
    #COMPILE_STAGES = 12  ; Total compilation stages for percentage calculation
 
    Procedure CompileProgress(stage.i, stageName.s)
-      ; Show compilation progress in console mode
+      ; Show compilation progress
+      Protected percent.i = (stage * 100) / #COMPILE_STAGES
+
       CompilerIf #BUILD_TYPE = #BUILD_COMPILER
-         Protected percent.i = (stage * 100) / #COMPILE_STAGES
          PrintN("[" + RSet(Str(percent), 3, " ") + "%] " + stageName)
+      CompilerElse
+         ; V1.039.41: Write stage to file for splash screen to read
+         Protected stageFile.i = CreateFile(#PB_Any, GetTemporaryDirectory() + "dplus_compile.stage")
+         If stageFile
+            WriteString(stageFile, "[" + Str(percent) + "%] " + stageName)
+            CloseFile(stageFile)
+         EndIf
       CompilerEndIf
    EndProcedure
 
@@ -2107,6 +2115,25 @@ CompilerIf #PB_Compiler_IsMainFile
          MessageRequester("D-Plus Help", helpText, #PB_MessageRequester_Info)
          End
       EndIf
+
+      ; V1.039.42: Check for console-only flags in Windows build
+      CompilerIf C2Common::#BUILD_TYPE = C2Common::#BUILD_COMPILER
+         If earlyDebug
+            Define errText.s = "Error: The -c/--console flag requires the console version (dpai.exe compiled with /CONSOLE)." + #CRLF$ + #CRLF$
+            errText + "This is the Windows GUI version which does not have console output." + #CRLF$ + #CRLF$
+            errText + "Usage: dpai-win [options] <file.d|file.od>" + #CRLF$ + #CRLF$
+            errText + "Valid options for Windows version:" + #CRLF$
+            errText + "  -h, --help          Show help" + #CRLF$
+            errText + "  -C, --compile       Compile to .od without running" + #CRLF$
+            errText + "  -a, --asm           Output ASM listing to file" + #CRLF$
+            errText + "  --asm-debug         Detailed ASM with debug info" + #CRLF$
+            errText + "  -x, --autoquit <s>  Auto-close after <s> seconds" + #CRLF$
+            errText + "  --no-od             Don't create .od file" + #CRLF$ + #CRLF$
+            errText + "For console output, use: dpai.exe -c <file>"
+            MessageRequester("D-Plus Error", errText, #PB_MessageRequester_Error)
+            End
+         EndIf
+      CompilerEndIf
       ; No banner in GUI mode - it would need a requester
    CompilerEndIf
 
@@ -2123,20 +2150,68 @@ CompilerIf #PB_Compiler_IsMainFile
          ; V1.033.43: -x/--autoquit command line option (store for later)
          ; V1.039.9: Now tracks if specified to allow -x 0 to disable pragma autoclose
          ElseIf param = "-x" Or param = "--autoquit"
-            ; Next parameter should be seconds - store in global for adding to mapPragmas after LoadLJ
+            ; Next parameter should be seconds
+            ; V1.039.42: Validate argument exists and is not a flag
+            Define nextArg.s
             If paramIdx + 1 < paramCount
+               nextArg = ProgramParameter(paramIdx + 1)
+               If Left(nextArg, 1) = "-" Or Left(nextArg, 1) = "/"
+                  Define argErr.s = "Error: Option '" + param + "' requires a numeric argument (seconds)" + #CRLF$ + #CRLF$
+                  argErr + "Usage: " + param + " <seconds>" + #CRLF$
+                  argErr + "Example: dpai -x 30 program.d"
+                  CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+                     PrintN(argErr)
+                  CompilerElse
+                     MessageRequester("D-Plus Error", argErr, #PB_MessageRequester_Error)
+                  CompilerEndIf
+                  End
+               EndIf
                paramIdx + 1
-               gCmdAutoclose = Val(ProgramParameter(paramIdx))
+               gCmdAutoclose = Val(nextArg)
                gCmdAutocloseSet = #True
+            Else
+               Define argErr2.s = "Error: Option '" + param + "' requires a numeric argument (seconds)" + #CRLF$ + #CRLF$
+               argErr2 + "Usage: " + param + " <seconds>" + #CRLF$
+               argErr2 + "Example: dpai -x 30 program.d"
+               CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+                  PrintN(argErr2)
+               CompilerElse
+                  MessageRequester("D-Plus Error", argErr2, #PB_MessageRequester_Error)
+               CompilerEndIf
+               End
             EndIf
          ; V1.039.6: Compile-only mode (-C/--compile)
          ElseIf param = "-C" Or param = "--compile"
             gCompileOnly = #True
          ; V1.039.0: Output file for compile-only
          ElseIf param = "-o" Or param = "--output"
+            ; V1.039.42: Validate argument exists and is not a flag
+            Define nextArgO.s
             If paramIdx + 1 < paramCount
+               nextArgO = ProgramParameter(paramIdx + 1)
+               If Left(nextArgO, 1) = "-" Or Left(nextArgO, 1) = "/"
+                  Define argErrO.s = "Error: Option '" + param + "' requires a filename argument" + #CRLF$ + #CRLF$
+                  argErrO + "Usage: " + param + " <filename>" + #CRLF$
+                  argErrO + "Example: dpai -o output.od program.d"
+                  CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+                     PrintN(argErrO)
+                  CompilerElse
+                     MessageRequester("D-Plus Error", argErrO, #PB_MessageRequester_Error)
+                  CompilerEndIf
+                  End
+               EndIf
                paramIdx + 1
-               gOutputFile = ProgramParameter(paramIdx)
+               gOutputFile = nextArgO
+            Else
+               Define argErrO2.s = "Error: Option '" + param + "' requires a filename argument" + #CRLF$ + #CRLF$
+               argErrO2 + "Usage: " + param + " <filename>" + #CRLF$
+               argErrO2 + "Example: dpai -o output.od program.d"
+               CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+                  PrintN(argErrO2)
+               CompilerElse
+                  MessageRequester("D-Plus Error", argErrO2, #PB_MessageRequester_Error)
+               CompilerEndIf
+               End
             EndIf
          ; V1.039.0: Don't embed source in .od
          ElseIf param = "--no-source"
@@ -2158,10 +2233,32 @@ CompilerIf #PB_Compiler_IsMainFile
          ; V1.039.21: Decimal line numbers in ASM output
          ElseIf param = "--asm-decimal"
             gAsmDecimal = #True
-         ElseIf Left(param, 1) <> "-" And Not gotFilename
+         ElseIf Left(param, 1) <> "-" And Left(param, 1) <> "/" And Not gotFilename
             ; Not a flag - must be filename (only accept first one)
             filename = param
             gotFilename = #True
+         ElseIf Left(param, 1) = "-" Or Left(param, 1) = "/"
+            ; V1.039.42: Unknown parameter - show error and usage
+            Define unknownErr.s = "Error: Unknown option '" + param + "'" + #CRLF$ + #CRLF$
+            unknownErr + "Usage: dpai [options] <file.d|file.od>" + #CRLF$ + #CRLF$
+            unknownErr + "Options:" + #CRLF$
+            unknownErr + "  -h, --help          Show full help" + #CRLF$
+            unknownErr + "  -c, --console       Console mode (no GUI)" + #CRLF$
+            unknownErr + "  -C, --compile       Compile to .od without running" + #CRLF$
+            unknownErr + "  -a, --asm           Output clean ASM listing" + #CRLF$
+            unknownErr + "  --asm-debug         Detailed ASM with debug info" + #CRLF$
+            unknownErr + "  --asm-decimal       Decimal line numbers in ASM" + #CRLF$
+            unknownErr + "  -x, --autoquit <s>  Auto-close after <s> seconds" + #CRLF$
+            unknownErr + "  -o, --output <file> Output filename for .od" + #CRLF$
+            unknownErr + "  --no-source         Don't embed source in .od" + #CRLF$
+            unknownErr + "  --no-od             Don't create .od file" + #CRLF$ + #CRLF$
+            unknownErr + "Run 'dpai --help' for more information."
+            CompilerIf #PB_Compiler_ExecutableFormat = #PB_Compiler_Console
+               PrintN(unknownErr)
+            CompilerElse
+               MessageRequester("D-Plus Error", unknownErr, #PB_MessageRequester_Error)
+            CompilerEndIf
+            End
          EndIf
       Next
    Else
@@ -2197,6 +2294,7 @@ CompilerIf #PB_Compiler_IsMainFile
          usageText + "  -a, --asm           Output clean ASM listing" + #CRLF$
          usageText + "  --asm-debug         Output detailed ASM with debug info" + #CRLF$
          usageText + "  --asm-decimal       Use decimal line numbers (6-digit)" + #CRLF$
+         usageText + "  -x, --autoquit <s>  Auto-close after <s> seconds" + #CRLF$
          usageText + "  --no-od             Don't create .od file" + #CRLF$ + #CRLF$
          usageText + "Examples:" + #CRLF$
          usageText + "  dpai program.d              Compile, save .od, and run" + #CRLF$
@@ -2251,7 +2349,35 @@ CompilerIf #PB_Compiler_IsMainFile
             If C2Lang::LoadLJ( filename )
                PrintN("LOAD ERROR: " + C2Lang::Error( @err ))
             Else
+               ; V1.039.42: Launch splash.exe for visual feedback when compiled as Windows app (not /CONSOLE)
+               Define splashPID.i = 0
+               CompilerIf #PB_Compiler_ExecutableFormat <> #PB_Compiler_Console
+                  Define splashPath.s = GetPathPart(ProgramFilename()) + "splash.exe"
+                  If FileSize(splashPath) <= 0
+                     splashPath = GetCurrentDirectory() + "splash.exe"
+                  EndIf
+                  If FileSize(splashPath) <= 0
+                     splashPath = "splash.exe"
+                  EndIf
+                  If FileSize(splashPath) > 0
+                     splashPID = RunProgram(splashPath, #DQUOTE$ + filename + #DQUOTE$, GetCurrentDirectory(), #PB_Program_Open)
+                  EndIf
+               CompilerEndIf
+
                Define compileResult.i = C2Lang::Compile()
+
+               ; Kill splash after compilation and clean up stage file
+               CompilerIf #PB_Compiler_ExecutableFormat <> #PB_Compiler_Console
+                  If splashPID And IsProgram(splashPID)
+                     KillProgram(splashPID)
+                     CloseProgram(splashPID)
+                  EndIf
+                  Define stageFilePath.s = GetTemporaryDirectory() + "dplus_compile.stage"
+                  If FileSize(stageFilePath) > 0
+                     DeleteFile(stageFilePath)
+                  EndIf
+               CompilerEndIf
+
                If compileResult = 0
                   ; V1.039.9: Override autoclose pragma from command line if specified
                   ; NOTE: Must be AFTER Compile() since Init() clears mapPragmas
@@ -2327,22 +2453,7 @@ CompilerIf #PB_Compiler_IsMainFile
                If C2VM::gTestMode : PrintN("LOAD ERROR: " + C2Lang::Error( @err )) : EndIf
             Else
                C2VM::gModuleName = filename
-               ; V1.039.40: Show splash window during compilation for visual feedback
-               Define splashWin.i = 0
-               If Not C2VM::gTestMode
-                  splashWin = OpenWindow(#PB_Any, #PB_Ignore, #PB_Ignore, 400, 80, "D-Plus Compiler", #PB_Window_ScreenCentered | #PB_Window_BorderLess)
-                  If splashWin
-                     TextGadget(#PB_Any, 10, 15, 380, 25, "Compiling: " + GetFilePart(filename), #PB_Text_Center)
-                     TextGadget(#PB_Any, 10, 45, 380, 25, "Please wait...", #PB_Text_Center)
-                     ; Force window to paint before starting compilation
-                     While WindowEvent() : Wend
-                  EndIf
-               EndIf
                Define compileResult.i = C2Lang::Compile()
-               ; Close splash window
-               If splashWin And IsWindow(splashWin)
-                  CloseWindow(splashWin)
-               EndIf
                If compileResult = 0
                   ; V1.033.43: Add autoclose pragma from command line if specified
                   ; V1.039.9: Now uses gCmdAutocloseSet flag so -x 0 can disable pragma autoclose
@@ -2436,18 +2547,20 @@ CompilerIf #PB_Compiler_IsMainFile
 
 CompilerEndIf
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; CursorPosition = 15
-; Folding = 0----------
+; CursorPosition = 6
+; FirstLine = 9
+; Folding = 0-----------
 ; Markers = 569,718
 ; Optimizer
 ; EnableThread
 ; EnableXP
+; SharedUCRT
 ; Executable = dpai.exe
 ; CPU = 1
 ; LinkerOptions = linker.txt
 ; CompileSourceDirectory
 ; Warnings = Display
-; EnableCompileCount = 2603
-; EnableBuildCount = 21
+; EnableCompileCount = 2616
+; EnableBuildCount = 34
 ; EnableExeConstant
 ; IncludeVersionInfo
