@@ -444,10 +444,7 @@ Procedure CCompat_CheckUnsupported(line.s, lineNum.i)
       CCompat_AddWarning(lineNum, "File I/O not yet implemented")
    EndIf
 
-   ; Check for sprintf
-   If FindString(lowerLine, "sprintf(")
-      CCompat_AddWarning(lineNum, "sprintf() not implemented - use string concatenation with str()")
-   EndIf
+   ; V1.039.53: sprintf() is now implemented, no warning needed
 
    ; Check for conditional compilation
    If FindString(lowerLine, "#ifdef") Or FindString(lowerLine, "#ifndef") Or

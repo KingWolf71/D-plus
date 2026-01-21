@@ -360,6 +360,7 @@ Enumeration
    #ljBUILTIN_STRCMP       ; strcmp(a, b) - string compare, returns -1/0/1
    #ljBUILTIN_GETC         ; getc(s, idx) - get character code at index
    #ljBUILTIN_PRINTF       ; V1.035.13: printf(format, args...) - C-style formatted output
+   #ljBUILTIN_SPRINTF      ; V1.039.53: sprintf(format, args...) - C-style formatted string (returns string)
 
    ;- V1.038.0: SpiderBasic Math Library Builtins
    #ljBUILTIN_SIN          ; sin(x) - sine (radians)
@@ -2139,6 +2140,7 @@ Macro _INIT_OPCODE_NAMES
    gszATR(#ljBUILTIN_STRCMP)\s = "BI_STRCMP"
    gszATR(#ljBUILTIN_GETC)\s = "BI_GETC"
    gszATR(#ljBUILTIN_PRINTF)\s = "BI_PRINTF"
+   gszATR(#ljBUILTIN_SPRINTF)\s = "BI_SPRINTF"
    ; V1.038.0: Math builtins
    gszATR(#ljBUILTIN_SIN)\s = "BI_SIN"
    gszATR(#ljBUILTIN_COS)\s = "BI_COS"

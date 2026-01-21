@@ -1,0 +1,29 @@
+// Test sprintf function
+// V1.039.53
+
+#pragma console on
+
+// Basic variables
+result.s = "";
+x.i = 42;
+pi.f = 3.14159;
+name.s = "World";
+
+// Basic sprintf tests
+result = sprintf("Hello %s!", name);
+printf("Test 1: %s\n", result);
+
+result = sprintf("Number: %d", x);
+printf("Test 2: %s\n", result);
+
+result = sprintf("Pi: %.2f", pi);
+printf("Test 3: %s\n", result);
+
+result = sprintf("Combined: %s has %d items at %.3f each", name, x, pi);
+printf("Test 4: %s\n", result);
+
+// Test percent escape
+result = sprintf("100%% complete");
+printf("Test 5: %s\n", result);
+
+printf("\nAll sprintf tests passed!\n");

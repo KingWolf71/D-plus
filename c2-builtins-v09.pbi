@@ -379,7 +379,7 @@ Procedure C2BUILTIN_GETC()
    pc + 1
 EndProcedure
 
-;- V1.035.13: printf() - C-style formatted output
+;- V1.039.53: Shared macro for printf/sprintf format string processing
 ; Supports:
 ;   %d, %i - integer
 ;   %f     - float (default decimals)
@@ -388,29 +388,8 @@ EndProcedure
 ;   %p, %a - pointer/address (displays integer as hex address)
 ;   %%     - literal percent
 ; Escape sequences are processed at compile time in scanner
-Procedure C2BUILTIN_PRINTF()
-   vm_DebugFunctionName()
-   Protected paramCount.i = vm_GetParamCount()
-   Protected format.s, output.s
-   Protected i.i, fmtLen.i, argIndex.i
-   Protected ch.s, nextCh.s
-   Protected precision.i, precisionStr.s
-   Protected outLen.i, outIdx.i, outCh.s  ; V1.035.13: For GUI newline handling
-
-   If paramCount < 1
-      ; No format string
-      pc + 1
-      ProcedureReturn
-   EndIf
-
-   ; Get format string (first argument, deepest on stack)
-   ; V1.035.13: Use cached string length from \i field
-   format = gEvalStack(sp - paramCount)\ss
-   fmtLen = gEvalStack(sp - paramCount)\i
-   If fmtLen = 0 : fmtLen = Len(format) : EndIf  ; Fallback if not cached
-   argIndex = 1  ; Start with first arg after format string
-   output = ""
-
+; Requires: format.s, fmtLen.i, paramCount.i, output.s, i.i, argIndex.i, ch.s, nextCh.s, precision.i, precisionStr.s
+Macro _FormatStringBuild()
    i = 1
    While i <= fmtLen
       ch = Mid(format, i, 1)
@@ -418,44 +397,43 @@ Procedure C2BUILTIN_PRINTF()
       If ch = "%"
          i + 1
          If i > fmtLen
-            output + "%"  ; Trailing % at end of string
+            output + "%"
             Break
          EndIf
 
          nextCh = Mid(format, i, 1)
 
          Select nextCh
-            Case "%"  ; Literal percent
+            Case "%"
                output + "%"
 
-            Case "d", "i"  ; Integer
+            Case "d", "i"
                If argIndex < paramCount
                   output + Str(gEvalStack(sp - paramCount + argIndex)\i)
                   argIndex + 1
                EndIf
 
-            Case "f"  ; Float (default decimals)
+            Case "f"
                If argIndex < paramCount
                   output + StrD(gEvalStack(sp - paramCount + argIndex)\f, gDecs)
                   argIndex + 1
                EndIf
 
-            Case "s"  ; String
+            Case "s"
                If argIndex < paramCount
                   output + gEvalStack(sp - paramCount + argIndex)\ss
                   argIndex + 1
                EndIf
 
-            Case "p", "a"  ; V1.036.2: Pointer/address (display as hex)
+            Case "p", "a"
                If argIndex < paramCount
                   output + "0x" + Hex(gEvalStack(sp - paramCount + argIndex)\i)
                   argIndex + 1
                EndIf
 
-            Case "."  ; Precision specifier (%.Nf)
+            Case "."
                i + 1
                precisionStr = ""
-               ; Collect digits
                While i <= fmtLen
                   ch = Mid(format, i, 1)
                   If ch >= "0" And ch <= "9"
@@ -474,12 +452,11 @@ Procedure C2BUILTIN_PRINTF()
                      argIndex + 1
                   EndIf
                Else
-                  ; Not a valid %.Nf, output literal
                   output + "%." + precisionStr
-                  i - 1  ; Back up to process current char
+                  i - 1
                EndIf
 
-            Default  ; Unknown format specifier, output literal
+            Default
                output + "%" + nextCh
          EndSelect
       Else
@@ -488,6 +465,30 @@ Procedure C2BUILTIN_PRINTF()
 
       i + 1
    Wend
+EndMacro
+
+;- V1.035.13: printf() - C-style formatted output (uses _FormatStringBuild macro)
+Procedure C2BUILTIN_PRINTF()
+   vm_DebugFunctionName()
+   Protected paramCount.i = vm_GetParamCount()
+   Protected format.s, output.s
+   Protected i.i, fmtLen.i, argIndex.i
+   Protected ch.s, nextCh.s
+   Protected precision.i, precisionStr.s
+   Protected outLen.i, outIdx.i, outCh.s
+
+   If paramCount < 1
+      pc + 1
+      ProcedureReturn
+   EndIf
+
+   format = gEvalStack(sp - paramCount)\ss
+   fmtLen = gEvalStack(sp - paramCount)\i
+   If fmtLen = 0 : fmtLen = Len(format) : EndIf
+   argIndex = 1
+   output = ""
+
+   _FormatStringBuild()
 
    ; Output the formatted string
    ; V1.035.13: Handle newlines properly for GUI console output
@@ -523,6 +524,35 @@ Procedure C2BUILTIN_PRINTF()
    CompilerEndIf
 
    vm_PopParams(paramCount)
+   pc + 1
+EndProcedure
+
+;- V1.039.53: sprintf() - C-style formatted string (uses _FormatStringBuild macro)
+; Returns formatted string instead of printing
+Procedure C2BUILTIN_SPRINTF()
+   vm_DebugFunctionName()
+   Protected paramCount.i = vm_GetParamCount()
+   Protected format.s, output.s
+   Protected i.i, fmtLen.i, argIndex.i
+   Protected ch.s, nextCh.s
+   Protected precision.i, precisionStr.s
+
+   If paramCount < 1
+      vm_PushString("")
+      pc + 1
+      ProcedureReturn
+   EndIf
+
+   format = gEvalStack(sp - paramCount)\ss
+   fmtLen = gEvalStack(sp - paramCount)\i
+   If fmtLen = 0 : fmtLen = Len(format) : EndIf
+   argIndex = 1
+   output = ""
+
+   _FormatStringBuild()
+
+   vm_PopParams(paramCount)
+   vm_PushString(output)
    pc + 1
 EndProcedure
 

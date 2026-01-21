@@ -543,6 +543,8 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
 
       ; V1.035.13: printf - C-style formatted output
       InstallBuiltin( "printf",            #ljBUILTIN_PRINTF,       1, 99, 0 )  ; printf(format, args...)
+      ; V1.039.53: sprintf - C-style formatted string (returns string)
+      InstallBuiltin( "sprintf",           #ljBUILTIN_SPRINTF,      1, 99, #C2FLAG_STR )  ; sprintf(format, args...)
 
       ; V1.038.0: SpiderBasic Math Library
       InstallBuiltin( "sin",               #ljBUILTIN_SIN,          1, 1, #C2FLAG_FLOAT )
@@ -2602,8 +2604,7 @@ CompilerIf #PB_Compiler_IsMainFile
 
 CompilerEndIf
 ; IDE Options = PureBasic 6.30 (Windows - x64)
-; ExecutableFormat = Console
-; CursorPosition = 16
+; CursorPosition = 23
 ; FirstLine = 9
 ; Folding = 0-----------
 ; Markers = 569,718
@@ -2616,7 +2617,7 @@ CompilerEndIf
 ; LinkerOptions = linker.txt
 ; CompileSourceDirectory
 ; Warnings = Display
-; EnableCompileCount = 2621
+; EnableCompileCount = 2623
 ; EnableBuildCount = 37
 ; EnableExeConstant
 ; IncludeVersionInfo

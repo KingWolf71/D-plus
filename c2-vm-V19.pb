@@ -835,6 +835,7 @@ Module C2VM
       *ptrJumpTable( #ljBUILTIN_STRCMP )  = @C2BUILTIN_STRCMP()
       *ptrJumpTable( #ljBUILTIN_GETC )    = @C2BUILTIN_GETC()
       *ptrJumpTable( #ljBUILTIN_PRINTF )  = @C2BUILTIN_PRINTF()  ; V1.035.13
+      *ptrJumpTable( #ljBUILTIN_SPRINTF ) = @C2BUILTIN_SPRINTF() ; V1.039.53
 
       ; V1.038.0: Math builtins
       *ptrJumpTable( #ljBUILTIN_SIN )     = @C2BUILTIN_SIN()
