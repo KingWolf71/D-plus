@@ -150,6 +150,93 @@
       ; V1.034.6: FOREACH variables
       Protected         *forEachColl.stTree, *forEachBody.stTree
       Protected         foreachIsMap.i, foreachSlot.i, foreachVarName.s
+      ; V1.039.43: All inline Protected declarations moved to procedure start (CLAUDE.md rule #5)
+      ; #ljPOP case variables
+      Protected         spParamValue.s, spDotPos.i, spBaseName.s, spStructType.s, spIsStructParam.b
+      Protected         spTypePart.s, spFoundPreCreated.i, spSearchSuffix.s, spVarIdx.i, spVarName.s
+      Protected         spStructSearchName.s, spSearchFullName.s, paramAsmKey.s
+      Protected         localParamOffset.i, localStructSize.i, localStructByteSize.i
+      Protected         globalStructSize.i, globalStructByteSize.i
+      ; #ljIDENT case variables
+      Protected         identHasDot.b, identHasBackslash.b, identIsCollection.b
+      Protected         identLocalOffset.i, identIsLocal.b, dotFieldType.w
+      Protected         dfDotPos.i, dfStructName.s, dfFieldChain.s, dfBaseSlot.i, dfBaseStructType.s
+      Protected         dfMangledBase.s, dfSearchIdx.i, dfCurrentType.s, dfRemaining.s
+      Protected         dfNextDot.i, dfCurrentField.s
+      Protected         sfLookupType.s, sfLookupOffset.i, sfLookupFound.b
+      Protected         sfAccumOffset.i, sfFieldSize.i, sfNestedType.s
+      Protected         sfIsParam.b, localFieldType.w
+      ; #ljARRAY_OF_STRUCT_FETCH case variables
+      Protected         aosArraySlot.i, aosIsLocal.i, aosElementSize.i, aosFieldOffset.i
+      Protected         aosIndexSlot.i, aosOpcode.i
+      ; #ljMD_FETCH case variables
+      Protected         mdSlot.i, mdNDims.i, mdIsLocal.i, mdArrayIndex.i
+      Protected         *mdIdx0.stTree, *mdIdx1.stTree, *mdIdx2.stTree, *mdIdx3.stTree
+      Protected         mdAllConstant.b, mdConstIdx0.i, mdConstIdx1.i, mdConstIdx2.i, mdConstIdx3.i
+      Protected         mdLinearIndex.i, mdConstSlot.i, mdFetchOpcode.i, mdHasValue.b, mdFetchOpcodeStack.i
+      ; #ljARRAY_FETCH case variables
+      Protected         arrayFetchIndexSlot.i, isLocal.i, arrayIndex.i, arrayFetchOpcode.i
+      ; #ljSTRUCT_ARRAY_REF case variables
+      Protected         sarParts.s, sarStructSlot.i, sarFieldOffset.i, sarIsLocal.i, sarByteOffset.i, sarIndexSlot.i
+      ; #ljSTRUCT_ARRAY_STORE_DIRECT case variables
+      Protected         sasDirectParts.s, sasDirectStructSlot.i, sasDirectFieldOffset.i, sasDirectIsLocal.i
+      Protected         sasDirectByteOffset.i, sasDirectValueSlot.i, sasDirectIndexSlot.i
+      ; #ljPTR_STRUCT_FIELD case variables
+      Protected         psfParts.s, psfField1.s, psfField2.s, psfPtrSlot.i, psfFieldOffset.i
+      Protected         psfActualNodeType.i, psfIsStructVar.i, psfIsLocalPtr.i, psfMetaSlot.i
+      Protected         psfStructType.s, psfFieldType.i, psfResByteOffset.i
+      Protected         psfIdentName.s, psfFieldName.s, psfVarIdx.i, psfMangledName.s, psfFuncName.s
+      Protected         psfByteOffset.i, psfIsParam.b, psfStructByteSize.i
+      ; #ljPTR_STRUCT_FIELD store case variables
+      Protected         pssaParts.s, pssaField1.s, pssaField2.s, pssaPtrSlot.i, pssaFieldOffset.i
+      Protected         pssaValueSlot.i, pssaStoreOp.i, pssaIsStructVar.i, pssaIsLocalPtr.i, pssaMetaSlot.i
+      Protected         pssaStructType.s, pssaFieldType.i, pssaIdentName.s, pssaFieldName.s, pssaVarIdx.i
+      Protected         pssaMangledName.s, pssaFuncName.s, pssaByteOffset.i, pssaIsParam.b, pssaStructByteSize.i
+      ; Pointer definition case variables
+      Protected         ptrDefVarName.s, ptrDefIsNew.i, ptrDefSlot.i, ptrDefMangledName.s, ptrDefSrcSlot.i
+      ; Array store case variables
+      Protected         arrayStoreValueSlot.i, arrayStoreIndexSlot.i, isLocalStore.i, arrayIndexStore.i, arrayStoreOpcode.i
+      ; #ljMD_STORE case variables
+      Protected         mdStoreSlot.i, mdStoreNDims.i, mdStoreIsLocal.i, mdStoreArrayIndex.i, mdStoreValueSlot.i
+      Protected         *mdStoreIdx0.stTree, *mdStoreIdx1.stTree, *mdStoreIdx2.stTree, *mdStoreIdx3.stTree
+      Protected         mdStoreAllConst.b, mdStoreConstIdx0.i, mdStoreConstIdx1.i, mdStoreConstIdx2.i, mdStoreConstIdx3.i
+      Protected         mdStoreLinearIdx.i, mdStoreConstSlot.i, mdStoreOpcode.i, mdStoreHasVal.b, mdStoreOpcodeStack.i
+      ; #ljSTRUCT_ARRAY_STORE case variables
+      Protected         sasPartsStore.s, sasStructSlotStore.i, sasFieldOffsetStore.i, sasIsLocalStore.i
+      Protected         sasBaseSlotStore.i, sasValueSlotStore.i, sasIndexSlotStore.i, structStoreOp.i
+      ; #ljARRAY_OF_STRUCT_STORE case variables
+      Protected         aosStoreArraySlot.i, aosStoreIsLocal.i, aosStoreElementSize.i, aosStoreFieldOffset.i
+      Protected         aosStoreIndexSlot.i, aosStoreOpcode.i
+      ; Struct copy case variables
+      Protected         scStructCopyDone.i, scSrcSlot.i, scStructType.s, scSlotCount.i
+      Protected         scDestIsLocal.b, scDestIsParam.b, scByteSize.i, scSrcIsLocal.b, scSrcIsParam.b
+      Protected         *ptrFetchNode.stTree, isStructFieldAssignment.i, hasExplicitType.i
+      ; Struct field assignment init variables
+      Protected         initStructByteSize.i, sfaFieldType.w, sfaBaseSlot.i, sfaFlatOffset.i, sfaCurrentType.s
+      Protected         sfaFound.b, sfaNextType.s, sfaFieldStart.i, sfaFieldEnd.i, sfaTotalSize.i, sfaMaxIter.i
+      ; #ljIF case variables
+      Protected         *ifNode.stTree
+      Protected Dim     ifJmpHoles.i(#MAX_ELSEIF_BRANCHES)
+      Protected         ifJmpCount.i
+      ; #ljSEQ case variables
+      Protected         *seqWalk.stTree, seqDepth.i, savedInFuncArgs.b, *stmtNode.stTree
+      ; #ljFUNCTION case variables
+      Protected         ljfDebugId.i, ljfStructParamPrefix.s, ljfVarIdx.i
+      ; Array get/resize case variables
+      Protected         isLocalArray.i, localArrayOffset.i, arrayOpcode.i, arrayType.i
+      Protected         gaStructType.s, gaSlotCount.i, gaFieldPrefix.s, gaSearchIdx.i, gaSlotName.s
+      Protected         isLocalVar.i, localOffset.i, opcode.i, varFlags.w
+      ; #ljCALL case variables
+      Protected         isListFunc.i, isMapFunc.i, isBuiltinFunc.i, nLocals.l, nLocalArrays.l
+      Protected         arrIdx.l, arrVarSlot.l, sourceType.w
+      ; #ljRESIZE case variables
+      Protected         resizeArrayName.s, resizeNewSize.i, resizeIsLocal.i, resizeVarSlot.i, resizeSlotToEmit.i
+      ; #ljLIST_NEW case variables
+      Protected         listNewName.s, listNewTypeHint.i, listNewVarSlot.i, listNewIsLocal.i, listNewSlotToEmit.i
+      Protected         listNewType.i, listNewElementSize.i
+      ; #ljMAP_NEW case variables
+      Protected         mapNewName.s, mapNewTypeHint.i, mapNewVarSlot.i, mapNewIsLocal.i, mapNewSlotToEmit.i
+      Protected         mapNewType.i, mapNewElementSize.i
 
       ; Reset state on top-level call
       If gCodeGenRecursionDepth = 0
@@ -186,14 +273,14 @@
             Else
                ; V1.029.11: Check if parameter has struct type suffix (e.g., "r.Rectangle")
                ; Structure parameters have format "paramName.StructType"
-               Protected spParamValue.s = *x\value
-               Protected spDotPos.i = FindString(spParamValue, ".")
-               Protected spBaseName.s = spParamValue
-               Protected spStructType.s = ""
-               Protected spIsStructParam.b = #False
+               spParamValue = *x\value
+               spDotPos = FindString(spParamValue, ".")
+               spBaseName = spParamValue
+               spStructType = ""
+               spIsStructParam = #False
 
                If spDotPos > 0 And spDotPos < Len(spParamValue)
-                  Protected spTypePart.s = Mid(spParamValue, spDotPos + 1)
+                  spTypePart = Mid(spParamValue, spDotPos + 1)
                   ; Check if the suffix is a known struct type (not .i, .f, .s primitive types)
                   If LCase(spTypePart) <> "i" And LCase(spTypePart) <> "f" And LCase(spTypePart) <> "s" And LCase(spTypePart) <> "d"
                      If FindMapElement(mapStructDefs(), spTypePart)
@@ -205,11 +292,7 @@
                EndIf
 
                ; For struct params, use base name; otherwise use full value
-               ; V1.029.70: Pre-declare search variables (PureBasic requires declarations at procedure scope)
-               Protected spFoundPreCreated.i
-               Protected spSearchSuffix.s
-               Protected spVarIdx.i
-               Protected spVarName.s
+               ; V1.029.70: Variables pre-declared at procedure scope per CLAUDE.md rule #5
 
                If spIsStructParam
                   ; V1.029.95: Search for pre-created struct params with EXACT mangled name
@@ -221,7 +304,7 @@
                   ; during AST), but FetchVarOffset will find them via global search (paramOffset=-1).
                   If gCodeGenParamIndex >= 0 And gCurrentFunctionName <> ""
                      spFoundPreCreated = -1
-                     Protected spStructSearchName.s = LCase(gCurrentFunctionName + "_" + spBaseName)
+                     spStructSearchName = LCase(gCurrentFunctionName + "_" + spBaseName)
                      ; Debug "V1.030.47: POP struct search: searchName='" + spStructSearchName + "' structType='" + spStructType + "'"
                      For spVarIdx = 0 To gnLastVariable - 1
                         ; Check if this is a PARAM with EXACT matching mangled name and struct type
@@ -255,7 +338,7 @@
                   ; Fix: search for exact mangled name "functionName_paramName" instead of suffix.
                   If gCodeGenParamIndex >= 0 And gCurrentFunctionName <> ""
                      spFoundPreCreated = -1
-                     Protected spSearchFullName.s = LCase(gCurrentFunctionName + "_" + *x\value)
+                     spSearchFullName = LCase(gCurrentFunctionName + "_" + *x\value)
                      For spVarIdx = 0 To gnLastVariable - 1
                         ; Check if this is a PARAM with EXACT matching mangled name (not just suffix)
                         If gVarMeta(spVarIdx)\flags & #C2FLAG_PARAM
@@ -297,7 +380,7 @@
                   ; V1.039.29: Register parameter name for ASM listing display
                   ; Key format: funcname_paramoffset (same as local variables)
                   ; Strip leading underscore from gCurrentFunctionName for key
-                  Protected paramAsmKey.s = LCase(Mid(gCurrentFunctionName, 2)) + "_" + Str(gVarMeta(n)\paramOffset)
+                  paramAsmKey = LCase(Mid(gCurrentFunctionName, 2)) + "_" + Str(gVarMeta(n)\paramOffset)
                   If Not FindMapElement(gAsmLocalNameMap(), paramAsmKey)
                      gAsmLocalNameMap(paramAsmKey) = gVarMeta(n)\name
                   EndIf
@@ -338,7 +421,7 @@
                   ; V1.029.23: Use LSTORE opcodes for locals (writes to local frame, not global)
                   ; V1.029.25: Handle local struct variables - allocate all field slots
                   gVarMeta( n )\paramOffset = gCodeGenLocalIndex
-                  Protected localParamOffset.i = gCodeGenLocalIndex  ; Save before increment
+                  localParamOffset = gCodeGenLocalIndex  ; Save before increment
 
                   ; Check if this is a local struct variable
                   If spIsStructParam And spStructType <> ""
@@ -346,8 +429,8 @@
                      gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_STRUCT
                      gVarMeta( n )\structType = spStructType
 
-                     Protected localStructSize.i = 1
-                     Protected localStructByteSize.i = 8  ; Default 8 bytes
+                     localStructSize = 1
+                     localStructByteSize = 8  ; Default 8 bytes
                      If FindMapElement(mapStructDefs(), spStructType)
                         localStructSize = mapStructDefs()\totalSize
                         localStructByteSize = localStructSize * 8  ; 8 bytes per field
@@ -399,8 +482,8 @@
                      gVarMeta( n )\flags = #C2FLAG_IDENT | #C2FLAG_STRUCT
                      gVarMeta( n )\structType = spStructType
 
-                     Protected globalStructSize.i = 1
-                     Protected globalStructByteSize.i = 8
+                     globalStructSize = 1
+                     globalStructByteSize = 8
                      If FindMapElement(mapStructDefs(), spStructType)
                         globalStructSize = mapStructDefs()\totalSize
                         globalStructByteSize = globalStructSize * 8
@@ -433,9 +516,9 @@
             ; DOT in identifier means field access, not whole-struct reference
             ; V1.029.30: Skip struct push for collections - they store struct TYPE but are pool slots
             ; V1.029.44: Skip struct push for backslash field access (e.g., "p1\x")
-            Protected identHasDot.b = Bool(FindString(*x\value, ".") > 0)
-            Protected identHasBackslash.b = Bool(FindString(*x\value, "\") > 0)
-            Protected identIsCollection.b = Bool(gVarMeta(n)\flags & (#C2FLAG_LIST | #C2FLAG_MAP))
+            identHasDot = Bool(FindString(*x\value, ".") > 0)
+            identHasBackslash = Bool(FindString(*x\value, "\") > 0)
+            identIsCollection = Bool(gVarMeta(n)\flags & (#C2FLAG_LIST | #C2FLAG_MAP))
             If gVarMeta(n)\structType <> "" And (gVarMeta(n)\flags & #C2FLAG_STRUCT) And Not identHasDot And Not identHasBackslash And Not identIsCollection
                ; V1.029.38: With \ptr storage, use FETCH_STRUCT/LFETCH_STRUCT to push both \i and \ptr
                ; The base slot contains gVar(n)\ptr which points to all struct data
@@ -458,25 +541,24 @@
                ; Original non-struct code
                ; Emit appropriate FETCH variant based on variable type
                ; V1.029.10: Check if variable is local (struct field of local param)
-               Protected identLocalOffset.i = gVarMeta(n)\paramOffset
-               Protected identIsLocal.b = IsLocalVar(n)
+               identLocalOffset = gVarMeta(n)\paramOffset
+               identIsLocal = IsLocalVar(n)
 
                ; V1.029.12: For DOT notation, determine field type from struct definition
                ; This is needed because offset-0 fields share slot with struct base
                ; V1.029.19: Fixed to find BASE struct slot (n is field slot, not base slot)
-               Protected dotFieldType.w = 0
+               dotFieldType = 0
                If identHasDot
                   ; Look up field type from struct definition by walking the chain
-                  Protected dfDotPos.i = FindString(*x\value, ".")
-                  Protected dfStructName.s = Left(*x\value, dfDotPos - 1)
-                  Protected dfFieldChain.s = Mid(*x\value, dfDotPos + 1)
+                  dfDotPos = FindString(*x\value, ".")
+                  dfStructName = Left(*x\value, dfDotPos - 1)
+                  dfFieldChain = Mid(*x\value, dfDotPos + 1)
 
                   ; V1.029.19: Find the BASE struct slot to get structType
                   ; n is the field slot, but we need the base struct's type
-                  Protected dfBaseSlot.i = -1
-                  Protected dfBaseStructType.s = ""
-                  Protected dfMangledBase.s = ""
-                  Protected dfSearchIdx.i
+                  dfBaseSlot = -1
+                  dfBaseStructType = ""
+                  dfMangledBase = ""
 
                   ; Search for base struct (mangled local first, then global)
                   If gCurrentFunctionName <> ""
@@ -510,12 +592,12 @@
                      Next
                   EndIf
 
-                  Protected dfCurrentType.s = dfBaseStructType
-                  Protected dfRemaining.s = dfFieldChain
+                  dfCurrentType = dfBaseStructType
+                  dfRemaining = dfFieldChain
 
                   While dfRemaining <> "" And dfCurrentType <> ""
-                     Protected dfNextDot.i = FindString(dfRemaining, ".")
-                     Protected dfCurrentField.s
+                     dfNextDot = FindString(dfRemaining, ".")
+                     dfCurrentField = ""
                      If dfNextDot > 0
                         dfCurrentField = Left(dfRemaining, dfNextDot - 1)
                         dfRemaining = Mid(dfRemaining, dfNextDot + 1)
@@ -557,22 +639,22 @@
                   ; V1.029.64: Look up field type from struct definition using byte offset
                   ; Must handle nested structs by walking the type chain
                   If sfFieldType = 0 And gVarMeta(sfBaseSlot)\structType <> ""
-                     Protected sfLookupType.s = gVarMeta(sfBaseSlot)\structType
-                     Protected sfLookupOffset.i = sfByteOffset / 8  ; Convert byte offset to field index
-                     Protected sfLookupFound.b = #False
+                     sfLookupType = gVarMeta(sfBaseSlot)\structType
+                     sfLookupOffset = sfByteOffset / 8  ; Convert byte offset to field index
+                     sfLookupFound = #False
 
                      ; Walk nested struct chain until we find a primitive field
                      While Not sfLookupFound And sfLookupType <> ""
                         If FindMapElement(mapStructDefs(), sfLookupType)
-                           Protected sfAccumOffset.i = 0
+                           sfAccumOffset = 0
                            ForEach mapStructDefs()\fields()
-                              Protected sfFieldSize.i = 1  ; Default size for primitives
+                              sfFieldSize = 1  ; Default size for primitives
                               ; V1.029.72: Check for array fields - use arraySize for field size
                               If mapStructDefs()\fields()\isArray And mapStructDefs()\fields()\arraySize > 1
                                  sfFieldSize = mapStructDefs()\fields()\arraySize
                               ElseIf mapStructDefs()\fields()\structType <> ""
                                  ; Nested struct - get its total size
-                                 Protected sfNestedType.s = mapStructDefs()\fields()\structType
+                                 sfNestedType = mapStructDefs()\fields()\structType
                                  If FindMapElement(mapStructDefs(), sfNestedType)
                                     sfFieldSize = mapStructDefs()\totalSize
                                  EndIf
@@ -610,7 +692,7 @@
                   ; V1.029.40: Lazy STRUCT_ALLOC_LOCAL - emit on first field access for LOCAL structs
                   ; Global structs are pre-allocated by VM in vmTransferMetaToRuntime()
                   ; V1.029.65: Skip for struct PARAMETERS - they receive pointer from caller via FETCH_STRUCT
-                  Protected sfIsParam.b = Bool(gVarMeta(sfBaseSlot)\flags & #C2FLAG_PARAM)
+                  sfIsParam = Bool(gVarMeta(sfBaseSlot)\flags & #C2FLAG_PARAM)
                   ;Debug "FETCH ALLOC CHECK: slot=" + Str(sfBaseSlot) + " name='" + gVarMeta(sfBaseSlot)\name + "' isLocal=" + Str(sfIsLocal) + " isParam=" + Str(sfIsParam) + " emitted=" + Str(gVarMeta(sfBaseSlot)\structAllocEmitted) + " paramOffset=" + Str(gVarMeta(sfBaseSlot)\paramOffset)
                   If sfIsLocal And Not sfIsParam And Not gVarMeta(sfBaseSlot)\structAllocEmitted
                      ; Calculate byte size from struct definition
@@ -659,7 +741,7 @@
                   ; V1.029.16: For DOT notation fields, use dotFieldType to determine correct type
                   ; V1.029.24: Fixed - call EmitInt with FETCH opcodes and slot n, not LFETCH with paramOffset
                   ; EmitInt handles conversion FETCH->LFETCH and sets correct paramOffset
-                  Protected localFieldType.w = dotFieldType
+                  localFieldType = dotFieldType
                   If localFieldType = 0
                      localFieldType = gVarMeta(n)\flags
                   EndIf
@@ -743,21 +825,21 @@
          Case #nd_StructArrayField_I, #nd_StructArrayField_F, #nd_StructArrayField_S
             If *x\left And *x\left\NodeType = #ljLeftBracket And *x\left\left
                ; Get array base slot
-               Protected aosArraySlot.i = FetchVarOffset(*x\left\left\value)
-               Protected aosIsLocal.i = 0
+               aosArraySlot = FetchVarOffset(*x\left\left\value)
+               aosIsLocal = 0
                If gVarMeta(aosArraySlot)\paramOffset >= 0
                   aosIsLocal = 1
                EndIf
 
                ; V1.022.45: Parse elementSize|fieldOffset from value field
-               Protected aosElementSize.i = Val(StringField(*x\value, 1, "|"))
-               Protected aosFieldOffset.i = Val(StringField(*x\value, 2, "|"))
+               aosElementSize = Val(StringField(*x\value, 1, "|"))
+               aosFieldOffset = Val(StringField(*x\value, 2, "|"))
 
                ; Get index expression slot
-               Protected aosIndexSlot.i = GetExprSlotOrTemp(*x\left\right)
+               aosIndexSlot = GetExprSlotOrTemp(*x\left\right)
 
                ; Select opcode based on field type
-               Protected aosOpcode.i
+               aosOpcode = 0
                Select *x\NodeType
                   Case #nd_StructArrayField_I
                      aosOpcode = #ljARRAYOFSTRUCT_FETCH_INT
@@ -785,10 +867,10 @@
          ; *x\paramCount = number of dimensions
          ; Additional indices stored in: left\right = idx[1], left\left = idx[2], right\left = idx[3]
          Case #nd_MultiDimIndex
-            Protected mdSlot.i = Val(StringField(*x\value, 1, "|"))
-            Protected mdNDims.i = Val(StringField(*x\value, 2, "|"))
-            Protected mdIsLocal.i = 0
-            Protected mdArrayIndex.i = mdSlot
+            mdSlot = Val(StringField(*x\value, 1, "|"))
+            mdNDims = Val(StringField(*x\value, 2, "|"))
+            mdIsLocal = 0
+            mdArrayIndex = mdSlot
 
             ; Check if array is local
             If gVarMeta(mdSlot)\paramOffset >= 0
@@ -797,10 +879,10 @@
             EndIf
 
             ; Retrieve index expressions from node structure
-            Protected *mdIdx0.stTree = *x\right           ; First index
-            Protected *mdIdx1.stTree = 0
-            Protected *mdIdx2.stTree = 0
-            Protected *mdIdx3.stTree = 0
+            *mdIdx0 = *x\right           ; First index
+            *mdIdx1 = 0
+            *mdIdx2 = 0
+            *mdIdx3 = 0
 
             If mdNDims >= 2 And *x\left
                *mdIdx1 = *x\left\right
@@ -813,9 +895,9 @@
             EndIf
 
             ; Check if all indices are compile-time constants
-            Protected mdAllConstant.b = #True
-            Protected mdConstIdx0.i, mdConstIdx1.i, mdConstIdx2.i, mdConstIdx3.i
-            Protected mdLinearIndex.i = 0
+            mdAllConstant = #True
+            mdConstIdx0 = 0 : mdConstIdx1 = 0 : mdConstIdx2 = 0 : mdConstIdx3 = 0
+            mdLinearIndex = 0
 
             ; Check and collect constant index values
             If *mdIdx0 And *mdIdx0\NodeType = #ljINT
@@ -864,10 +946,10 @@
                ; Create temp slot for constant linear index
                ; V1.037.2: FIX - Use #ljINT synthetic type to create proper constant slot
                ; FetchVarOffset with #ljINT sets CONST flag and valueInt, enabling runtime transfer
-               Protected mdConstSlot.i = FetchVarOffset(Str(mdLinearIndex), 0, #ljINT)
+               mdConstSlot = FetchVarOffset(Str(mdLinearIndex), 0, #ljINT)
 
                ; Determine array type and emit fetch
-               Protected mdFetchOpcode.i
+               mdFetchOpcode = 0
                If gVarMeta(mdSlot)\flags & #C2FLAG_STR
                   mdFetchOpcode = #ljARRAYFETCH_STR
                ElseIf gVarMeta(mdSlot)\flags & #C2FLAG_FLOAT
@@ -889,7 +971,7 @@
                ; Compute: idx0 * stride0 + idx1 * stride1 + ...
 
                ; Generate code for first index * stride
-               Protected mdHasValue.b = #False
+               mdHasValue = #False
                If gVarMeta(mdSlot)\dimStrides[0] = 1
                   ; Stride is 1, just use index directly
                   CodeGenerator(*mdIdx0)
@@ -944,7 +1026,7 @@
                EndIf
 
                ; Stack now has the linear index - emit ARRAYFETCH_STACK variant
-               Protected mdFetchOpcodeStack.i
+               mdFetchOpcodeStack = 0
                If gVarMeta(mdSlot)\flags & #C2FLAG_STR
                   mdFetchOpcodeStack = #ljARRAYFETCH_STR
                ElseIf gVarMeta(mdSlot)\flags & #C2FLAG_FLOAT
@@ -983,11 +1065,9 @@
                n = FetchVarOffset(*x\left\value)
 
                ; V1.022.21: Get slot for index (may emit code for complex expressions)
-               Protected arrayFetchIndexSlot.i
                arrayFetchIndexSlot = GetExprSlotOrTemp(*x\right)
 
                ; Determine if array is local or global at compile time
-               Protected isLocal.i, arrayIndex.i
                isLocal = 0
                arrayIndex = n  ; Default to global varSlot
 
@@ -999,7 +1079,7 @@
 
                ; V1.022.22: Emit typed ARRAYFETCH directly (skip postprocessor typing)
                ; Determine type from array metadata
-               Protected arrayFetchOpcode.i
+               arrayFetchOpcode = 0
                If gVarMeta(n)\flags & #C2FLAG_STR
                   arrayFetchOpcode = #ljARRAYFETCH_STR
                ElseIf gVarMeta(n)\flags & #C2FLAG_FLOAT
@@ -1024,12 +1104,12 @@
             ; *x\value = "structVarSlot|fieldOffset|fieldName"
 
             ; Parse value to get struct info
-            Protected sarParts.s = *x\value
-            Protected sarStructSlot.i = Val(StringField(sarParts, 1, "|"))
-            Protected sarFieldOffset.i = Val(StringField(sarParts, 2, "|"))
-            Protected sarIsLocal.i = 0
-            Protected sarByteOffset.i = sarFieldOffset * 8  ; V1.029.58: Byte offset for \ptr storage
-            Protected sarIndexSlot.i
+            sarParts = *x\value
+            sarStructSlot = Val(StringField(sarParts, 1, "|"))
+            sarFieldOffset = Val(StringField(sarParts, 2, "|"))
+            sarIsLocal = 0
+            sarByteOffset = sarFieldOffset * 8  ; V1.029.58: Byte offset for \ptr storage
+            sarIndexSlot = 0
 
             ; Check if struct is local (has paramOffset >= 0)
             If gVarMeta(sarStructSlot)\paramOffset >= 0
@@ -1062,13 +1142,13 @@
             ; *x\value = "structVarSlot|fieldOffset|fieldName"
 
             ; Parse value to get struct info
-            Protected sasDirectParts.s = *x\value
-            Protected sasDirectStructSlot.i = Val(StringField(sasDirectParts, 1, "|"))
-            Protected sasDirectFieldOffset.i = Val(StringField(sasDirectParts, 2, "|"))
-            Protected sasDirectIsLocal.i = 0
-            Protected sasDirectByteOffset.i = sasDirectFieldOffset * 8  ; V1.029.58: Byte offset for \ptr storage
-            Protected sasDirectValueSlot.i
-            Protected sasDirectIndexSlot.i
+            sasDirectParts = *x\value
+            sasDirectStructSlot = Val(StringField(sasDirectParts, 1, "|"))
+            sasDirectFieldOffset = Val(StringField(sasDirectParts, 2, "|"))
+            sasDirectIsLocal = 0
+            sasDirectByteOffset = sasDirectFieldOffset * 8  ; V1.029.58: Byte offset for \ptr storage
+            sasDirectValueSlot = 0
+            sasDirectIndexSlot = 0
 
             ; Check if struct is local (has paramOffset >= 0)
             If gVarMeta(sasDirectStructSlot)\paramOffset >= 0
@@ -1099,18 +1179,18 @@
          Case #ljPTRSTRUCTFETCH_INT, #ljPTRSTRUCTFETCH_FLOAT, #ljPTRSTRUCTFETCH_STR
             ; V1.022.54: Struct pointer field fetch - ptr\field
             ; V1.022.55: Handle both resolved ("ptrVarSlot|fieldOffset") and deferred ("identName|fieldName") formats
-            Protected psfParts.s = *x\value
-            Protected psfField1.s = StringField(psfParts, 1, "|")
-            Protected psfField2.s = StringField(psfParts, 2, "|")
-            Protected psfPtrSlot.i
-            Protected psfFieldOffset.i
-            Protected psfActualNodeType.i = *x\NodeType
+            psfParts = *x\value
+            psfField1 = StringField(psfParts, 1, "|")
+            psfField2 = StringField(psfParts, 2, "|")
+            psfPtrSlot = 0
+            psfFieldOffset = 0
+            psfActualNodeType = *x\NodeType
             ; V1.029.41: Declare shared variables for struct var detection
-            Protected psfIsStructVar.i = #False
-            Protected psfIsLocalPtr.i = #False
-            Protected psfMetaSlot.i = -1
-            Protected psfStructType.s = ""
-            Protected psfFieldType.i = 0
+            psfIsStructVar = #False
+            psfIsLocalPtr = #False
+            psfMetaSlot = -1
+            psfStructType = ""
+            psfFieldType = 0
 
             ; Check if first field is numeric (resolved) or identifier (deferred)
             ; V1.023.13: Changed condition - slot "0" should use deferred path since slot 0 is reserved
@@ -1141,7 +1221,7 @@
 
                ; V1.029.41: Emit for resolved format - handle struct var vs pointer
                If psfIsStructVar
-                  Protected psfResByteOffset.i = psfFieldOffset * 8  ; Convert field offset to byte offset
+                  psfResByteOffset = psfFieldOffset * 8  ; Convert field offset to byte offset
 
                   ; Select correct opcode based on field type (global - resolved format is always global scope)
                   If psfFieldType & #C2FLAG_FLOAT
@@ -1163,17 +1243,17 @@
                EndIf
             Else
                ; Deferred format: "identName|fieldName" - resolve now
-               Protected psfIdentName.s = psfField1
-               Protected psfFieldName.s = psfField2
-               Protected psfVarIdx.i
+               psfIdentName = psfField1
+               psfFieldName = psfField2
+               psfVarIdx = 0
 
                ; V1.022.120: Find the variable - search LOCAL (mangled) name FIRST, then global
                ; This matches FetchVarOffset behavior and ensures local variables are found
                psfPtrSlot = -1
                psfIsLocalPtr = #False    ; V1.029.41: Now declared at top
                psfMetaSlot = -1          ; V1.029.41: Now declared at top
-               Protected psfMangledName.s = ""
-               Protected psfFuncName.s = gCurrentFunctionName
+               psfMangledName = ""
+               psfFuncName = gCurrentFunctionName
 
                ; V1.023.11: Recover function context if gCurrentFunctionName is empty but we're in a function
                If psfFuncName = "" And gCodeGenFunction >= #C2FUNCSTART
@@ -1291,13 +1371,13 @@
                ; V1.029.41: For struct VARIABLES (not pointers), use STRUCT_FETCH_* opcodes
                ; These use byte offset in contiguous memory (\ptr storage)
                If psfIsStructVar
-                  Protected psfByteOffset.i = psfFieldOffset * 8  ; Convert field offset to byte offset
+                  psfByteOffset = psfFieldOffset * 8  ; Convert field offset to byte offset
 
                   ; Emit lazy STRUCT_ALLOC_LOCAL for local struct if not already done
                   ; V1.029.65: Skip for struct PARAMETERS - they receive pointer from caller
-                  Protected psfIsParam.b = Bool(gVarMeta(psfMetaSlot)\flags & #C2FLAG_PARAM)
+                  psfIsParam = Bool(gVarMeta(psfMetaSlot)\flags & #C2FLAG_PARAM)
                   If psfIsLocalPtr And Not psfIsParam And Not gVarMeta(psfMetaSlot)\structAllocEmitted
-                     Protected psfStructByteSize.i = 8
+                     psfStructByteSize = 8
                      If FindMapElement(mapStructDefs(), psfStructType)
                         psfStructByteSize = mapStructDefs()\totalSize * 8
                      EndIf
@@ -1376,19 +1456,19 @@
                ; V1.022.55: Handle both resolved ("ptrVarSlot|fieldOffset") and deferred ("identName|fieldName") formats
                ; *x\left\value = "ptrVarSlot|fieldOffset" or "identName|fieldName"
                ; *x\right = value expression
-               Protected pssaParts.s = *x\left\value
-               Protected pssaField1.s = StringField(pssaParts, 1, "|")
-               Protected pssaField2.s = StringField(pssaParts, 2, "|")
-               Protected pssaPtrSlot.i
-               Protected pssaFieldOffset.i
-               Protected pssaValueSlot.i
-               Protected pssaStoreOp.i
+               pssaParts = *x\left\value
+               pssaField1 = StringField(pssaParts, 1, "|")
+               pssaField2 = StringField(pssaParts, 2, "|")
+               pssaPtrSlot = 0
+               pssaFieldOffset = 0
+               pssaValueSlot = 0
+               pssaStoreOp = 0
                ; V1.029.41: Declare shared variables for struct var detection
-               Protected pssaIsStructVar.i = #False
-               Protected pssaIsLocalPtr.i = #False
-               Protected pssaMetaSlot.i = -1
-               Protected pssaStructType.s = ""
-               Protected pssaFieldType.i = 0
+               pssaIsStructVar = #False
+               pssaIsLocalPtr = #False
+               pssaMetaSlot = -1
+               pssaStructType = ""
+               pssaFieldType = 0
 
                ; Check if first field is numeric (resolved) or identifier (deferred)
                ; V1.023.13: Changed condition - slot "0" should use deferred path since slot 0 is reserved
@@ -1428,17 +1508,17 @@
                   EndSelect
                Else
                   ; Deferred format: "identName|fieldName" - resolve now
-                  Protected pssaIdentName.s = pssaField1
-                  Protected pssaFieldName.s = pssaField2
-                  Protected pssaVarIdx.i
+                  pssaIdentName = pssaField1
+                  pssaFieldName = pssaField2
+                  pssaVarIdx = 0
 
                   ; V1.022.120: Find the variable - search LOCAL (mangled) name FIRST, then global
                   ; This matches FetchVarOffset behavior and ensures local variables are found
                   pssaPtrSlot = -1
                   pssaIsLocalPtr = #False   ; V1.029.41: Now declared at top
                   pssaMetaSlot = -1         ; V1.029.41: Now declared at top
-                  Protected pssaMangledName.s = ""
-                  Protected pssaFuncName.s = gCurrentFunctionName
+                  pssaMangledName = ""
+                  pssaFuncName = gCurrentFunctionName
 
                   ; V1.023.11: Recover function context if gCurrentFunctionName is empty but we're in a function
                   ; This can happen when function context wasn't properly propagated during codegen
@@ -1550,13 +1630,13 @@
 
                ; V1.029.41: For struct VARIABLES (not pointers), use STRUCT_STORE_* opcodes
                If pssaIsStructVar
-                  Protected pssaByteOffset.i = pssaFieldOffset * 8  ; Convert field offset to byte offset
+                  pssaByteOffset = pssaFieldOffset * 8  ; Convert field offset to byte offset
 
                   ; Emit lazy STRUCT_ALLOC_LOCAL for local struct if not already done
                   ; V1.029.65: Skip for struct PARAMETERS - they receive pointer from caller
-                  Protected pssaIsParam.b = Bool(gVarMeta(pssaMetaSlot)\flags & #C2FLAG_PARAM)
+                  pssaIsParam = Bool(gVarMeta(pssaMetaSlot)\flags & #C2FLAG_PARAM)
                   If pssaIsLocalPtr And Not pssaIsParam And Not gVarMeta(pssaMetaSlot)\structAllocEmitted
-                     Protected pssaStructByteSize.i = 8
+                     pssaStructByteSize = 8
                      If FindMapElement(mapStructDefs(), pssaStructType)
                         pssaStructByteSize = mapStructDefs()\totalSize * 8
                      EndIf
@@ -1604,16 +1684,16 @@
                ; V1.022.61: Check if this is NEW pointer variable definition vs existing dereference
                ; *ptr = &something where ptr is NEW -> pointer definition, use STORE
                ; *ptr = value where ptr EXISTS -> dereference assignment, use PTRSTORE
-               Protected ptrDefVarName.s, ptrDefIsNew.i, ptrDefSlot.i
                ptrDefVarName = ""
                ptrDefIsNew = #True
+               ptrDefSlot = 0
 
                If *x\left\left And *x\left\left\NodeType = #ljIDENT
                   ptrDefVarName = *x\left\left\value
 
                   ; Check if variable already exists in symbol table
                   ; Must account for function scope name mangling (same logic as FetchVarOffset)
-                  Protected ptrDefMangledName.s
+                  ptrDefMangledName = ""
 
                   ; First check for local variable (mangled name) if inside a function
                   If gCurrentFunctionName <> ""
@@ -1653,7 +1733,7 @@
                   ; This enables ptr\field syntax to work
                   If *x\right And *x\right\NodeType = #ljGETADDR
                      If *x\right\left And *x\right\left\NodeType = #ljIDENT
-                        Protected ptrDefSrcSlot.i = FetchVarOffset(*x\right\left\value)
+                        ptrDefSrcSlot = FetchVarOffset(*x\right\left\value)
                         If ptrDefSrcSlot >= 0 And ptrDefSrcSlot < ArraySize(gVarMeta())
                            If gVarMeta(ptrDefSrcSlot)\structType <> ""
                               ; Source is a struct - copy struct type to pointer metadata
@@ -1691,13 +1771,10 @@
 
                ; V1.022.21: Get slots for value and index (may emit code for complex expressions)
                ; Value first, then index (preserves evaluation order)
-               Protected arrayStoreValueSlot.i
-               Protected arrayStoreIndexSlot.i
                arrayStoreValueSlot = GetExprSlotOrTemp(*x\right)
                arrayStoreIndexSlot = GetExprSlotOrTemp(*x\left\right)
 
                ; Determine if array is local or global at compile time
-               Protected isLocalStore.i, arrayIndexStore.i
                isLocalStore = 0
                arrayIndexStore = n  ; Default to global varSlot
 
@@ -1709,7 +1786,7 @@
 
                ; V1.022.22: Emit typed ARRAYSTORE directly (skip postprocessor typing)
                ; Determine type from array metadata
-               Protected arrayStoreOpcode.i
+               arrayStoreOpcode = 0
                If gVarMeta(n)\flags & #C2FLAG_STR
                   arrayStoreOpcode = #ljARRAYSTORE_STR
                ElseIf gVarMeta(n)\flags & #C2FLAG_FLOAT
@@ -1732,10 +1809,10 @@
                ; *x\left = multi-dim index node
                ; *x\right = value expression
 
-               Protected mdStoreSlot.i = Val(StringField(*x\left\value, 1, "|"))
-               Protected mdStoreNDims.i = Val(StringField(*x\left\value, 2, "|"))
-               Protected mdStoreIsLocal.i = 0
-               Protected mdStoreArrayIndex.i = mdStoreSlot
+               mdStoreSlot = Val(StringField(*x\left\value, 1, "|"))
+               mdStoreNDims = Val(StringField(*x\left\value, 2, "|"))
+               mdStoreIsLocal = 0
+               mdStoreArrayIndex = mdStoreSlot
 
                ; Check if array is local
                If gVarMeta(mdStoreSlot)\paramOffset >= 0
@@ -1744,13 +1821,13 @@
                EndIf
 
                ; Get value expression slot
-               Protected mdStoreValueSlot.i = GetExprSlotOrTemp(*x\right)
+               mdStoreValueSlot = GetExprSlotOrTemp(*x\right)
 
                ; Retrieve index expressions from node structure
-               Protected *mdStoreIdx0.stTree = *x\left\right
-               Protected *mdStoreIdx1.stTree = 0
-               Protected *mdStoreIdx2.stTree = 0
-               Protected *mdStoreIdx3.stTree = 0
+               *mdStoreIdx0 = *x\left\right
+               *mdStoreIdx1 = 0
+               *mdStoreIdx2 = 0
+               *mdStoreIdx3 = 0
 
                If mdStoreNDims >= 2 And *x\left\left
                   *mdStoreIdx1 = *x\left\left\right
@@ -1763,9 +1840,9 @@
                EndIf
 
                ; Check if all indices are compile-time constants
-               Protected mdStoreAllConst.b = #True
-               Protected mdStoreConstIdx0.i, mdStoreConstIdx1.i, mdStoreConstIdx2.i, mdStoreConstIdx3.i
-               Protected mdStoreLinearIdx.i = 0
+               mdStoreAllConst = #True
+               mdStoreConstIdx0 = 0 : mdStoreConstIdx1 = 0 : mdStoreConstIdx2 = 0 : mdStoreConstIdx3 = 0
+               mdStoreLinearIdx = 0
 
                If *mdStoreIdx0 And *mdStoreIdx0\NodeType = #ljINT
                   mdStoreConstIdx0 = Val(*mdStoreIdx0\value)
@@ -1813,10 +1890,10 @@
                   ; Create temp slot for constant linear index
                   ; V1.037.2: FIX - Use #ljINT synthetic type to create proper constant slot
                   ; FetchVarOffset with #ljINT sets CONST flag and valueInt, enabling runtime transfer
-                  Protected mdStoreConstSlot.i = FetchVarOffset(Str(mdStoreLinearIdx), 0, #ljINT)
+                  mdStoreConstSlot = FetchVarOffset(Str(mdStoreLinearIdx), 0, #ljINT)
 
                   ; Determine array type and emit store
-                  Protected mdStoreOpcode.i
+                  mdStoreOpcode = 0
                   If gVarMeta(mdStoreSlot)\flags & #C2FLAG_STR
                      mdStoreOpcode = #ljARRAYSTORE_STR
                   ElseIf gVarMeta(mdStoreSlot)\flags & #C2FLAG_FLOAT
@@ -1839,7 +1916,7 @@
                   ; Push value first, then compute and push linear index
 
                   ; Generate code for first index * stride
-                  Protected mdStoreHasVal.b = #False
+                  mdStoreHasVal = #False
                   If gVarMeta(mdStoreSlot)\dimStrides[0] = 1
                      CodeGenerator(*mdStoreIdx0)
                      mdStoreHasVal = #True
@@ -1893,7 +1970,7 @@
                   EndIf
 
                   ; Stack now has linear index - emit ARRAYSTORE with stack index
-                  Protected mdStoreOpcodeStack.i
+                  mdStoreOpcodeStack = 0
                   If gVarMeta(mdStoreSlot)\flags & #C2FLAG_STR
                      mdStoreOpcodeStack = #ljARRAYSTORE_STR
                   ElseIf gVarMeta(mdStoreSlot)\flags & #C2FLAG_FLOAT
@@ -1922,13 +1999,13 @@
                ; *x\right = value expression
 
                ; Parse value to get struct info
-               Protected sasPartsStore.s = *x\left\value
-               Protected sasStructSlotStore.i = Val(StringField(sasPartsStore, 1, "|"))
-               Protected sasFieldOffsetStore.i = Val(StringField(sasPartsStore, 2, "|"))
-               Protected sasIsLocalStore.i = 0
-               Protected sasBaseSlotStore.i
-               Protected sasValueSlotStore.i
-               Protected sasIndexSlotStore.i
+               sasPartsStore = *x\left\value
+               sasStructSlotStore = Val(StringField(sasPartsStore, 1, "|"))
+               sasFieldOffsetStore = Val(StringField(sasPartsStore, 2, "|"))
+               sasIsLocalStore = 0
+               sasBaseSlotStore = 0
+               sasValueSlotStore = 0
+               sasIndexSlotStore = 0
 
                ; Check if struct is local (has paramOffset >= 0)
                If gVarMeta(sasStructSlotStore)\paramOffset >= 0
@@ -1946,7 +2023,7 @@
                sasIndexSlotStore = GetExprSlotOrTemp(*x\left\left)
 
                ; Choose store opcode based on fetch type
-               Protected structStoreOp.i
+               structStoreOp = 0
                Select *x\left\NodeType
                   Case #ljSTRUCTARRAY_FETCH_INT
                      structStoreOp = #ljSTRUCTARRAY_STORE_INT
@@ -1975,24 +2052,24 @@
 
                If *x\left\left And *x\left\left\NodeType = #ljLeftBracket And *x\left\left\left
                   ; Get array base slot
-                  Protected aosStoreArraySlot.i = FetchVarOffset(*x\left\left\left\value)
-                  Protected aosStoreIsLocal.i = 0
+                  aosStoreArraySlot = FetchVarOffset(*x\left\left\left\value)
+                  aosStoreIsLocal = 0
                   If gVarMeta(aosStoreArraySlot)\paramOffset >= 0
                      aosStoreIsLocal = 1
                   EndIf
 
                   ; V1.022.45: Parse elementSize|fieldOffset from value field
-                  Protected aosStoreElementSize.i = Val(StringField(*x\left\value, 1, "|"))
-                  Protected aosStoreFieldOffset.i = Val(StringField(*x\left\value, 2, "|"))
+                  aosStoreElementSize = Val(StringField(*x\left\value, 1, "|"))
+                  aosStoreFieldOffset = Val(StringField(*x\left\value, 2, "|"))
 
                   ; V1.022.45: Generate code to push value to stack first
                   CodeGenerator(*x\right)
 
                   ; Get slot for index expression (may emit code for complex expressions)
-                  Protected aosStoreIndexSlot.i = GetExprSlotOrTemp(*x\left\left\right)
+                  aosStoreIndexSlot = GetExprSlotOrTemp(*x\left\left\right)
 
                   ; Select store opcode based on field type
-                  Protected aosStoreOpcode.i
+                  aosStoreOpcode = 0
                   Select *x\left\NodeType
                      Case #nd_StructArrayField_I
                         aosStoreOpcode = #ljARRAYOFSTRUCT_STORE_INT
@@ -2034,14 +2111,14 @@
 
                ; V1.022.65: Check for struct-to-struct copy (same type required)
                ; destStruct = srcStruct
-               Protected scStructCopyDone.i = #False
+               scStructCopyDone = #False
                If gVarMeta(n)\structType <> "" And *x\right And *x\right\NodeType = #ljIDENT
-                  Protected scSrcSlot.i = FetchVarOffset(*x\right\value)
+                  scSrcSlot = FetchVarOffset(*x\right\value)
                   If scSrcSlot >= 0 And scSrcSlot < ArraySize(gVarMeta())
                      If gVarMeta(scSrcSlot)\structType = gVarMeta(n)\structType
                         ; Both are structs of same type - emit STRUCTCOPY
-                        Protected scStructType.s = gVarMeta(n)\structType
-                        Protected scSlotCount.i = 0
+                        scStructType = gVarMeta(n)\structType
+                        scSlotCount = 0
                         If FindMapElement(mapStructDefs(), scStructType)
                            scSlotCount = mapStructDefs()\totalSize
                         EndIf
@@ -2055,9 +2132,9 @@
                            ; Check if dest is local (variable) vs global, and skip if it's a parameter (receives pointer from caller)
                            ; V1.029.66: GLOBAL structs are pre-allocated by vmTransferMetaToRuntime - DO NOT re-allocate!
                            ; Only emit STRUCT_ALLOC_LOCAL for LOCAL struct variables (not parameters)
-                           Protected scDestIsLocal.b = Bool(gVarMeta(n)\paramOffset >= 0)
-                           Protected scDestIsParam.b = Bool(gVarMeta(n)\flags & #C2FLAG_PARAM)
-                           Protected scByteSize.i = scSlotCount * 8
+                           scDestIsLocal = Bool(gVarMeta(n)\paramOffset >= 0)
+                           scDestIsParam = Bool(gVarMeta(n)\flags & #C2FLAG_PARAM)
+                           scByteSize = scSlotCount * 8
 
                            If scDestIsLocal And Not scDestIsParam And Not gVarMeta(n)\structAllocEmitted
                               ; Emit STRUCT_ALLOC_LOCAL for local struct variable
@@ -2071,8 +2148,8 @@
 
                            ; V1.029.66: Also ensure SOURCE struct is allocated IF it's a local variable
                            ; Global source structs are already allocated; local vars may need lazy allocation
-                           Protected scSrcIsLocal.b = Bool(gVarMeta(scSrcSlot)\paramOffset >= 0)
-                           Protected scSrcIsParam.b = Bool(gVarMeta(scSrcSlot)\flags & #C2FLAG_PARAM)
+                           scSrcIsLocal = Bool(gVarMeta(scSrcSlot)\paramOffset >= 0)
+                           scSrcIsParam = Bool(gVarMeta(scSrcSlot)\flags & #C2FLAG_PARAM)
 
                            If scSrcIsLocal And Not scSrcIsParam And Not gVarMeta(scSrcSlot)\structAllocEmitted
                               gEmitIntLastOp = AddElement(llObjects())
@@ -2146,7 +2223,7 @@
 
                   ; V1.20.12: Check if RHS is PTRFETCH (possibly wrapped in type conversion)
                   ; Parser may insert ITOF/FTOI wrapper, so check both direct and wrapped cases
-                  Protected *ptrFetchNode.stTree = #Null
+                  *ptrFetchNode = #Null
 
                   If *x\right
                      ; Direct PTRFETCH
@@ -2260,7 +2337,7 @@
                   ; V1.029.58: Skip type checking for struct field assignments
                   ; Struct field type is determined from struct definition, not gVarMeta(n)\flags
                   ; gVarMeta(n) returns struct base slot which has #C2FLAG_STRUCT, not the field type
-                  Protected isStructFieldAssignment.i = Bool(gVarMeta(n)\structFieldBase >= 0)
+                  isStructFieldAssignment = Bool(gVarMeta(n)\structFieldBase >= 0)
 
                   ; V1.023.26: Strict type checking - variables cannot change type
                   If Not isStructFieldAssignment And *x\left\TypeHint = #ljFLOAT And Not (gVarMeta(n)\flags & #C2FLAG_FLOAT)
@@ -2451,7 +2528,7 @@
                      ; V1.19.1: Warn if untyped variable is assigned from PTRFETCH
                      If *x\right And *x\right\NodeType = #ljPTRFETCH
                         ; Check if variable has explicit type annotation
-                        Protected hasExplicitType.i = #False
+                        hasExplicitType = #False
                         If (gVarMeta(n)\flags & #C2FLAG_FLOAT) Or (gVarMeta(n)\flags & #C2FLAG_STR)
                            hasExplicitType = #True
                         ElseIf (gVarMeta(n)\flags & #C2FLAG_INT)
@@ -2475,10 +2552,7 @@
                ; V1.030.62: Handle struct initialization { } - allocate only, don't emit store
                ; The { } syntax just allocates the struct with default values, no actual store needed
                ; Without this check, STORE_STRUCT is emitted which pops garbage from empty stack
-               ; V1.033.59: BUGFIX - Move Protected declarations outside If blocks to avoid stack corruption
-               Protected initStructByteSize.i
-               Protected sfaFieldType.w, sfaBaseSlot.i, sfaFlatOffset.i, sfaCurrentType.s
-               Protected sfaFound.b, sfaNextType.s, sfaFieldStart.i, sfaFieldEnd.i, sfaTotalSize.i, sfaMaxIter.i
+               ; V1.033.59: BUGFIX - Variables pre-declared at procedure scope per CLAUDE.md rule #5
                If *x\right And *x\right\NodeType = #ljStructInit And (gVarMeta(n)\flags & #C2FLAG_STRUCT)
                   ; Emit STRUCT_ALLOC_LOCAL if not already allocated (for local structs only)
                   If gVarMeta(n)\paramOffset >= 0 And Not gVarMeta(n)\structAllocEmitted
@@ -2686,9 +2760,8 @@
          Case #ljIF
             ; V1.031.114: Iterative else-if chain processing to avoid stack overflow
             ; When else-body is another IF, we iterate instead of recursing
-            Protected *ifNode.stTree = *x
-            Protected Dim ifJmpHoles.i(#MAX_ELSEIF_BRANCHES)  ; Track JMP holes for fixing at end
-            Protected ifJmpCount.i = 0
+            *ifNode = *x
+            ifJmpCount = 0
 
             While *ifNode And *ifNode\NodeType = #ljIF
                CodeGenerator( *ifNode\left )   ; Generate condition
@@ -3232,8 +3305,8 @@
                ; This avoids deep recursion for files with many statements
 
                ; Count depth of left SEQ chain
-               Protected *seqWalk.stTree = *x
-               Protected seqDepth.i = 0
+               *seqWalk = *x
+               seqDepth = 0
                While *seqWalk And *seqWalk\NodeType = #ljSEQ
                   seqDepth + 1
                   *seqWalk = *seqWalk\left
@@ -3243,7 +3316,7 @@
                If seqDepth < 100
                   ; V1.035.14: Check if right child is a function call - if so, left is args
                   ; Don't drop increment results when they're function arguments
-                  Protected savedInFuncArgs.b = gInFuncArgs
+                  savedInFuncArgs = gInFuncArgs
                   If *x\right And *x\right\NodeType = #ljCall
                      gInFuncArgs = #True
                   EndIf
@@ -3295,7 +3368,7 @@
                   ; The list was built from newest to oldest, so reverse iterate
                   If LastElement(llSeqNodes())
                      Repeat
-                        Protected *stmtNode.stTree = llSeqNodes()
+                        *stmtNode = llSeqNodes()
                         If *stmtNode
                            CodeGenerator(*stmtNode)
                            ; Handle DROP for increment/decrement statements
@@ -3331,7 +3404,7 @@
             gCodeGenLocalIndex = 0
             gCodeGenFunction = 0
             ; V1.029.75: Debug function ID lookup (only for functions 5,6,7,8)
-            Protected ljfDebugId.i = Val(*x\value)
+            ljfDebugId = Val(*x\value)
             CompilerIf #DEBUG
                If ljfDebugId >= 5 And ljfDebugId <= 8
                   ; Debug "V1.029.75: #ljFunction funcId=" + Str(ljfDebugId)
@@ -3381,8 +3454,8 @@
                   ;
                   ; For struct params (obj), we pre-calculate its paramOffset based on its
                   ; position in the original param list (0=first param -> offset=nParams-1).
-                  Protected ljfStructParamPrefix.s = LCase(gCurrentFunctionName + "_")
-                  Protected ljfVarIdx.i
+                  ljfStructParamPrefix = LCase(gCurrentFunctionName + "_")
+                  ljfVarIdx = 0
                   For ljfVarIdx = 0 To gnLastVariable - 1
                      ; Check for pre-created struct params (have PARAM|STRUCT flags, mangled name)
                      If (gVarMeta(ljfVarIdx)\flags & #C2FLAG_PARAM) And (gVarMeta(ljfVarIdx)\flags & #C2FLAG_STRUCT)
@@ -3581,13 +3654,13 @@
                   CodeGenerator( *x\left\right )
 
                   ; V1.027.2: Check if this is a local array (paramOffset >= 0)
-                  Protected isLocalArray.i = Bool(gVarMeta(n)\paramOffset >= 0)
-                  Protected localArrayOffset.i = gVarMeta(n)\paramOffset
+                  isLocalArray = Bool(gVarMeta(n)\paramOffset >= 0)
+                  localArrayOffset = gVarMeta(n)\paramOffset
 
                   ; Determine opcode based on array type from metadata (not TypeHint)
                   ; Use gVarMeta flags like normal array indexing does
-                  Protected arrayOpcode.i
-                  Protected arrayType.i = gVarMeta(n)\flags & #C2FLAG_TYPE
+                  arrayOpcode = 0
+                  arrayType = gVarMeta(n)\flags & #C2FLAG_TYPE
 
                   ; V1.033.34: Debug trace for GETARRAYADDR type selection
                   OSDebug("V1.033.34: GETARRAYADDR for '" + *x\left\left\value + "' n=" + Str(n) + " name='" + gVarMeta(n)\name + "' flags=$" + Hex(gVarMeta(n)\flags,#PB_Word) + " arrayType=$" + Hex(arrayType,#PB_Word) + " isLocal=" + Str(isLocalArray) + " paramOffset=" + Str(gVarMeta(n)\paramOffset))
@@ -3635,15 +3708,15 @@
                If gVarMeta(n)\structType <> ""
                   ; V1.029.9: Find correct struct slot by searching for FIRST FIELD
                   ; V1.029.10: Use dot notation (varName.field)
-                  Protected gaStructType.s = gVarMeta(n)\structType
-                  Protected gaSlotCount.i = 0
+                  gaStructType = gVarMeta(n)\structType
+                  gaSlotCount = 0
                   If FindMapElement(mapStructDefs(), gaStructType)
                      gaSlotCount = mapStructDefs()\totalSize
                   EndIf
                   If gaSlotCount > 1
-                     Protected gaFieldPrefix.s = *x\left\value + "."  ; Fields use dot notation
-                     Protected gaSearchIdx.i
-                     Protected gaSlotName.s
+                     gaFieldPrefix = *x\left\value + "."  ; Fields use dot notation
+                     gaSearchIdx = 0
+                     gaSlotName = ""
                      ; Search forwards to find FIRST field slot
                      For gaSearchIdx = 0 To gnLastVariable - 1
                         gaSlotName = gVarMeta(gaSearchIdx)\name
@@ -3658,12 +3731,12 @@
                Else
                   ; V1.027.2: Check if this is a local variable (paramOffset >= 0)
                   ; Local variables need GETLOCALADDR which calculates fp + paramOffset at runtime
-                  Protected isLocalVar.i = Bool(gVarMeta(n)\paramOffset >= 0)
-                  Protected localOffset.i = gVarMeta(n)\paramOffset
+                  isLocalVar = Bool(gVarMeta(n)\paramOffset >= 0)
+                  localOffset = gVarMeta(n)\paramOffset
 
                   ; V1.031.35: Emit type-specific GETADDR based on gVarMeta flags (not TypeHint which may be incorrect)
-                  Protected opcode.i
-                  Protected varFlags.w = gVarMeta(n)\flags
+                  opcode = 0
+                  varFlags = gVarMeta(n)\flags
                   If isLocalVar
                      ; V1.027.2: Use local address opcodes for local variables
                      ; V1.031.35: Use gVarMeta flags for reliable type detection
@@ -3790,9 +3863,9 @@
             ; V1.033.53: FIX - User function IDs now start at 1000 (#C2FUNCSTART)
             ; This avoids collision with built-in opcodes (which end at ~493).
             ; The mapBuiltins check is kept as additional safety.
-            Protected isListFunc.i = Bool(funcId >= #ljLIST_ADD And funcId <= #ljLIST_SORT)
-            Protected isMapFunc.i = Bool(funcId >= #ljMAP_PUT And funcId <= #ljMAP_VALUE)
-            Protected isBuiltinFunc.i = #False
+            isListFunc = Bool(funcId >= #ljLIST_ADD And funcId <= #ljLIST_SORT)
+            isMapFunc = Bool(funcId >= #ljMAP_PUT And funcId <= #ljMAP_VALUE)
+            isBuiltinFunc = #False
 
             ; Check if funcId is a registered built-in
             ForEach mapBuiltins()
@@ -3824,7 +3897,7 @@
             Else
                ; User-defined function - emit CALL with function ID
                ; Store nParams in j and nLocals in n (no packing)
-               Protected nLocals.l, nLocalArrays.l
+               nLocals = 0 : nLocalArrays = 0
 
                ; Find nLocals and nLocalArrays for this function
                ForEach mapModules()
@@ -3864,7 +3937,7 @@
                ; This embeds paramOffset and arraySize directly in the code stream
                ; so VM doesn't need to access gVarMeta (compiler-only data)
                If nLocalArrays > 0
-                  Protected arrIdx.l, arrVarSlot.l
+                  arrIdx = 0 : arrVarSlot = 0
                   For arrIdx = 0 To nLocalArrays - 1
                      arrVarSlot = gFuncLocalArraySlots(funcId, arrIdx)
                      EmitInt(#ljARRAYINFO, gVarMeta(arrVarSlot)\paramOffset)
@@ -3888,7 +3961,7 @@
             CodeGenerator( *x\left )
 
             ; Determine source type
-            Protected sourceType.w = GetExprResultType(*x\left)
+            sourceType = GetExprResultType(*x\left)
 
             ; Emit appropriate conversion based on source and target types
             Select *x\NodeType
@@ -3937,11 +4010,11 @@
          Case #ljARRAYRESIZE
             ; Emit ARRAYRESIZE opcode
             ; Node fields: value = array name, paramCount = new size, TypeHint = isLocal
-            Protected resizeArrayName.s = *x\value
-            Protected resizeNewSize.i = *x\paramCount
-            Protected resizeIsLocal.i = *x\TypeHint
-            Protected resizeVarSlot.i
-            Protected resizeSlotToEmit.i
+            resizeArrayName = *x\value
+            resizeNewSize = *x\paramCount
+            resizeIsLocal = *x\TypeHint
+            resizeVarSlot = 0
+            resizeSlotToEmit = 0
 
             ; Look up the array variable slot
             resizeVarSlot = FetchVarOffset(resizeArrayName)
@@ -3964,11 +4037,11 @@
          ; V1.026.0: List creation
          ; V1.026.19: Support local list variables via \n = isLocal flag
          Case #ljLIST_NEW
-            Protected listNewName.s = *x\value
-            Protected listNewTypeHint.i = *x\TypeHint
-            Protected listNewVarSlot.i
-            Protected listNewIsLocal.i = 0
-            Protected listNewSlotToEmit.i
+            listNewName = *x\value
+            listNewTypeHint = *x\TypeHint
+            listNewVarSlot = 0
+            listNewIsLocal = 0
+            listNewSlotToEmit = 0
 
             listNewVarSlot = FetchVarOffset(listNewName)
 
@@ -3981,8 +4054,8 @@
             EndIf
 
             ; Convert TypeHint to C2FLAG format
-            Protected listNewType.i = #C2FLAG_INT
-            Protected listNewElementSize.i = 1
+            listNewType = #C2FLAG_INT
+            listNewElementSize = 1
             If listNewTypeHint = #ljFLOAT
                listNewType = #C2FLAG_FLOAT
             ElseIf listNewTypeHint = #ljSTRING
@@ -4002,11 +4075,11 @@
          ; V1.026.0: Map creation
          ; V1.026.19: Support local map variables via \n = isLocal flag
          Case #ljMAP_NEW
-            Protected mapNewName.s = *x\value
-            Protected mapNewTypeHint.i = *x\TypeHint
-            Protected mapNewVarSlot.i
-            Protected mapNewIsLocal.i = 0
-            Protected mapNewSlotToEmit.i
+            mapNewName = *x\value
+            mapNewTypeHint = *x\TypeHint
+            mapNewVarSlot = 0
+            mapNewIsLocal = 0
+            mapNewSlotToEmit = 0
 
             mapNewVarSlot = FetchVarOffset(mapNewName)
 
@@ -4019,8 +4092,8 @@
             EndIf
 
             ; Convert TypeHint to C2FLAG format
-            Protected mapNewType.i = #C2FLAG_INT
-            Protected mapNewElementSize.i = 1
+            mapNewType = #C2FLAG_INT
+            mapNewElementSize = 1
             If mapNewTypeHint = #ljFLOAT
                mapNewType = #C2FLAG_FLOAT
             ElseIf mapNewTypeHint = #ljSTRING

@@ -21,6 +21,39 @@
       Protected         leftType.w, rightType.w
       Protected         pointerBaseType.w
       Protected         *funcNode.stTree
+      Protected         structFieldPos.i
+      Protected         structVarName.s
+      Protected         fieldName.s
+      Protected         structSlot.i
+      Protected         structTypeName.s
+      Protected         mangledStructName.s
+      Protected         bsCurrentType.s
+      Protected         bsFieldParts.i
+      Protected         bsFieldIdx.i
+      Protected         bsFinalType.w
+      Protected         bsFound.i
+      Protected         bsCurrentField.s
+      Protected         dotPos.i
+      Protected         dotStructName.s
+      Protected         dotFieldChain.s
+      Protected         dotStructSlot.i
+      Protected         dotStructTypeName.s
+      Protected         dotMangledName.s
+      Protected         dotSuffix.s
+      Protected         suffixMatch.s
+      Protected         dotCurrentType.s
+      Protected         dotFieldParts.i
+      Protected         dotFieldIdx.i
+      Protected         dotFinalType.w
+      Protected         dotCurrentField.s
+      Protected         searchName.s
+      Protected         paramStr.s
+      Protected         closeParenPos.i
+      Protected         paramIdx.i
+      Protected         param.s
+      Protected         paramName.s
+      Protected         ptrName.s
+      Protected         mangledPtrName.s
 
       ; Prevent infinite recursion / stack overflow
       If depth > 100
@@ -61,16 +94,16 @@
          Case #ljIDENT
             ; V1.023.35: Handle struct field access (e.g., "v1\x")
             ; Need to look up field type from struct definition
-            Protected structFieldPos.i = FindString(*x\value, "\")
+            structFieldPos = FindString(*x\value, "\")
             If structFieldPos > 0
-               Protected structVarName.s = Left(*x\value, structFieldPos - 1)
-               Protected fieldName.s = Mid(*x\value, structFieldPos + 1)
-               Protected structSlot.i = -1
-               Protected structTypeName.s = ""
+               structVarName = Left(*x\value, structFieldPos - 1)
+               fieldName = Mid(*x\value, structFieldPos + 1)
+               structSlot = -1
+               structTypeName = ""
 
                ; Find the struct variable (try mangled name first for locals)
                If gCurrentFunctionName <> ""
-                  Protected mangledStructName.s = gCurrentFunctionName + "_" + structVarName
+                  mangledStructName = gCurrentFunctionName + "_" + structVarName
                   For n = 0 To gnLastVariable - 1
                      If LCase(gVarMeta(n)\name) = LCase(mangledStructName) And (gVarMeta(n)\flags & #C2FLAG_STRUCT)
                         structSlot = n
@@ -106,14 +139,14 @@
                ; V1.030.58: Look up field type from struct definition - handle nested field chains
                ; fieldName may be "bottomRight\x" for nested access, need to walk the chain
                If structTypeName <> "" And FindMapElement(mapStructDefs(), structTypeName)
-                  Protected bsCurrentType.s = structTypeName
-                  Protected bsFieldParts.i = CountString(fieldName, "\") + 1
-                  Protected bsFieldIdx.i
-                  Protected bsFinalType.w = #C2FLAG_INT  ; Default
-                  Protected bsFound.i = #False
+                  bsCurrentType = structTypeName
+                  bsFieldParts = CountString(fieldName, "\") + 1
+                  bsFieldIdx = 0
+                  bsFinalType = #C2FLAG_INT  ; Default
+                  bsFound = #False
 
                   For bsFieldIdx = 1 To bsFieldParts
-                     Protected bsCurrentField.s = StringField(fieldName, bsFieldIdx, "\")
+                     bsCurrentField = StringField(fieldName, bsFieldIdx, "\")
                      If FindMapElement(mapStructDefs(), bsCurrentType)
                         ForEach mapStructDefs()\fields()
                            If LCase(mapStructDefs()\fields()\name) = LCase(bsCurrentField)
@@ -135,18 +168,18 @@
             EndIf
 
             ; V1.029.28: Handle DOT notation struct field names (e.g., "local.x" or "r.bottomRight.x")
-            Protected dotPos.i = FindString(*x\value, ".")
+            dotPos = FindString(*x\value, ".")
             If dotPos > 0 And dotPos < Len(*x\value)
-               Protected dotStructName.s = Trim(Left(*x\value, dotPos - 1))
-               Protected dotFieldChain.s = Trim(Mid(*x\value, dotPos + 1))
-               Protected dotStructSlot.i = -1
-               Protected dotStructTypeName.s = ""
+               dotStructName = Trim(Left(*x\value, dotPos - 1))
+               dotFieldChain = Trim(Mid(*x\value, dotPos + 1))
+               dotStructSlot = -1
+               dotStructTypeName = ""
 
                ; Debug "V1.030.41: GetExprResultType DOT '" + *x\value + "' gCurrentFunctionName='" + gCurrentFunctionName + "'"
 
                ; Look for mangled local struct first
                If gCurrentFunctionName <> ""
-                  Protected dotMangledName.s = gCurrentFunctionName + "_" + dotStructName
+                  dotMangledName = gCurrentFunctionName + "_" + dotStructName
                   For n = 0 To gnLastVariable - 1
                      If LCase(Trim(gVarMeta(n)\name)) = LCase(dotMangledName) And (gVarMeta(n)\flags & #C2FLAG_STRUCT)
                         dotStructSlot = n
@@ -177,12 +210,12 @@
                ; V1.030.44: Fallback - search for any mangled name ending with _dotStructName
                ; This handles case when gCurrentFunctionName is empty but param is mangled
                If dotStructSlot < 0
-                  Protected dotSuffix.s = "_" + LCase(dotStructName)
+                  dotSuffix = "_" + LCase(dotStructName)
                   ; Debug "V1.030.44: SUFFIX SEARCH for '" + dotStructName + "' suffix='" + dotSuffix + "' len=" + Str(Len(dotSuffix))
                   For n = 0 To gnLastVariable - 1
                      ; Debug all struct vars during suffix search
                      If gVarMeta(n)\structType <> "" Or (gVarMeta(n)\flags & #C2FLAG_STRUCT)
-                        Protected suffixMatch.s = Right(LCase(gVarMeta(n)\name), Len(dotSuffix))
+                        suffixMatch = Right(LCase(gVarMeta(n)\name), Len(dotSuffix))
                         Debug "  [" + Str(n) + "] '" + gVarMeta(n)\name + "' Right='" + suffixMatch + "' structType='" + gVarMeta(n)\structType + "'"
                      EndIf
                      If Right(LCase(gVarMeta(n)\name), Len(dotSuffix)) = dotSuffix And gVarMeta(n)\structType <> ""
@@ -212,13 +245,13 @@
 
                ; Resolve field chain to get final field type
                If dotStructTypeName <> "" And FindMapElement(mapStructDefs(), dotStructTypeName)
-                  Protected dotCurrentType.s = dotStructTypeName
-                  Protected dotFieldParts.i = CountString(dotFieldChain, ".") + 1
-                  Protected dotFieldIdx.i
-                  Protected dotFinalType.w = #C2FLAG_INT  ; Default
+                  dotCurrentType = dotStructTypeName
+                  dotFieldParts = CountString(dotFieldChain, ".") + 1
+                  dotFieldIdx = 0
+                  dotFinalType = #C2FLAG_INT  ; Default
 
                   For dotFieldIdx = 1 To dotFieldParts
-                     Protected dotCurrentField.s = StringField(dotFieldChain, dotFieldIdx, ".")
+                     dotCurrentField = StringField(dotFieldChain, dotFieldIdx, ".")
                      If FindMapElement(mapStructDefs(), dotCurrentType)
                         ForEach mapStructDefs()\fields()
                            If LCase(mapStructDefs()\fields()\name) = LCase(dotCurrentField)
@@ -240,7 +273,7 @@
 
             ; Check variable type - search existing variables
             ; Apply name mangling for local variables (same logic as FetchVarOffset)
-            Protected searchName.s = *x\value
+            searchName = *x\value
             If gCurrentFunctionName <> "" And Left(*x\value, 1) <> "$"
                ; Try mangled name first (local variable)
                searchName = gCurrentFunctionName + "_" + *x\value
@@ -276,8 +309,8 @@
                ForEach mapModules()
                   If MapKey(mapModules()) = gCurrentFunctionName
                      ; Parse the parameter string to find this parameter's type
-                     Protected paramStr.s = mapModules()\params
-                     Protected closeParenPos.i = FindString(paramStr, ")", 1)
+                     paramStr = mapModules()\params
+                     closeParenPos = FindString(paramStr, ")", 1)
                      If closeParenPos > 0
                         paramStr = Mid(paramStr, 2, closeParenPos - 2)
                      Else
@@ -286,11 +319,11 @@
                      paramStr = Trim(paramStr)
 
                      If paramStr <> ""
-                        Protected paramIdx.i
+                        paramIdx = 0
                         For paramIdx = 1 To CountString(paramStr, ",") + 1
-                           Protected param.s = Trim(StringField(paramStr, paramIdx, ","))
+                           param = Trim(StringField(paramStr, paramIdx, ","))
                            ; Extract parameter name (before type suffix)
-                           Protected paramName.s = param
+                           paramName = param
                            If FindString(param, ".f", 1, #PB_String_NoCase)
                               paramName = Left(param, FindString(param, ".f", 1, #PB_String_NoCase) - 1)
                            ElseIf FindString(param, ".d", 1, #PB_String_NoCase)
@@ -405,8 +438,8 @@
             ; *x\left is the pointer variable being dereferenced (e.g., 'ptr' in '*ptr')
             If *x\left And *x\left\NodeType = #ljIDENT
                ; Look up the pointer variable's type in gVarMeta
-               Protected ptrName.s = *x\left\value
-               Protected mangledPtrName.s = ptrName
+               ptrName = *x\left\value
+               mangledPtrName = ptrName
                If gCurrentFunctionName <> "" And Left(ptrName, 1) <> "$"
                   mangledPtrName = gCurrentFunctionName + "_" + ptrName
                EndIf
@@ -581,6 +614,15 @@
       ;            - -1 = reserved for STACK (not used by this function anymore)
       ;            - < -1 = local offset encoded as -(localOffset + 2) → use _LOPT opcodes
       ;            So -2 means LOCAL[0], -3 means LOCAL[1], etc.
+      Protected         identSlot.i
+      Protected         localExprType.w
+      Protected         localTempOffset.i
+      Protected         tempSlotType.i, tempPopOpcode.i
+      Protected         tempSlot.i
+      Protected         exprResultType.w
+      Protected         complexLocalOffset.i
+      Protected         complexTempType.i, complexPopOpcode.i
+      Protected         complexTempSlot.i
 
       If Not *expr
          ProcedureReturn 0  ; Return slot 0 (discard) for null expressions
@@ -589,17 +631,17 @@
       Select *expr\NodeType
          Case #ljIDENT
             ; Simple variable - check if local or global
-            Protected identSlot.i = FetchVarOffset(*expr\value)
+            identSlot = FetchVarOffset(*expr\value)
 
             ; V1.022.50: Local variables - copy to temp slot
             If gVarMeta(identSlot)\paramOffset >= 0
                ; Local variable - emit LFETCH to push value, then LSTORE to local temp
-               Protected localExprType.w = gVarMeta(identSlot)\flags
+               localExprType = gVarMeta(identSlot)\flags
 
                ; V1.022.86: When inside a function, allocate LOCAL temp for recursion safety
                If gCodeGenFunction > 0
                   ; Allocate local temp offset
-                  Protected localTempOffset.i = gCodeGenLocalIndex
+                  localTempOffset = gCodeGenLocalIndex
                   gCodeGenLocalIndex + 1
                   ; Update nLocals in mapModules
                   ForEach mapModules()
@@ -638,7 +680,7 @@
                EndIf
 
                ; V1.022.72: Global scope - use global temp (original behavior)
-               Protected tempSlotType.i, tempPopOpcode.i
+               tempSlotType = 0 : tempPopOpcode = 0
                If localExprType & #C2FLAG_FLOAT
                   tempSlotType = #ljFLOAT
                   tempPopOpcode = #ljPOPF
@@ -649,7 +691,7 @@
                   tempSlotType = #ljINT
                   tempPopOpcode = #ljPop
                EndIf
-               Protected tempSlot.i = FetchVarOffset("$_idx_temp_" + Str(gnLastVariable), 0, tempSlotType)
+               tempSlot = FetchVarOffset("$_idx_temp_" + Str(gnLastVariable), 0, tempSlotType)
 
                ; V1.034.16: Emit FETCH with j=1 for local variable
                AddElement(llObjects())
@@ -693,11 +735,11 @@
             ; V1.022.50: Complex expression - emit code to stack, then pop/store to temp
             ; V1.022.86: When inside function, use LOCAL temp for recursion safety
             ; V1.022.101: Detect expression result type to use correct store opcode
-            Protected exprResultType.w = GetExprResultType(*expr)
+            exprResultType = GetExprResultType(*expr)
 
             If gCodeGenFunction > 0
                ; Allocate local temp offset
-               Protected complexLocalOffset.i = gCodeGenLocalIndex
+               complexLocalOffset = gCodeGenLocalIndex
                gCodeGenLocalIndex + 1
                ; Update nLocals in mapModules
                ForEach mapModules()
@@ -732,7 +774,7 @@
 
             ; Global scope - use global temp (original behavior)
             ; V1.022.101: Use appropriate type for temp slot and pop opcode
-            Protected complexTempType.i, complexPopOpcode.i
+            complexTempType = 0 : complexPopOpcode = 0
             If exprResultType & #C2FLAG_FLOAT
                complexTempType = #ljFLOAT
                complexPopOpcode = #ljPOPF
@@ -743,7 +785,7 @@
                complexTempType = #ljINT
                complexPopOpcode = #ljPop
             EndIf
-            Protected complexTempSlot.i = FetchVarOffset("$_idx_temp_" + Str(gnLastVariable), 0, complexTempType)
+            complexTempSlot = FetchVarOffset("$_idx_temp_" + Str(gnLastVariable), 0, complexTempType)
             CodeGenerator(*expr)
             ; Pop result to temp slot with type-correct opcode
             AddElement(llObjects())
@@ -777,13 +819,15 @@
 
    ; Helper function to collect all variable references in an expression tree
    Procedure            CollectVariables(*node.stTree, List vars.s())
+      Protected         found.b
+
       If Not *node
          ProcedureReturn
       EndIf
 
       If *node\NodeType = #ljIDENT
          ; Add variable to list if not already there
-         Protected found.b = #False
+         found = #False
          ForEach vars()
             If vars() = *node\value
                found = #True

@@ -83,6 +83,7 @@ Procedure.s BuildHeaderJSON(sourceFile.s, includeSource.b, includeASM.b = #False
    Protected json.i, rootObj.i, statsObj.i
    Protected timestamp.s = FormatDate("%yyyy-%mm-%dd %hh:%ii:%ss", Date())
    Protected result.s
+   Protected asmListing.s
 
    json = CreateJSON(#PB_Any)
    If Not json
@@ -114,7 +115,7 @@ Procedure.s BuildHeaderJSON(sourceFile.s, includeSource.b, includeASM.b = #False
 
    ; V1.039.12: Optional: include ASM listing (verbose mode)
    If includeASM
-      Protected asmListing.s = ListCodeToString()
+      asmListing = ListCodeToString()
       SetJSONString(AddJSONMember(rootObj, "asmListing"), asmListing)
    EndIf
 
@@ -127,6 +128,7 @@ EndProcedure
 Procedure WriteVarTemplateBinary(file.i, *tpl.stVarTemplate)
    ; Write a single stVarTemplate in binary format
    ; Format: flags(4) + i(8) + f(8) + ptrtype(2) + arraySize(4) + paramOffset(4) + elementSize(4) + ssLen(4) + ss(N)
+   Protected ssBytes.i
 
    WriteLong(file, *tpl\flags)
    WriteQuad(file, *tpl\i)
@@ -137,7 +139,7 @@ Procedure WriteVarTemplateBinary(file.i, *tpl.stVarTemplate)
    WriteLong(file, *tpl\elementSize)
 
    ; Write string with length prefix
-   Protected ssBytes.i = StringByteLength(*tpl\ss, #PB_UTF8)
+   ssBytes = StringByteLength(*tpl\ss, #PB_UTF8)
    WriteLong(file, ssBytes)
    If ssBytes > 0
       WriteString(file, *tpl\ss, #PB_UTF8)
@@ -158,6 +160,7 @@ EndProcedure
 Procedure WriteFuncTemplateBinary(file.i, *ftpl.stFuncTemplate)
    ; Write a single stFuncTemplate in binary format
    Protected i.i
+   Protected templateCount.i
 
    WriteLong(file, *ftpl\funcId)
    WriteLong(file, *ftpl\localCount)
@@ -165,7 +168,7 @@ Procedure WriteFuncTemplateBinary(file.i, *ftpl.stFuncTemplate)
    WriteLong(file, *ftpl\nParams)
 
    ; Write template array size and contents
-   Protected templateCount.i = ArraySize(*ftpl\template())
+   templateCount = ArraySize(*ftpl\template())
    WriteLong(file, templateCount)
 
    For i = 0 To templateCount
@@ -177,11 +180,12 @@ Procedure.i SaveCompiledObject(filename.s, sourceFile.s, includeSource.b = #True
    ; Save compiled bytecode and templates to .od file
    ; Returns 0 on success, -1 on error
    ; V1.039.12: Added includeASM parameter for verbose mode
-
    Protected file.i
    Protected headerJson.s
    Protected headerBytes.i
    Protected i.i
+   Protected codeCount.i
+   Protected globalCount.i
 
    file = CreateFile(#PB_Any, filename)
    If Not file
@@ -199,14 +203,14 @@ Procedure.i SaveCompiledObject(filename.s, sourceFile.s, includeSource.b = #True
    WriteString(file, headerJson, #PB_UTF8)
 
    ; Write bytecode array
-   Protected codeCount.i = ArraySize(arCode())
+   codeCount = ArraySize(arCode())
    WriteLong(file, codeCount)
    For i = 0 To codeCount
       WriteCodeInsBinary(file, arCode(i))
    Next
 
    ; Write global templates
-   Protected globalCount.i = ArraySize(gGlobalTemplate())
+   globalCount = ArraySize(gGlobalTemplate())
    WriteLong(file, globalCount)
    For i = 0 To globalCount
       WriteVarTemplateBinary(file, gGlobalTemplate(i))
@@ -228,13 +232,16 @@ EndProcedure
 
 Procedure ParsePragmasFromJSON(pragmasValue.i)
    ; Parse pragmas JSON object and populate mapPragmas
+   Protected key.s
+   Protected memberValue.i
+
    ClearMap(mapPragmas())
 
    If JSONType(pragmasValue) = #PB_JSON_Object
       If ExamineJSONMembers(pragmasValue)
          While NextJSONMember(pragmasValue)
-            Protected key.s = JSONMemberKey(pragmasValue)
-            Protected memberValue.i = JSONMemberValue(pragmasValue)
+            key = JSONMemberKey(pragmasValue)
+            memberValue = JSONMemberValue(pragmasValue)
             If JSONType(memberValue) = #PB_JSON_String
                mapPragmas(key) = GetJSONString(memberValue)
             EndIf
@@ -245,6 +252,7 @@ EndProcedure
 
 Procedure ReadVarTemplateBinary(file.i, *tpl.stVarTemplate)
    ; Read a single stVarTemplate from binary
+   Protected ssBytes.i
 
    *tpl\flags = ReadLong(file)
    *tpl\i = ReadQuad(file)
@@ -255,7 +263,7 @@ Procedure ReadVarTemplateBinary(file.i, *tpl.stVarTemplate)
    *tpl\elementSize = ReadLong(file)
 
    ; Read string with length prefix
-   Protected ssBytes.i = ReadLong(file)
+   ssBytes = ReadLong(file)
    If ssBytes > 0
       *tpl\ss = ReadString(file, #PB_UTF8, ssBytes)
    Else
@@ -280,6 +288,7 @@ EndProcedure
 Procedure ReadFuncTemplateBinary(file.i, *ftpl.stFuncTemplate)
    ; Read a single stFuncTemplate from binary
    Protected i.i
+   Protected templateCount.i
 
    *ftpl\funcId = ReadLong(file)
    *ftpl\localCount = ReadLong(file)
@@ -287,7 +296,7 @@ Procedure ReadFuncTemplateBinary(file.i, *ftpl.stFuncTemplate)
    *ftpl\nParams = ReadLong(file)
 
    ; Read template array
-   Protected templateCount.i = ReadLong(file)
+   templateCount = ReadLong(file)
    ReDim *ftpl\template(templateCount)
 
    For i = 0 To templateCount
@@ -298,12 +307,17 @@ EndProcedure
 Procedure.i LoadCompiledObject(filename.s)
    ; Load compiled bytecode and templates from .od file
    ; Returns 0 on success, -1 on error
-
    Protected file.i
    Protected magic.s
    Protected headerLen.i
    Protected headerJson.s
    Protected i.i
+   Protected *headerMem
+   Protected json.i
+   Protected rootValue.i
+   Protected pragmasValue.i
+   Protected codeCount.i
+   Protected globalCount.i
 
    file = ReadFile(#PB_Any, filename)
    If Not file
@@ -322,19 +336,19 @@ Procedure.i LoadCompiledObject(filename.s)
    ; Read JSON header (headerLen is in bytes, not characters)
    headerLen = ReadLong(file)
    ; Read raw bytes and convert to UTF-8 string
-   Protected *headerMem = AllocateMemory(headerLen + 1)
+   *headerMem = AllocateMemory(headerLen + 1)
    ReadData(file, *headerMem, headerLen)
    PokeB(*headerMem + headerLen, 0)  ; Null terminate
    headerJson = PeekS(*headerMem, -1, #PB_UTF8)
    FreeMemory(*headerMem)
 
    ; Parse header JSON using PureBasic JSON library
-   Protected json.i = ParseJSON(#PB_Any, headerJson)
+   json = ParseJSON(#PB_Any, headerJson)
    If json
-      Protected rootValue.i = JSONValue(json)
+      rootValue = JSONValue(json)
       If JSONType(rootValue) = #PB_JSON_Object
          ; Extract pragmas
-         Protected pragmasValue.i = GetJSONMember(rootValue, "pragmas")
+         pragmasValue = GetJSONMember(rootValue, "pragmas")
          If pragmasValue
             ParsePragmasFromJSON(pragmasValue)
          EndIf
@@ -343,14 +357,14 @@ Procedure.i LoadCompiledObject(filename.s)
    EndIf
 
    ; Read bytecode array
-   Protected codeCount.i = ReadLong(file)
+   codeCount = ReadLong(file)
    ReDim arCode(codeCount)
    For i = 0 To codeCount
       ReadCodeInsBinary(file, arCode(i))
    Next
 
    ; Read global templates
-   Protected globalCount.i = ReadLong(file)
+   globalCount = ReadLong(file)
    ReDim gGlobalTemplate(globalCount)
    For i = 0 To globalCount
       ReadVarTemplateBinary(file, gGlobalTemplate(i))

@@ -385,7 +385,6 @@ Procedure            FixJMP()
 Procedure            PostProcessor()
       ; V1.033.21: PostProcessor now only handles correctness passes
       ; Type inference (passes 1-5) moved to c2-typeinfer-V01.pbi
-
       Protected n.i, i.i
       Protected opCode.i
       Protected varIdx.i
@@ -401,6 +400,8 @@ Procedure            PostProcessor()
       Protected maxFuncId.i
       Protected needsReturn.i
       Protected foundEnd.i
+      Protected prevIsNoopif.b
+      Protected *prevElement
 
 
       ;- ========================================
@@ -414,8 +415,8 @@ Procedure            PostProcessor()
             While NextElement(llObjects())
                If llObjects()\code = #ljFunction Or llObjects()\code = #ljHALT
                   If needsReturn
-                     Protected prevIsNoopif.b = #False
-                     Protected *prevElement = #Null
+                     prevIsNoopif = #False
+                     *prevElement = #Null
                      If PreviousElement(llObjects())
                         If llObjects()\code = #ljNOOPIF Or llObjects()\code = #ljNOOP
                            prevIsNoopif = #True

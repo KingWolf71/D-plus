@@ -45,6 +45,33 @@
       Protected         foundTokenTypeHint.i
       Protected         foundTokenType.i
       Protected         structTypeName.s
+      ; V1.029.10: DOT notation handling variables
+      Protected         dotPos.i
+      Protected         dotStructName.s
+      Protected         dotFieldChain.s
+      Protected         dotMangledName.s
+      Protected         dotStructSlot.i
+      Protected         dotStructType.s
+      Protected         dotFieldOffset.i
+      Protected         dotCurrentType.s
+      Protected         dotRemaining.s
+      Protected         dotFieldFound.b
+      Protected         dotNextDot.i
+      Protected         dotCurrentField.s
+      ; V1.030.33: Backslash notation handling variables
+      Protected         bsFieldChain.s
+      Protected         bsCurrentType.s
+      Protected         bsAccumOffset.i
+      Protected         bsFieldFound.b
+      Protected         bsTraversedNested.b
+      Protected         bsNextSlash.i
+      Protected         bsCurrentField.s
+      Protected         bsIsLocalStruct.b
+      ; V1.022.100: Token search variables
+      Protected         tokenSearchName.s
+      Protected         prefixLen.i
+      ; V1.029.86: Struct variable flags
+      Protected         structVarFlags.i
 
       ; V1.030.55: Debug slot 176 IMMEDIATELY after Protected declarations (before any code)
       CompilerIf #DEBUG
@@ -89,13 +116,12 @@
 
       ; V1.029.10: Handle DOT notation struct field names (e.g., "r.bottomRight.x")
       ; This is used when accessing local struct parameter fields with dot notation
-      Protected dotPos.i = FindString(text, ".")
+      dotPos = FindString(text, ".")
       If dotPos > 0 And dotPos < Len(text)
          ; Not a type suffix (.i, .f, .s) - check if first part is a local struct param
-         Protected dotStructName.s = Trim(Left(text, dotPos - 1))
-         Protected dotFieldChain.s = Trim(Mid(text, dotPos + 1))
-         Protected dotMangledName.s
-         Protected dotStructSlot.i = -1
+         dotStructName = Trim(Left(text, dotPos - 1))
+         dotFieldChain = Trim(Mid(text, dotPos + 1))
+         dotStructSlot = -1
 
          ; V1.031.29: Debug DOT notation entry
          If LCase(dotStructName) = "local"
@@ -172,11 +198,11 @@
                EndIf
             EndIf
 
-            Protected dotStructType.s = gVarMeta(dotStructSlot)\structType
-            Protected dotFieldOffset.i = 0
-            Protected dotCurrentType.s = dotStructType
-            Protected dotRemaining.s = dotFieldChain
-            Protected dotFieldFound.b = #True
+            dotStructType = gVarMeta(dotStructSlot)\structType
+            dotFieldOffset = 0
+            dotCurrentType = dotStructType
+            dotRemaining = dotFieldChain
+            dotFieldFound = #True
 
             ; V1.030.60: Debug - trace field chain walk with slot info
             OSDebug_Vars("V1.031.29: DOT FIELD WALK START: slot=" + Str(dotStructSlot) + " name='" + gVarMeta(dotStructSlot)\name + "' structType='" + dotStructType + "' fieldChain='" + dotFieldChain + "'")
@@ -186,8 +212,7 @@
 
             ; Walk the field chain (e.g., "bottomRight.x" -> bottomRight(+2) then x(+0))
             While dotRemaining <> "" And dotFieldFound
-               Protected dotNextDot.i = FindString(dotRemaining, ".")
-               Protected dotCurrentField.s
+               dotNextDot = FindString(dotRemaining, ".")
                If dotNextDot > 0
                   dotCurrentField = Left(dotRemaining, dotNextDot - 1)
                   dotRemaining = Mid(dotRemaining, dotNextDot + 1)
@@ -332,15 +357,14 @@
          ; Walk through backslash-separated fields, accumulating offsets like DOT path does
          If structSlot >= 0
             structTypeName = gVarMeta(structSlot)\structType
-            Protected bsFieldChain.s = fieldName
-            Protected bsCurrentType.s = structTypeName
-            Protected bsAccumOffset.i = 0
-            Protected bsFieldFound.b = #True
-            Protected bsTraversedNested.b = #False  ; V1.030.35: Track if we went through nested struct
+            bsFieldChain = fieldName
+            bsCurrentType = structTypeName
+            bsAccumOffset = 0
+            bsFieldFound = #True
+            bsTraversedNested = #False  ; V1.030.35: Track if we went through nested struct
 
             While bsFieldChain <> "" And bsFieldFound
-               Protected bsNextSlash.i = FindString(bsFieldChain, "\")
-               Protected bsCurrentField.s
+               bsNextSlash = FindString(bsFieldChain, "\")
                If bsNextSlash > 0
                   bsCurrentField = Left(bsFieldChain, bsNextSlash - 1)
                   bsFieldChain = Mid(bsFieldChain, bsNextSlash + 1)
@@ -375,7 +399,7 @@
                ; V1.030.34/35: Check if struct is LOCAL or if we need flattened slots
                ; LOCAL structs always use \ptr storage
                ; GLOBAL structs use \ptr for simple fields, flattened slots for nested fields
-               Protected bsIsLocalStruct.b = #False
+               bsIsLocalStruct = #False
                If gVarMeta(structSlot)\paramOffset >= 0
                   ; Already has paramOffset assigned - it's local
                   bsIsLocalStruct = #True
@@ -578,9 +602,9 @@
          ; V1.022.100: CRITICAL FIX - Extract original name from mangled name for token search
          ; Mangled names like "partition_temp" need to search for "temp" in token list
          ; because TOKEN()\value has the original name, not the mangled name
-         Protected tokenSearchName.s = text
+         tokenSearchName = text
          If gCurrentFunctionName <> ""
-            Protected prefixLen.i = Len(gCurrentFunctionName) + 1  ; "functionname_"
+            prefixLen = Len(gCurrentFunctionName) + 1  ; "functionname_"
             If LCase(Left(text, prefixLen)) = LCase(gCurrentFunctionName + "_")
                ; Extract original name after the function prefix
                tokenSearchName = Mid(text, prefixLen + 1)
@@ -701,7 +725,7 @@
          EndIf
          ; V1.029.86: Set flags explicitly - IDENT + STRUCT only (remove primitive type flags)
          ; Preserve CONST flag if present
-         Protected structVarFlags.i = #C2FLAG_IDENT | #C2FLAG_STRUCT
+         structVarFlags = #C2FLAG_IDENT | #C2FLAG_STRUCT
          If gVarMeta(gnLastVariable)\flags & #C2FLAG_CONST
             structVarFlags = structVarFlags | #C2FLAG_CONST
          EndIf

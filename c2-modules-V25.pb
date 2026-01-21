@@ -947,6 +947,15 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       Protected.s       temp, nc, name, p, params, baseName
       Protected         i, j, funcReturnType.w
       Protected         skipChars.i
+      Protected         paramStr.s
+      Protected         paramType.w, paramIdx.i
+      Protected         closeParenPos.i
+      Protected         nReqParams.i
+      Protected         foundDefault.b
+      Protected         param.s
+      Protected         defaultVal.s
+      Protected         eqPos.i
+      Protected         paramLower.s
 
       ;Debug "Checking functions for line: " + line
       i     = 1 : j = 1
@@ -998,9 +1007,10 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
             mapModules()\returnType = funcReturnType
 
             ; Parse parameter types from params string
-            Protected paramStr.s = p
-            Protected paramType.w, paramIdx.i
-            Protected closeParenPos.i
+            paramStr = p
+            paramType = 0
+            paramIdx = 0
+            closeParenPos = 0
 
             ; Find the closing parenthesis and extract only what's between ( and )
             paramStr = Trim(paramStr)
@@ -1018,17 +1028,17 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
 
             ; Parse each parameter
             ; V1.037.1: Track required params and defaults
-            Protected nReqParams.i = 0
-            Protected foundDefault.b = #False
+            nReqParams = 0
+            foundDefault = #False
 
             If paramStr <> ""
                For paramIdx = 1 To CountString(paramStr, ",") + 1
-                  Protected param.s = Trim(StringField(paramStr, paramIdx, ","))
+                  param = Trim(StringField(paramStr, paramIdx, ","))
                   paramType = #C2FLAG_INT  ; Default
 
                   ; V1.037.1: Check for default value (param = value or param.type = value)
-                  Protected defaultVal.s = ""
-                  Protected eqPos.i = FindString(param, "=")
+                  defaultVal = ""
+                  eqPos = FindString(param, "=")
                   If eqPos > 0
                      defaultVal = Trim(Mid(param, eqPos + 1))
                      param = Trim(Left(param, eqPos - 1))
@@ -1041,7 +1051,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
                   EndIf
 
                   ; Check for type suffix (case-insensitive)
-                  Protected paramLower.s = LCase(param)
+                  paramLower = LCase(param)
                   If Right(paramLower, 2) = ".i"
                      paramType = #C2FLAG_INT
                   ElseIf Right(paramLower, 2) = ".f" Or Right(paramLower, 2) = ".d"
@@ -1428,6 +1438,9 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       Protected NewMap declaredVars.b()
       Protected NewList varsToDecl.s()
       Protected.i braceDepth, inFunction
+      Protected.s fullName
+      Protected.i dotPos
+      Protected.i isManualDecl
 
       ; Pass 1: Collect struct type names
       ForEach llTokenList()
@@ -1480,8 +1493,8 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
 
                ; Look for identifier.StructType patterns (tokenized as single IDENT)
                If inFunction And llTokenList()\TokenType = #ljIDENT
-                  Protected.s fullName = llTokenList()\value
-                  Protected.i dotPos = FindString(fullName, ".")
+                  fullName = llTokenList()\value
+                  dotPos = FindString(fullName, ".")
 
                   ; Check if this IDENT contains a dot (varName.TypeName pattern)
                   If dotPos > 0
@@ -1491,7 +1504,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
                      ; Check if TypeName is a known struct type
                      If FindMapElement(structTypes(), typeName)
                         ; Check if followed by semicolon (manual declaration)
-                        Protected.i isManualDecl = #False
+                        isManualDecl = #False
                         tokenIdx = ListIndex(llTokenList())
 
                         If NextElement(llTokenList())
@@ -1561,6 +1574,14 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       Protected.s       szNewBody
       Protected.i       sizeBeforeStrip, sizeAfterStrip, sizeAfterMacros
       Protected         lineCount.i, lineIdx.i
+      Protected         newBodyLineCount.i
+      Protected         warnings.s
+      Protected         convertedLine.s
+      Protected         charIdx.i, ch.s, nextCh.s, prevCh.s
+      Protected         inString.b, inChar.b
+      Protected         isDecimal.b, isTypeSuffix.b, isTypeAnnotation.b
+      Protected         charAfterSuffix.s
+      Protected         lookAheadIdx.i, foundTypeDelim.b, lookCh.s
 
       sizeBeforeStrip = Len(gszFileText)
       gszOriginalSource = gszFileText
@@ -1603,7 +1624,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       
       ; Macro Expansion
       ; V1.039.49: Use line count instead of empty line check
-      Protected newBodyLineCount.i = CountString( szNewBody, #LF$ ) + 1
+      newBodyLineCount = CountString( szNewBody, #LF$ ) + 1
       gszFileText = ""
 
       For i = 1 To newBodyLineCount
@@ -1625,7 +1646,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
             gszFileText = CCompat_Transform(gszFileText)
 
             ; Output any warnings
-            Protected warnings.s = CCompat_GetWarnings()
+            warnings = CCompat_GetWarnings()
             If warnings <> ""
                Debug "=== C Compatibility Warnings ==="
                Debug warnings
@@ -1649,9 +1670,9 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
          ; - Decimal numbers (10.5)
          ; - Type suffixes (.i, .f, .s, .d)
          ; - Type annotations (local.Point = where Point starts with capital)
-         Protected convertedLine.s = ""
-         Protected charIdx.i, ch.s, nextCh.s, prevCh.s
-         Protected inString.b = #False, inChar.b = #False
+         convertedLine = ""
+         inString = #False
+         inChar = #False
          For charIdx = 1 To Len(line)
             ch = Mid(line, charIdx, 1)
             If charIdx < Len(line)
@@ -1678,9 +1699,9 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
             ; - Not a type suffix (.i .f .s .d followed by space/semicolon/operator)
             ; - Not a type annotation (.TypeName where TypeName starts with capital)
             If ch = "." And Not inString And Not inChar
-               Protected isDecimal.b = #False
-               Protected isTypeSuffix.b = #False
-               Protected isTypeAnnotation.b = #False
+               isDecimal = #False
+               isTypeSuffix = #False
+               isTypeAnnotation = #False
 
                ; Check if decimal number
                ; V1.030.23: Fixed decimal detection - require digit AFTER dot (fractional part)
@@ -1693,7 +1714,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
 
                ; Check if type suffix (.i .f .s .d)
                If (LCase(nextCh) = "i" Or LCase(nextCh) = "f" Or LCase(nextCh) = "s" Or LCase(nextCh) = "d")
-                  Protected charAfterSuffix.s = ""
+                  charAfterSuffix = ""
                   If charIdx + 1 < Len(line)
                      charAfterSuffix = Mid(line, charIdx + 2, 1)
                   EndIf
@@ -1710,10 +1731,10 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
                If nextCh >= "A" And nextCh <= "Z"
                   ; Look ahead to see if this type annotation is followed by delimiter
                   ; Scan forward from current position to find delimiter
-                  Protected lookAheadIdx.i = charIdx + 2  ; Start after the capital letter
-                  Protected foundTypeDelim.b = #False
+                  lookAheadIdx = charIdx + 2  ; Start after the capital letter
+                  foundTypeDelim = #False
                   While lookAheadIdx <= Len(line)
-                     Protected lookCh.s = Mid(line, lookAheadIdx, 1)
+                     lookCh = Mid(line, lookAheadIdx, 1)
                      ; V1.030.22: Added ')' and ',' for function parameters like func foo(r.Rectangle, p.Point)
                      ; V1.031.23: Added '\' for auto-declare syntax like rect.Rectangle\pos\x = 10
                      If lookCh = "=" Or lookCh = ";" Or lookCh = "[" Or lookCh = ")" Or lookCh = "," Or lookCh = "\"
@@ -1854,13 +1875,16 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
 
    Procedure CompileProgress(stage.i, stageName.s)
       ; Show compilation progress
-      Protected percent.i = (stage * 100) / #COMPILE_STAGES
+      Protected percent.i
+      Protected stageFile.i
+
+      percent = (stage * 100) / #COMPILE_STAGES
 
       CompilerIf #BUILD_TYPE = #BUILD_COMPILER
          PrintN("[" + RSet(Str(percent), 3, " ") + "%] " + stageName)
       CompilerElse
          ; V1.039.41: Write stage to file for splash screen to read
-         Protected stageFile.i = CreateFile(#PB_Any, GetTemporaryDirectory() + "cx_compile.stage")
+         stageFile = CreateFile(#PB_Any, GetTemporaryDirectory() + "cx_compile.stage")
          If stageFile
             WriteString(stageFile, "[" + Str(percent) + "%] " + stageName)
             CloseFile(stageFile)
@@ -1876,6 +1900,7 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
       Protected      *p.stTree
       Protected      total
       Protected.s    temp
+      Protected      acCheckIdx.i
 
       Init()
       CompileProgress(1, "Preprocessing source...")
@@ -1973,7 +1998,6 @@ Declare                 expand_params( op = #ljpop, nModule = -1 )
 
          ; V1.030.9: Debug - verify STRUCT_*_LOCAL opcodes in arCode after conversion
          Debug "=== ARCODE: Checking STRUCT_*_LOCAL opcodes ==="
-         Protected acCheckIdx.i
          For acCheckIdx = 0 To ArraySize(arCode()) - 1
             Select arCode(acCheckIdx)\code
                Case #ljSTRUCT_ALLOC_LOCAL

@@ -247,6 +247,8 @@ EndProcedure
       Protected.i       dots, bFloat, e
       Protected.i       braces
       Protected.s       text, temp
+      Protected         typeHint.w
+      Protected         varName.s
 
       gpos           = 1
       gCurrFunction  = 1
@@ -526,8 +528,8 @@ EndProcedure
                   temp = LCase( text )
 
                   ; Check for type suffix (.i, .f, .d, or .s)
-                  Protected typeHint.w = 0
-                  Protected varName.s = text
+                  typeHint = 0
+                  varName = text
 
                   If Right(temp, 2) = ".f" Or Right(temp, 2) = ".d"
                      typeHint = #ljFLOAT
