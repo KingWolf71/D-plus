@@ -1925,7 +1925,8 @@ Module C2VM
                ; V1.031.96: Set flag - main loop will call RunVM outside callback context
                gRunVMPending = #True
             Else
-               AddGadgetItem(#edConsole, -1, "Compile failed")
+               ; V1.039.54: Show actual error message, not just "Compile failed"
+               AddGadgetItem(#edConsole, -1, "Compile failed: " + C2Lang::Error(@err))
             EndIf
          EndIf
       EndIf
