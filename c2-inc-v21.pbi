@@ -1489,38 +1489,43 @@ Macro          ASMLine(obj,show)
    ; V1.022.44: Array of Struct operations - V1.039.32: show arr[idx]+fldOfs --> [sp] or <-- value
    ElseIf obj\code = #ljARRAYOFSTRUCT_FETCH_INT Or obj\code = #ljARRAYOFSTRUCT_FETCH_FLOAT Or obj\code = #ljARRAYOFSTRUCT_FETCH_STR
       ; Array of struct fetch: arr[idx]+fldOfs --> [sp]
-      _asmArrName = gVarMeta(obj\i)\name
-      _asmIdxName = gVarMeta(obj\ndx)\name
+      ; V1.039.55: Bounds check for gVarMeta access
+      If obj\i >= 0 And obj\i < #C2MAXCONSTANTS : _asmArrName = gVarMeta(obj\i)\name : Else : _asmArrName = "arr" + Str(obj\i) : EndIf
+      If obj\ndx >= 0 And obj\ndx < #C2MAXCONSTANTS : _asmIdxName = gVarMeta(obj\ndx)\name : Else : _asmIdxName = "[sp]" : EndIf
       line + _asmArrName + "[" + _asmIdxName + "]+" + Str(obj\n) + " --> [sp]"
    ElseIf obj\code = #ljARRAYOFSTRUCT_FETCH_INT_LOPT Or obj\code = #ljARRAYOFSTRUCT_FETCH_FLOAT_LOPT Or obj\code = #ljARRAYOFSTRUCT_FETCH_STR_LOPT
       ; Array of struct fetch with local index: arr[_idx]+fldOfs --> [sp]
-      _asmArrName = gVarMeta(obj\i)\name
+      ; V1.039.55: Bounds check for gVarMeta access
+      If obj\i >= 0 And obj\i < #C2MAXCONSTANTS : _asmArrName = gVarMeta(obj\i)\name : Else : _asmArrName = "arr" + Str(obj\i) : EndIf
       _GetLocalName(obj\ndx) : _asmIdxName = gAsmLocalName
       line + _asmArrName + "[" + _asmIdxName + "]+" + Str(obj\n) + " --> [sp]"
    ElseIf obj\code = #ljARRAYOFSTRUCT_STORE_INT Or obj\code = #ljARRAYOFSTRUCT_STORE_FLOAT Or obj\code = #ljARRAYOFSTRUCT_STORE_STR
       ; Array of struct store: arr[idx]+fldOfs <-- [sp]
-      _asmArrName = gVarMeta(obj\i)\name
-      _asmIdxName = gVarMeta(obj\ndx)\name
+      ; V1.039.55: Bounds check for gVarMeta access
+      If obj\i >= 0 And obj\i < #C2MAXCONSTANTS : _asmArrName = gVarMeta(obj\i)\name : Else : _asmArrName = "arr" + Str(obj\i) : EndIf
+      If obj\ndx >= 0 And obj\ndx < #C2MAXCONSTANTS : _asmIdxName = gVarMeta(obj\ndx)\name : Else : _asmIdxName = "[sp]" : EndIf
       line + _asmArrName + "[" + _asmIdxName + "]+" + Str(obj\n) + " <-- [sp]"
    ElseIf obj\code = #ljARRAYOFSTRUCT_STORE_INT_LOPT Or obj\code = #ljARRAYOFSTRUCT_STORE_FLOAT_LOPT Or obj\code = #ljARRAYOFSTRUCT_STORE_STR_LOPT
       ; Array of struct store with local index: arr[_idx]+fldOfs <-- [sp]
-      _asmArrName = gVarMeta(obj\i)\name
+      ; V1.039.55: Bounds check for gVarMeta access
+      If obj\i >= 0 And obj\i < #C2MAXCONSTANTS : _asmArrName = gVarMeta(obj\i)\name : Else : _asmArrName = "arr" + Str(obj\i) : EndIf
       _GetLocalName(obj\ndx) : _asmIdxName = gAsmLocalName
       line + _asmArrName + "[" + _asmIdxName + "]+" + Str(obj\n) + " <-- [sp]"
    ; V1.022.54: Struct pointer operations - V1.039.32: show *ptr+offset --> [sp] or <-- value
+   ; V1.039.55: Added bounds checks for gVarMeta access
    ElseIf obj\code = #ljGETSTRUCTADDR
       ; Get struct address: &structname --> [sp]
-      line + "&" + gVarMeta(obj\i)\name + " --> [sp]"
+      If obj\i >= 0 And obj\i < #C2MAXCONSTANTS : line + "&" + gVarMeta(obj\i)\name + " --> [sp]" : Else : line + "&var" + Str(obj\i) + " --> [sp]" : EndIf
    ElseIf obj\code = #ljPTRSTRUCTFETCH_INT Or obj\code = #ljPTRSTRUCTFETCH_FLOAT Or obj\code = #ljPTRSTRUCTFETCH_STR
       ; Ptr struct fetch (global ptr): *ptrname+offset --> [sp]
-      line + "*" + gVarMeta(obj\i)\name + "+" + Str(obj\n) + " --> [sp]"
+      If obj\i >= 0 And obj\i < #C2MAXCONSTANTS : line + "*" + gVarMeta(obj\i)\name + "+" + Str(obj\n) + " --> [sp]" : Else : line + "*ptr" + Str(obj\i) + "+" + Str(obj\n) + " --> [sp]" : EndIf
    ElseIf obj\code = #ljPTRSTRUCTSTORE_INT Or obj\code = #ljPTRSTRUCTSTORE_FLOAT Or obj\code = #ljPTRSTRUCTSTORE_STR
       ; Ptr struct store (global ptr, stack value): *ptrname+offset <-- [sp]
-      line + "*" + gVarMeta(obj\i)\name + "+" + Str(obj\n) + " <-- [sp]"
+      If obj\i >= 0 And obj\i < #C2MAXCONSTANTS : line + "*" + gVarMeta(obj\i)\name + "+" + Str(obj\n) + " <-- [sp]" : Else : line + "*ptr" + Str(obj\i) + "+" + Str(obj\n) + " <-- [sp]" : EndIf
    ElseIf obj\code = #ljPTRSTRUCTSTORE_INT_LOPT Or obj\code = #ljPTRSTRUCTSTORE_FLOAT_LOPT Or obj\code = #ljPTRSTRUCTSTORE_STR_LOPT
       ; Ptr struct store (global ptr, local value): *ptrname+offset <-- _localval
       _GetLocalName(obj\ndx)
-      line + "*" + gVarMeta(obj\i)\name + "+" + Str(obj\n) + " <-- " + gAsmLocalName
+      If obj\i >= 0 And obj\i < #C2MAXCONSTANTS : line + "*" + gVarMeta(obj\i)\name + "+" + Str(obj\n) + " <-- " + gAsmLocalName : Else : line + "*ptr" + Str(obj\i) + "+" + Str(obj\n) + " <-- " + gAsmLocalName : EndIf
    ; V1.022.119: LPTR variants - V1.039.32: show *_localptr+offset
    ElseIf obj\code = #ljPTRSTRUCTFETCH_INT_LPTR Or obj\code = #ljPTRSTRUCTFETCH_FLOAT_LPTR Or obj\code = #ljPTRSTRUCTFETCH_STR_LPTR
       ; Ptr struct fetch (local ptr): *_ptrname+offset --> [sp]
@@ -1528,8 +1533,9 @@ Macro          ASMLine(obj,show)
       line + "*" + gAsmLocalName + "+" + Str(obj\n) + " --> [sp]"
    ElseIf obj\code = #ljPTRSTRUCTSTORE_INT_LPTR Or obj\code = #ljPTRSTRUCTSTORE_FLOAT_LPTR Or obj\code = #ljPTRSTRUCTSTORE_STR_LPTR
       ; Ptr struct store (local ptr, global value): *_ptrname+offset <-- valuename
+      ; V1.039.55: Bounds check for gVarMeta access
       _GetLocalName(obj\i)
-      line + "*" + gAsmLocalName + "+" + Str(obj\n) + " <-- " + gVarMeta(obj\ndx)\name
+      If obj\ndx >= 0 And obj\ndx < #C2MAXCONSTANTS : line + "*" + gAsmLocalName + "+" + Str(obj\n) + " <-- " + gVarMeta(obj\ndx)\name : Else : line + "*" + gAsmLocalName + "+" + Str(obj\n) + " <-- [sp]" : EndIf
    ElseIf obj\code = #ljPTRSTRUCTSTORE_INT_LPTR_LOPT Or obj\code = #ljPTRSTRUCTSTORE_FLOAT_LPTR_LOPT Or obj\code = #ljPTRSTRUCTSTORE_STR_LPTR_LOPT
       ; Ptr struct store (local ptr, local value): *_ptrname+offset <-- _localval
       _GetLocalName(obj\i) : _asmSrcLocal = gAsmLocalName
